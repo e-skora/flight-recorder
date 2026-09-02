@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}GTM Flight Recorder{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to main content</a>
+  <header class="context-header">
+    <p class="product">GTM Flight Recorder</p>
+    <p class="operating-company">Operating company: <strong>{{ operating_company }}</strong> (fictional)</p>
+  </header>
+  <aside class="synthetic-banner" role="note" aria-label="Synthetic data disclosure">
+    <strong>Synthetic data.</strong> All accounts, vendor-like events (Apollo-, Clay-, and CRM-like),
+    decisions, and outcomes shown here are simulated. RelayBridge and NovaSignal AI are fictional.
+    Nothing on this page is connected to a live customer system.
+  </aside>
+  <main id="main" tabindex="-1">
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

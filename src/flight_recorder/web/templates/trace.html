@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}{{ account.name }} trace · GTM Flight Recorder{% endblock %}
+{% block content %}
+<nav aria-label="Breadcrumb"><a href="/">Accounts</a> › {{ account.name }}</nav>
+<h1>{{ account.name }} <span class="domain">{{ account.domain }}</span></h1>
+<p class="lede">Every recorded event for this account, in order of occurrence. Same-instant events keep their ingest order.</p>
+<table class="trace">
+  <caption>Account trace for {{ account.name }} ({{ rows | length }} events)</caption>
+  <thead>
+    <tr>
+      <th scope="col">#</th>
+      <th scope="col">Kind</th>
+      <th scope="col">Source</th>
+      <th scope="col">Occurred at</th>
+      <th scope="col">Recorded at</th>
+      <th scope="col">Summary</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+    <tr class="kind-{{ row.kind | lower }}">
+      <td>{{ loop.index }}</td>
+      <td><span class="kind">{{ row.kind }}</span></td>
+      <td>{{ row.source }}</td>
+      <td><span class="time-label">Occurred at:</span> <time datetime="{{ row.occurred_at }}">{{ row.occurred_at }}</time></td>
+      <td><span class="time-label">Recorded at:</span> <time datetime="{{ row.recorded_at }}">{{ row.recorded_at }}</time></td>
+      <td>{{ row.summary }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
