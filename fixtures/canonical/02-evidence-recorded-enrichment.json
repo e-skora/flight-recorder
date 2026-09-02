@@ -1,0 +1,45 @@
+{
+  "schema_version": "1",
+  "event_id": "evt-novasignal-02-evidence-enrichment",
+  "event_type": "evidence.recorded",
+  "source": "clay-sim",
+  "account_ref": "novasignal-ai",
+  "occurred_at": "2026-04-17T10:04:37Z",
+  "recorded_at": "2026-04-17T10:04:37Z",
+  "payload": {
+    "items": [
+      {
+        "evidence_version_id": "ev-novasignal-employee-count-v1",
+        "evidence_type": "employee_count",
+        "value": 184
+      },
+      {
+        "evidence_version_id": "ev-novasignal-industry-v1",
+        "evidence_type": "industry",
+        "value": "B2B AI Software"
+      },
+      {
+        "evidence_version_id": "ev-novasignal-headquarters-country-v1",
+        "evidence_type": "headquarters_country",
+        "value": "United States"
+      },
+      {
+        "evidence_version_id": "ev-novasignal-funding-event-v1",
+        "evidence_type": "funding_event",
+        "value": "Series B",
+        "observed_at": "2026-03-30"
+      },
+      {
+        "evidence_version_id": "ev-novasignal-open-platform-engineering-roles-v1",
+        "evidence_type": "open_platform_engineering_roles",
+        "value": 7
+      },
+      {
+        "evidence_version_id": "ev-novasignal-head-of-platform-start-date-v1",
+        "evidence_type": "head_of_platform_start_date",
+        "value": "2026-03-05",
+        "observed_at": "2026-03-05"
+      }
+    ]
+  }
+}

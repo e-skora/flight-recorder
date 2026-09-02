@@ -1,0 +1,23 @@
+{
+  "schema_version": "1",
+  "event_id": "evt-novasignal-03-evidence-integration-pressure",
+  "event_type": "evidence.recorded",
+  "source": "relaybridge-research-sim",
+  "account_ref": "novasignal-ai",
+  "occurred_at": "2026-04-17T10:04:50Z",
+  "recorded_at": "2026-04-17T10:04:50Z",
+  "payload": {
+    "items": [
+      {
+        "evidence_version_id": "ev-novasignal-verified-integration-pressure-v1",
+        "evidence_type": "verified_integration_pressure",
+        "value": "LOW",
+        "basis": [
+          "one documented production integration",
+          "no public API",
+          "no agent-tool directory"
+        ]
+      }
+    ]
+  }
+}

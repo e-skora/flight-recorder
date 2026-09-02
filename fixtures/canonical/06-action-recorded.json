@@ -1,0 +1,18 @@
+{
+  "schema_version": "1",
+  "event_id": "evt-novasignal-06-action-recorded",
+  "event_type": "action.recorded",
+  "source": "outreach-sim",
+  "account_ref": "novasignal-ai",
+  "occurred_at": "2026-04-17T10:07:00Z",
+  "recorded_at": "2026-04-17T10:07:00Z",
+  "payload": {
+    "action_type": "outbound_play",
+    "play_id": 14,
+    "target_persona": "Head of Platform",
+    "status": "sent",
+    "cost": "1.42",
+    "currency": "USD",
+    "decision_event_id": "evt-novasignal-04-decision-recorded"
+  }
+}
