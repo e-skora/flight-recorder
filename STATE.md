@@ -6,23 +6,21 @@
 
 ## Phase
 
-**Phase 0 — Ratify and Distill: complete with this commit.** Phase 1 (Skeleton and One Trace) has not started.
+**Phase 1 — Skeleton and One Trace: stack ratified, implementation not started.** Phase 0 (truth layer) completed at commit `2cdb8b5`.
 
 ## Present Objective
 
-Hand off to Phase 1: the smallest runnable application and test harness that seeds the canonical NovaSignal AI fixture through the collector boundary and renders its chronological discovery-to-outcome trace inside the RelayBridge context.
+Deliver the smallest runnable application and test harness that seeds the canonical NovaSignal AI fixture through `POST /api/v1/decision-events` and renders its chronological discovery-to-outcome trace inside the RelayBridge context.
 
 ## Verified Repository Condition
 
-- Before initialization (2026-09-02): the folder `Flight-Recorder` was empty — no Git repository, no code, dependencies, documentation, or prior decisions, and nothing to conflict with the ratified sources.
-- After initialization: a new Git repository on branch `main` containing exactly four control files (`PRODUCT.md`, `DECISIONS.md`, `AGENTS.md`, `STATE.md`). No application code, tests, README, CI, or dependencies exist yet.
+- Remote: `https://github.com/e-skora/flight-recorder` (public), default branch `main`, in sync with local `main`.
+- Contents: the four control files only. No application code, tests, README, CI, dependencies, or `.gitignore` yet.
+- Stack, tooling, and layout are decided (D-010): Python 3.13, FastAPI + Jinja2, SQLite via SQLAlchemy 2.0 with the UTC `Z` text-timestamp convention, pytest + Hypothesis, ruff, GitHub Actions, uv, `src/flight_recorder/` layout with `fixtures/canonical/` as the single source of demo constants.
 
-## What Phase 0 Established
+## What Was Established Since Phase 0
 
-- `PRODUCT.md` — ratified product truth distilled from the MVP contract v1.2 and core invariants v1.1 (both ratified 2026-09-01): product form, primary user, MVP boundary and non-goals, required experiences, historical semantics, conceptual records, canonical RelayBridge / NovaSignal AI fixture, dataset requirements, AC-01–AC-19, INV-01–INV-11, constraints, completion gates, decision principles.
-- `DECISIONS.md` — D-001 through D-009 with rationale and provenance; open choices (stack, database, test framework, CI provider, layout, deployed demo, LLM explanation) explicitly left unresolved.
-- `AGENTS.md` — coding-agent operating rules, guardrails, verification expectations, stop conditions.
-- Source reconciliation: superseded Acme Robotics examples in lower-authority sources resolved to RelayBridge / NovaSignal AI per the ratified contract (D-004). No unresolved conflicts.
+- `DECISIONS.md` D-010 records the implementation stack; the Open section now holds only the deployed-demo and LLM-explanation questions plus reversible in-task details.
 
 ## Blockers
 
@@ -30,4 +28,4 @@ None.
 
 ## Next Action (exactly one)
 
-Prepare the Phase 1 kickoff: an architecture question with a single recommended stack (language, framework, database, test runner with property-based support, CI provider, repository layout) and its tradeoffs for user ratification, followed by the first scoped Claude Code task for the skeleton and the NovaSignal AI trace. Do not begin implementation before the stack decision is recorded in `DECISIONS.md`.
+Write the first scoped Claude Code task for Phase 1: project scaffold per D-010 (`pyproject.toml`, `uv.lock`, `.python-version`, `.gitignore`, `ci.yml`, `src/` and `tests/` skeleton), the canonical NovaSignal AI fixture as collector envelopes in `fixtures/canonical/`, a collector that validates and stores them idempotently, and one server-rendered trace page — with tests for AC-15 and the trace ordering. Exit: a first-time viewer can see the account path end to end.
