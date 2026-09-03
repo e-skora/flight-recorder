@@ -2,30 +2,34 @@
 
 > The only live status record. Keep it short and current. Not a backlog, roadmap, or branch log.
 
-**Updated:** 2026-09-02
+**Updated:** 2026-09-03
 
 ## Phase
 
-**Phase 1 — Skeleton and One Trace: stack ratified, implementation not started.** Phase 0 (truth layer) completed at commit `2cdb8b5`.
+**Phase 1 — Skeleton and One Trace: implemented on branch `phase-1/skeleton-trace` at `a45042c`, awaiting review; not merged.** Phase 0 completed at `2cdb8b5`; stack ratified (D-010) at `d183f60`.
 
 ## Present Objective
 
-Deliver the smallest runnable application and test harness that seeds the canonical NovaSignal AI fixture through `POST /api/v1/decision-events` and renders its chronological discovery-to-outcome trace inside the RelayBridge context.
+Get the first complete NovaSignal AI trace reviewed (ChatGPT review packet, then user merge decision) before Phase 2 (historical decision core) is scoped.
 
 ## Verified Repository Condition
 
-- Remote: `https://github.com/e-skora/flight-recorder` (public), default branch `main`, in sync with local `main`.
-- Contents: the four control files only. No application code, tests, README, CI, dependencies, or `.gitignore` yet.
-- Stack, tooling, and layout are decided (D-010): Python 3.13, FastAPI + Jinja2, SQLite via SQLAlchemy 2.0 with the UTC `Z` text-timestamp convention, pytest + Hypothesis, ruff, GitHub Actions, uv, `src/flight_recorder/` layout with `fixtures/canonical/` as the single source of demo constants.
+- `main` = `d183f60`: the four control files only. Remote `github.com/e-skora/flight-recorder`, in sync.
+- Branch `phase-1/skeleton-trace` at `a45042c` (5 commits on top of `d183f60`, pushed, no PR): Python 3.13 project via uv; collector at `POST /api/v1/decision-events` with strict JSON-mode validation, canonical-JSON idempotency (200 duplicate / 409 conflict), atomic writes, account rules; SQLite ledger (`accounts`, append-only `events` with RAISE triggers, foreign keys on, deferred `first_seen_event_id` FK); canonical NovaSignal AI fixture (7 envelopes with stable `evidence_version_id`s, logic artifacts `v3.2` and `v5.1`, decision hash verified) seeded only through the collector; server-rendered `/` and `/accounts/{account_ref}` with text kind labels, separately labeled occurred/recorded times, synthetic banner in the shared layout.
+- Tests on the branch: 49 passing (40 acceptance/unit, 9 invariant) locally and in CI run 33696972847 (`lint`, `tests`, `invariants` all green at `a45042c`). INV-01 and INV-11 enforced and exercised generatively. AC-15 Phase 1 subset proven; full AC-15 stays open until Phase 2 projections. Control files unchanged on the branch.
+- Reversible in-task choices reported by the builder: SQLAlchemy Core; strictness applied at `validate_json(strict=True)` rather than model config; evidence items are a closed discriminated union of the seven canonical keys; `httpx` is a runtime dependency (seed goes through the in-process ASGI app); `persona.selected` renders with kind label `EVENT`.
 
-## What Was Established Since Phase 0
+## Run (on the branch)
 
-- `DECISIONS.md` D-010 records the implementation stack; the Open section now holds only the deployed-demo and LLM-explanation questions plus reversible in-task details.
+```bash
+uv sync && uv run flight-recorder reset && uv run flight-recorder seed && uv run flight-recorder serve
+```
+Open `http://127.0.0.1:8000/accounts/novasignal-ai`. Tests: `uv run pytest`; invariants only: `uv run pytest -m invariant`.
 
 ## Blockers
 
-None.
+None. Merge of `phase-1/skeleton-trace` into `main` is a user decision pending review.
 
 ## Next Action (exactly one)
 
-Write the first scoped Claude Code task for Phase 1: project scaffold per D-010 (`pyproject.toml`, `uv.lock`, `.python-version`, `.gitignore`, `ci.yml`, `src/` and `tests/` skeleton), the canonical NovaSignal AI fixture as collector envelopes in `fixtures/canonical/`, a collector that validates and stores them idempotently, and one server-rendered trace page — with tests for AC-15 and the trace ordering. Exit: a first-time viewer can see the account path end to end.
+Send the P1-01 review packet (`.handoffs/review-packet-p1-01.md`, local only) to ChatGPT for the first-trace review; on its disposition, the user decides the merge, and Phase 2 (evidence versions, decision projections, logic evaluator, original reconstruction for AC-01) is scoped.
