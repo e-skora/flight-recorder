@@ -2,15 +2,15 @@
 
 > The only live status record. Keep it short and current. Not a backlog, roadmap, or branch log.
 
-**Updated:** 2026-09-03
+**Updated:** 2026-09-03 (rev 2)
 
 ## Phase
 
-**Phase 1 — Skeleton and One Trace: implemented on branch `phase-1/skeleton-trace` at `a45042c`, awaiting review; not merged.** Phase 0 completed at `2cdb8b5`; stack ratified (D-010) at `d183f60`.
+**Phase 1 — Skeleton and One Trace: implemented on branch `phase-1/skeleton-trace` at `a45042c`; review returned CHANGES REQUIRED; correction task P1-02 pending; not merged.** Phase 0 completed at `2cdb8b5`; stack ratified (D-010) at `d183f60`.
 
 ## Present Objective
 
-Get the first complete NovaSignal AI trace reviewed (ChatGPT review packet, then user merge decision) before Phase 2 (historical decision core) is scoped.
+Close the decision-envelope coherence gap found in review (unavailable inputs with values, duplicate input keys, consumed inputs absent from or disagreeing with historical context, `decision_boundary` ≠ `occurred_at`), then return a refreshed commit-pinned review packet for the user's merge decision.
 
 ## Verified Repository Condition
 
@@ -28,8 +28,8 @@ Open `http://127.0.0.1:8000/accounts/novasignal-ai`. Tests: `uv run pytest`; inv
 
 ## Blockers
 
-None. Merge of `phase-1/skeleton-trace` into `main` is a user decision pending review.
+None. ChatGPT review of `a45042c` (2026-09-03): CHANGES REQUIRED — architecture, fixture, trace, ledger, idempotency, and disclosure accepted; the collector must reject internally contradictory `decision.recorded` envelopes before persistence. Constraints confirmed by the packet: closed seven-key evidence vocabulary stays through the MVP; `persona.selected` stays `EVENT`; `decision_boundary` and the decision event's `occurred_at` are the same instant (escalate if a real need to differ appears); counterfactual replay stays Phase 3. Merge remains the user's decision after the refreshed packet.
 
 ## Next Action (exactly one)
 
-Send the P1-01 review packet (`.handoffs/review-packet-p1-01.md`, local only) to ChatGPT for the first-trace review; on its disposition, the user decides the merge, and Phase 2 (evidence versions, decision projections, logic evaluator, original reconstruction for AC-01) is scoped.
+Run P1-02 (`.handoffs/phase-1-task-02.md`, local only) in Claude Code on `phase-1/skeleton-trace`: enforce the six decision-envelope coherence rules at validation with 422-and-no-write tests, keep every existing test green, push, CI green; then the coordinator refreshes the review packet at the new commit for the user's merge decision.
