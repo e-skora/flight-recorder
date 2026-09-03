@@ -1,5 +1,6 @@
 """The canonical fixture is internally consistent (D-004, INV-04 identities)."""
 
+import json
 from datetime import datetime, timedelta
 
 from flight_recorder.collector.schema import validate_envelope_json
@@ -141,3 +142,23 @@ def test_example_payload_is_labeled_and_uses_a_different_account():
     body = example["request"]["body"]
     assert body["event_type"] == "decision.recorded"
     assert body["account_ref"] != _events()[0]["account_ref"]
+
+
+def test_canonical_decision_satisfies_the_coherence_rules():
+    """Rules 1-6 hold for the fixture, checked by the schema rather than restated here."""
+    decision = _by_type("decision.recorded")[0]
+    validated = validate_envelope_json(json.dumps(decision))
+    assert validated.event_type == "decision.recorded"
+    # The schema decided coherence; these assertions only show what it covered.
+    context = validated.payload.historical_context
+    consumed = validated.payload.consumed_inputs
+    assert len({e.input_key for e in context}) == len(context)
+    assert len({c.input_key for c in consumed}) == len(consumed)
+    assert any(e.availability == "unavailable" for e in context)
+
+
+def test_canonical_decision_boundary_is_the_occurrence_instant():
+    decision = _by_type("decision.recorded")[0]
+    assert decision["payload"]["decision_boundary"] == decision["occurred_at"]
+    validated = validate_envelope_json(json.dumps(decision))
+    assert validated.payload.decision_boundary == validated.occurred_at

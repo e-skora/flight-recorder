@@ -139,3 +139,108 @@ def test_full_canonical_seed_and_reseed(harness):
     second = seed_all(harness)
     assert [r.json()["status"] for r in second] == ["duplicate"] * 7
     assert harness.event_count() == 7
+
+
+# --- Decision-envelope coherence at the collector boundary ------------------
+#
+# An internally contradictory decision must never reach the immutable ledger.
+# Each case posts a raw JSON body and asserts 422 with no event or account write.
+
+UNAVAILABLE_KEY = "website_intent"
+
+
+def _seed_through_decision_prerequisites(harness: Harness) -> None:
+    """Discovery plus both evidence events, so only the decision is under test."""
+    for index in (0, 1, 2):
+        assert harness.post_raw(canonical_raw(index)).status_code == 201
+
+
+def _decision() -> dict:
+    return copy.deepcopy(canonical_by_type("decision.recorded"))
+
+
+def _context(envelope: dict, input_key: str) -> dict:
+    return next(e for e in envelope["payload"]["historical_context"] if e["input_key"] == input_key)
+
+
+def _duplicate_context_entry(env):
+    env["payload"]["historical_context"].append(
+        copy.deepcopy(env["payload"]["historical_context"][0])
+    )
+
+
+def _duplicate_consumed_input(env):
+    env["payload"]["consumed_inputs"].append(copy.deepcopy(env["payload"]["consumed_inputs"][0]))
+
+
+INCOHERENT_DECISIONS = [
+    pytest.param(
+        lambda env: _context(env, UNAVAILABLE_KEY).update(value="high"),
+        "must have a null value",
+        id="rule-1-unavailable-input-with-a-value",
+    ),
+    pytest.param(
+        _duplicate_context_entry,
+        "historical_context has more than one entry",
+        id="rule-2-duplicate-historical-context-key",
+    ),
+    pytest.param(
+        _duplicate_consumed_input,
+        "consumed_inputs has more than one entry",
+        id="rule-3-duplicate-consumed-input-key",
+    ),
+    pytest.param(
+        lambda env: env["payload"]["consumed_inputs"][0].update(input_key="no_such_input"),
+        "no historical_context entry with that input_key",
+        id="rule-4-consumed-input-without-context",
+    ),
+    pytest.param(
+        lambda env: env["payload"]["consumed_inputs"][0].update(input_key=UNAVAILABLE_KEY),
+        "cannot have been consumed",
+        id="rule-4-consumed-input-marked-unavailable",
+    ),
+    pytest.param(
+        lambda env: env["payload"]["consumed_inputs"][0].update(value="tampered"),
+        "does not equal the historical_context value",
+        id="rule-5-consumed-value-disagrees",
+    ),
+    pytest.param(
+        lambda env: env["payload"]["consumed_inputs"][0].update(
+            evidence_version_id="ev-some-other-version-v1"
+        ),
+        "does not equal the historical_context evidence_version_id",
+        id="rule-5-consumed-evidence-disagrees",
+    ),
+    pytest.param(
+        lambda env: env["payload"].update(decision_boundary="2026-04-17T10:05:03Z"),
+        "must be the same instant as occurred_at",
+        id="rule-6-boundary-differs-from-occurred-at",
+    ),
+]
+
+
+@pytest.mark.parametrize("mutate,expected_message", INCOHERENT_DECISIONS)
+def test_incoherent_decision_is_rejected_without_writes(harness, mutate, expected_message):
+    _seed_through_decision_prerequisites(harness)
+    before = harness.snapshot()
+    env = _decision()
+    mutate(env)
+    response = harness.post_raw(json.dumps(env))
+    assert response.status_code == 422
+    body = response.json()
+    assert body["status"] == "rejected"
+    assert expected_message in json.dumps(body["errors"])
+    assert harness.snapshot() == before
+
+
+def test_coherent_decision_is_accepted_and_its_retry_is_a_duplicate(harness):
+    _seed_through_decision_prerequisites(harness)
+    first = harness.post_raw(canonical_raw(3))
+    assert first.status_code == 201 and first.json()["status"] == "created"
+    assert harness.event_count() == 4
+
+    retry = harness.post_raw(reformatted(_decision()))
+    assert retry.status_code == 200
+    assert retry.json()["status"] == "duplicate"
+    assert retry.json()["canonical_hash"] == first.json()["canonical_hash"]
+    assert harness.event_count() == 4
