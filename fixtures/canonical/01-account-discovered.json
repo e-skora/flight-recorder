@@ -1,0 +1,13 @@
+{
+  "schema_version": "1",
+  "event_id": "evt-novasignal-01-account-discovered",
+  "event_type": "account.discovered",
+  "source": "apollo-sim",
+  "account_ref": "novasignal-ai",
+  "occurred_at": "2026-04-17T10:04:00Z",
+  "recorded_at": "2026-04-17T10:04:00Z",
+  "payload": {
+    "name": "NovaSignal AI",
+    "domain": "novasignal.ai"
+  }
+}

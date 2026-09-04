@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Accounts · GTM Flight Recorder{% endblock %}
+{% block content %}
+<h1>Accounts</h1>
+<p>Select an account to open its trace inside the {{ operating_company }} context.</p>
+{% if accounts %}
+<ul class="account-list">
+  {% for account in accounts %}
+  <li>
+    <a href="/accounts/{{ account.account_ref }}">{{ account.name }}</a>
+    <span class="domain">{{ account.domain }}</span>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<p>No accounts have been recorded yet. Run <code>flight-recorder seed</code>.</p>
+{% endif %}
+{% endblock %}

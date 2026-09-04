@@ -1,0 +1,14 @@
+{
+  "schema_version": "1",
+  "event_id": "evt-novasignal-05-persona-selected",
+  "event_type": "persona.selected",
+  "source": "relaybridge-routing",
+  "account_ref": "novasignal-ai",
+  "occurred_at": "2026-04-17T10:06:00Z",
+  "recorded_at": "2026-04-17T10:06:00Z",
+  "payload": {
+    "persona": "Head of Platform",
+    "decision_event_id": "evt-novasignal-04-decision-recorded",
+    "explanation": "Explanation: routed to Head of Platform because the prioritized account recorded a recent Head of Platform hire and open platform-engineering roles."
+  }
+}

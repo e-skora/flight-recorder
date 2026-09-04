@@ -1,0 +1,16 @@
+{
+  "schema_version": "1",
+  "event_id": "evt-novasignal-07-outcome-evaluated",
+  "event_type": "outcome.evaluated",
+  "source": "crm-sim",
+  "account_ref": "novasignal-ai",
+  "occurred_at": "2026-07-16T10:07:00Z",
+  "recorded_at": "2026-07-16T10:07:00Z",
+  "payload": {
+    "window_days": 90,
+    "reply": false,
+    "meeting": false,
+    "opportunity": false,
+    "action_event_id": "evt-novasignal-06-action-recorded"
+  }
+}

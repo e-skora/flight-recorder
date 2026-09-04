@@ -1,0 +1,25 @@
+{
+  "artifact_schema_version": "1",
+  "artifact_id": "logic-account-prioritization-v3.2",
+  "logic_version": "v3.2",
+  "decision_class": "account_prioritization",
+  "evaluator_version": "evaluator-v1",
+  "factors": [
+    {"key": "employee_count", "rule": "employee_count between 50 and 500 inclusive", "weight": 25},
+    {"key": "industry", "rule": "industry equals 'B2B AI Software'", "weight": 20},
+    {"key": "funding_event", "rule": "funding_event observed within 90 days before the decision boundary", "weight": 18},
+    {"key": "open_platform_engineering_roles", "rule": "open_platform_engineering_roles at least 3", "weight": 15},
+    {"key": "headquarters_country", "rule": "headquarters_country equals 'United States'", "weight": 8}
+  ],
+  "missing_value_behavior": "no_match_contributes_zero",
+  "threshold": 75,
+  "output_mapping": {
+    "at_or_above_threshold": "PRIORITIZE",
+    "below_threshold": "DO_NOT_PRIORITIZE"
+  },
+  "activation": {
+    "activated_at": "2026-01-12T09:00:00.000000Z",
+    "deactivated_at": "2026-06-01T09:00:00.000000Z",
+    "status": "historical"
+  }
+}

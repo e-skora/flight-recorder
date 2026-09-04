@@ -1,0 +1,44 @@
+{
+  "_example": "EXAMPLE ONLY. Shows how a Clay HTTP-API enrichment step (or an n8n HTTP Request node) posts a decision.recorded envelope to POST /api/v1/decision-events. Placeholder values; not part of the canonical fixture and never seeded.",
+  "request": {
+    "method": "POST",
+    "url": "http://127.0.0.1:8000/api/v1/decision-events",
+    "headers": {"Content-Type": "application/json"},
+    "body": {
+      "schema_version": "1",
+      "event_id": "clay-row-{{row_id}}-decision-{{run_id}}",
+      "event_type": "decision.recorded",
+      "source": "clay-http-step",
+      "account_ref": "example-account-{{row_id}}",
+      "occurred_at": "2026-05-04T14:12:09Z",
+      "recorded_at": "2026-05-04T14:12:11Z",
+      "payload": {
+        "decision_class": "account_prioritization",
+        "decision_boundary": "2026-05-04T14:12:09Z",
+        "workflow_version": "v4.2",
+        "historical_context": [
+          {"input_key": "employee_count", "value": 120, "availability": "available", "evidence_version_id": "ev-example-employee-count-v1"},
+          {"input_key": "industry", "value": "B2B AI Software", "availability": "available", "evidence_version_id": "ev-example-industry-v1"},
+          {"input_key": "funding_event", "value": null, "availability": "unavailable"}
+        ],
+        "consumed_inputs": [
+          {"input_key": "employee_count", "value": 120, "evidence_version_id": "ev-example-employee-count-v1", "contribution": 25},
+          {"input_key": "industry", "value": "B2B AI Software", "evidence_version_id": "ev-example-industry-v1", "contribution": 20}
+        ],
+        "logic_artifact": {
+          "logic_version": "v3.2",
+          "artifact_id": "logic-account-prioritization-v3.2",
+          "artifact_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+          "evaluator_version": "evaluator-v1"
+        },
+        "result": {"score": 45, "threshold": 75, "output": "DO_NOT_PRIORITIZE"}
+      }
+    }
+  },
+  "notes": [
+    "event_id must be stable across retries; Clay's row id plus the run id gives that.",
+    "The account must already exist through an account.discovered event, or the collector answers 422.",
+    "artifact_hash is the SHA-256 of the canonical JSON of the logic artifact the workflow actually used; the zeros above are a placeholder.",
+    "A retry with identical content returns 200 duplicate; a changed retry with the same event_id returns 409."
+  ]
+}

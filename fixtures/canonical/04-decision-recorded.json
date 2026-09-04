@@ -1,0 +1,107 @@
+{
+  "schema_version": "1",
+  "event_id": "evt-novasignal-04-decision-recorded",
+  "event_type": "decision.recorded",
+  "source": "relaybridge-scoring",
+  "account_ref": "novasignal-ai",
+  "occurred_at": "2026-04-17T10:05:02Z",
+  "recorded_at": "2026-04-17T10:05:02Z",
+  "payload": {
+    "decision_class": "account_prioritization",
+    "decision_boundary": "2026-04-17T10:05:02Z",
+    "workflow_version": "v4.2",
+    "historical_context": [
+      {
+        "input_key": "employee_count",
+        "value": 184,
+        "availability": "available",
+        "evidence_version_id": "ev-novasignal-employee-count-v1"
+      },
+      {
+        "input_key": "industry",
+        "value": "B2B AI Software",
+        "availability": "available",
+        "evidence_version_id": "ev-novasignal-industry-v1"
+      },
+      {
+        "input_key": "headquarters_country",
+        "value": "United States",
+        "availability": "available",
+        "evidence_version_id": "ev-novasignal-headquarters-country-v1"
+      },
+      {
+        "input_key": "funding_event",
+        "value": "Series B",
+        "availability": "available",
+        "evidence_version_id": "ev-novasignal-funding-event-v1"
+      },
+      {
+        "input_key": "open_platform_engineering_roles",
+        "value": 7,
+        "availability": "available",
+        "evidence_version_id": "ev-novasignal-open-platform-engineering-roles-v1"
+      },
+      {
+        "input_key": "head_of_platform_start_date",
+        "value": "2026-03-05",
+        "availability": "available",
+        "evidence_version_id": "ev-novasignal-head-of-platform-start-date-v1"
+      },
+      {
+        "input_key": "verified_integration_pressure",
+        "value": "LOW",
+        "availability": "available",
+        "evidence_version_id": "ev-novasignal-verified-integration-pressure-v1"
+      },
+      {
+        "input_key": "website_intent",
+        "value": null,
+        "availability": "unavailable"
+      }
+    ],
+    "consumed_inputs": [
+      {
+        "input_key": "employee_count",
+        "value": 184,
+        "evidence_version_id": "ev-novasignal-employee-count-v1",
+        "contribution": 25
+      },
+      {
+        "input_key": "industry",
+        "value": "B2B AI Software",
+        "evidence_version_id": "ev-novasignal-industry-v1",
+        "contribution": 20
+      },
+      {
+        "input_key": "funding_event",
+        "value": "Series B",
+        "evidence_version_id": "ev-novasignal-funding-event-v1",
+        "contribution": 18
+      },
+      {
+        "input_key": "open_platform_engineering_roles",
+        "value": 7,
+        "evidence_version_id": "ev-novasignal-open-platform-engineering-roles-v1",
+        "contribution": 15
+      },
+      {
+        "input_key": "headquarters_country",
+        "value": "United States",
+        "evidence_version_id": "ev-novasignal-headquarters-country-v1",
+        "contribution": 8
+      }
+    ],
+    "logic_artifact": {
+      "logic_version": "v3.2",
+      "artifact_id": "logic-account-prioritization-v3.2",
+      "artifact_hash": "db3a8bdebf2befe286ab49a2381dfe6fb931ac6f848923d35e0e732adcc82db0",
+      "evaluator_version": "evaluator-v1"
+    },
+    "result": {
+      "score": 86,
+      "threshold": 75,
+      "output": "PRIORITIZE"
+    },
+    "explanation": "Explanation: v3.2 matched the employee range, B2B AI Software vertical, recent Series B funding, platform-engineering hiring, and US headquarters for a score of 86 against a threshold of 75. Verified integration pressure was available but not consumed by v3.2."
+  }
+}
