@@ -41,8 +41,8 @@ Open `http://127.0.0.1:8000/accounts/novasignal-ai`. Tests: `uv run pytest`; inv
 
 ## Blockers
 
-None blocking the repository. One user decision is pending before 2A runs: the drafted 2A task has logic artifacts enter through the collector as a new schema-v1 event type `logic_artifact.registered` (seed becomes nine envelopes; a decision's `artifact_hash` must resolve to a registered artifact). The alternative is embedding the full declarative artifact inside each `decision.recorded` payload. The user picks one; the task file is rewritten if the alternative is chosen.
+None. The 2A design question is resolved (2026-09-04, reviewer recommendation adopted by the user): logic artifacts enter through the collector as schema-v1 event type `logic_artifact.registered` under a reserved `_system` principal excluded from all account-facing surfaces; embedding the artifact in each decision is rejected. The 2A task incorporates the five review corrections (system principal foreign-key handling, current base SHA, strict typed artifact validation, evidence serialization/equality contract, within-envelope evidence-id uniqueness).
 
 ## Next Action (exactly one)
 
-Run Phase 2A (`.handoffs/phase-2-task-2a.md`, local only) in Claude Code on a new branch `phase-2/projections` from `main` at `ffa42bd`; the coordinator reconciles its report and prepares a review packet before 2B is scoped.
+Run Phase 2A (`.handoffs/phase-2-task-2a.md`, local only) in Claude Code on a new branch `phase-2/projections` from current `main`; the coordinator reconciles its report and prepares a review packet before 2B is scoped.
