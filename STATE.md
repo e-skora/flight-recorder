@@ -6,20 +6,33 @@
 
 ## Phase
 
-**Phase 1 — Skeleton and One Trace: implemented and corrected on branch `phase-1/skeleton-trace` at `071da0a`; refreshed review packet awaiting ChatGPT acceptance and the user's merge decision; not merged.** Phase 0 completed at `2cdb8b5`; stack ratified (D-010) at `d183f60`.
+**Phase 2 — Historical Decision Core: current, not started.** Phase 1 (Skeleton and One Trace) is complete: accepted by ChatGPT review at `071da0a`, merge authorized by the user, merged into `main` as `ffa42bd` on 2026-09-04. Phase 0 completed at `2cdb8b5`; stack ratified (D-010) at `d183f60`.
 
 ## Present Objective
 
-Get `071da0a` accepted and merged into `main`, then scope Phase 2 (historical decision core) per the 2026-09-03 decision packet's direction.
+Phase 2 in three narrow, sequential tasks, each reviewed before the next:
+
+- **2A** — domain projections (evidence versions, historical context, consumed inputs, logic artifacts, decisions, actions, outcomes) written atomically from accepted events; cross-event reference and time-boundary validation; database-level append-only protection for every projected historical record; the append-only evidence-correction/supersession representation. Closes full AC-15.
+- **2B** — `evaluator-v1` over the declarative artifact with artifact-hash and evaluator-identity verification; exact `v3.2` reconstruction of NovaSignal AI → score 86, `PRIORITIZE` (AC-01, INV-05); current-state isolation tests (AC-04, INV-01).
+- **2C** — correction immutability (AC-05, INV-04) and the before/at/after boundary tests (AC-03, INV-02).
+
+Phase 2 is complete only when 2A, 2B, and 2C are all proven. Counterfactual replay under `v5.1` (AC-02) is Phase 3.
 
 ## Verified Repository Condition
 
-- `main` = `d183f60`: the four control files only. Remote `github.com/e-skora/flight-recorder`, in sync.
-- Branch `phase-1/skeleton-trace` at `071da0a` (7 commits on top of `d183f60`, pushed, no PR). P1-02 (`602ba49`, `071da0a`) added six decision-envelope coherence validators: unavailable inputs carry no value and no evidence reference; unique `input_key`s in historical context and in consumed inputs; every consumed input matches exactly one available context entry with identical value (type-exact) and `evidence_version_id`; `decision_boundary` equals the decision event's `occurred_at` after UTC normalization. Base from P1-01: Python 3.13 project via uv; collector at `POST /api/v1/decision-events` with strict JSON-mode validation, canonical-JSON idempotency (200 duplicate / 409 conflict), atomic writes, account rules; SQLite ledger (`accounts`, append-only `events` with RAISE triggers, foreign keys on, deferred `first_seen_event_id` FK); canonical NovaSignal AI fixture (7 envelopes with stable `evidence_version_id`s, logic artifacts `v3.2` and `v5.1`, decision hash verified) seeded only through the collector; server-rendered `/` and `/accounts/{account_ref}` with text kind labels, separately labeled occurred/recorded times, synthetic banner in the shared layout.
-- Tests on the branch: 74 passing (65 acceptance/unit, 9 invariant) locally and in CI run 33747333481 (`lint`, `tests`, `invariants` all green at `071da0a`; verified by the coordinator via `gh run view`). INV-01 and INV-11 enforced and exercised generatively. AC-15 Phase 1 subset proven; full AC-15 stays open until Phase 2 projections. Control files unchanged on the branch.
-- Reversible in-task choices reported by the builder: SQLAlchemy Core; strictness applied at `validate_json(strict=True)` rather than model config; evidence items are a closed discriminated union of the seven canonical keys; `httpx` is a runtime dependency (seed goes through the in-process ASGI app); `persona.selected` renders with kind label `EVENT`.
+- `main` = `ffa42bd` (merge of `phase-1/skeleton-trace` at `071da0a`; content identical to the branch except `STATE.md`), pushed, working tree clean. Local verification on the merge commit: `uv run pytest` 74 passed (65 acceptance/unit, 9 invariant); `ruff check` and `ruff format --check` clean; `reset && seed` → 7 created, second `seed` → 0 created, 7 duplicate. Branch CI at `071da0a`: run 33747333481, `lint` / `tests` / `invariants` green.
+- What exists: Python 3.13 project via uv; collector at `POST /api/v1/decision-events` with strict JSON-mode validation, canonical-JSON idempotency (200 duplicate / 409 conflict), atomic writes, account rules, and six decision-envelope coherence validators; SQLite ledger with `accounts` and append-only `events` (RAISE triggers, foreign keys on, `ingest_sequence` tie-break); canonical NovaSignal AI fixture (seven envelopes, stable `evidence_version_id`s, logic artifacts `v3.2` and `v5.1`, decision hash verified) seeded only through the collector; server-rendered `/` and `/accounts/{account_ref}` trace with text kind labels, separately labeled occurred/recorded times, synthetic banner in the shared layout.
+- Not yet: normalized domain projections (full AC-15 open), evaluator, decision inspection page, replay, attribution, Insights, 200-account dataset, README.
 
-## Run (on the branch)
+## Accepted Constraints Carried Forward (no `DECISIONS.md` entry; they enforce existing truth)
+
+- Schema v1 keeps the closed seven-key typed evidence vocabulary through the MVP.
+- `persona.selected` renders with kind label `EVENT`.
+- A decision's `decision_boundary` is the decision event's occurrence instant; escalate before ever letting them differ.
+- Counterfactual replay remains Phase 3.
+- Reversible builder choices in force: SQLAlchemy Core; strictness applied at `validate_json(strict=True)`; `httpx` at runtime for the in-process seed.
+
+## Run
 
 ```bash
 uv sync && uv run flight-recorder reset && uv run flight-recorder seed && uv run flight-recorder serve
@@ -28,8 +41,8 @@ Open `http://127.0.0.1:8000/accounts/novasignal-ai`. Tests: `uv run pytest`; inv
 
 ## Blockers
 
-None. ChatGPT review of `a45042c` (2026-09-03) returned CHANGES REQUIRED; all ten of its criteria are implemented at `071da0a` and the refreshed packet recommends ACCEPT. Constraints confirmed by that packet: closed seven-key evidence vocabulary stays through the MVP; `persona.selected` stays `EVENT`; `decision_boundary` and the decision event's `occurred_at` are the same instant (escalate if a real need to differ appears); counterfactual replay stays Phase 3. Merge remains the user's decision after the refreshed packet.
+None.
 
 ## Next Action (exactly one)
 
-Send the refreshed review packet (`.handoffs/review-packet-p1-01.md`, pinned to `071da0a`) to ChatGPT; on ACCEPT, the user decides the merge of `phase-1/skeleton-trace` into `main` (fast-forward), after which Phase 2 is scoped as one task.
+Run Phase 2A (`.handoffs/phase-2-task-2a.md`, local only) in Claude Code on a new branch `phase-2/projections` from `main` at `ffa42bd`; the coordinator reconciles its report and prepares a review packet before 2B is scoped.
