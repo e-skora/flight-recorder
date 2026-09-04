@@ -6,7 +6,7 @@
 
 ## Phase
 
-**Phase 2 — Historical Decision Core: current; 2A implemented on `phase-2/projections` at `1dd52f5`, awaiting ChatGPT review and user merge authorization.** Phase 1 (Skeleton and One Trace) is complete: accepted by ChatGPT review at `071da0a`, merge authorized by the user, merged into `main` as `ffa42bd` on 2026-09-04. Phase 0 completed at `2cdb8b5`; stack ratified (D-010) at `d183f60`.
+**Phase 2 — Historical Decision Core: current; 2A implemented on `phase-2/projections` at `1dd52f5`; ChatGPT review returned CHANGES REQUIRED (two narrow semantics), corrections task P2-A-02 pending.** Phase 1 (Skeleton and One Trace) is complete: accepted by ChatGPT review at `071da0a`, merge authorized by the user, merged into `main` as `ffa42bd` on 2026-09-04. Phase 0 completed at `2cdb8b5`; stack ratified (D-010) at `d183f60`.
 
 ## Present Objective
 
@@ -47,5 +47,4 @@ None. The 2A design question is resolved (2026-09-04, reviewer recommendation ad
 
 ## Next Action (exactly one)
 
-The user sends `.handoffs/review-packet-p2a.md` to ChatGPT; on ACCEPT and the user's authorization, the coordinator merges `phase-2/projections` at `1dd52f5` into `main` with `--no-ff` from the Mac shell and re-verifies on `main`; 2B is scoped only after that.
-
+Run P2-A-02 (`.handoffs/phase-2-task-2a-02.md`, local only) in Claude Code on `phase-2/projections` from `1dd52f5`: add `available_at` to evidence-version content identity (same id, different availability → 409) and require outcomes strictly after their action. Then the coordinator verifies, refreshes the review packet, and the user sends it for re-review; merge only on ACCEPT and user authorization.
