@@ -41,7 +41,7 @@ Open `http://127.0.0.1:8000/accounts/novasignal-ai`. Tests: `uv run pytest`; inv
 
 ## Blockers
 
-None.
+None blocking the repository. One user decision is pending before 2A runs: the drafted 2A task has logic artifacts enter through the collector as a new schema-v1 event type `logic_artifact.registered` (seed becomes nine envelopes; a decision's `artifact_hash` must resolve to a registered artifact). The alternative is embedding the full declarative artifact inside each `decision.recorded` payload. The user picks one; the task file is rewritten if the alternative is chosen.
 
 ## Next Action (exactly one)
 
