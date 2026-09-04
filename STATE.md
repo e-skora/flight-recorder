@@ -6,7 +6,7 @@
 
 ## Phase
 
-**Phase 2 — Historical Decision Core: current, not started.** Phase 1 (Skeleton and One Trace) is complete: accepted by ChatGPT review at `071da0a`, merge authorized by the user, merged into `main` as `ffa42bd` on 2026-09-04. Phase 0 completed at `2cdb8b5`; stack ratified (D-010) at `d183f60`.
+**Phase 2 — Historical Decision Core: current; 2A implemented on `phase-2/projections` at `1dd52f5`, awaiting ChatGPT review and user merge authorization.** Phase 1 (Skeleton and One Trace) is complete: accepted by ChatGPT review at `071da0a`, merge authorized by the user, merged into `main` as `ffa42bd` on 2026-09-04. Phase 0 completed at `2cdb8b5`; stack ratified (D-010) at `d183f60`.
 
 ## Present Objective
 
@@ -20,9 +20,11 @@ Phase 2 is complete only when 2A, 2B, and 2C are all proven. Counterfactual repl
 
 ## Verified Repository Condition
 
-- `main` = `ffa42bd` (merge of `phase-1/skeleton-trace` at `071da0a`; content identical to the branch except `STATE.md`), pushed, working tree clean. Local verification on the merge commit: `uv run pytest` 74 passed (65 acceptance/unit, 9 invariant); `ruff check` and `ruff format --check` clean; `reset && seed` → 7 created, second `seed` → 0 created, 7 duplicate. Branch CI at `071da0a`: run 33747333481, `lint` / `tests` / `invariants` green.
-- What exists: Python 3.13 project via uv; collector at `POST /api/v1/decision-events` with strict JSON-mode validation, canonical-JSON idempotency (200 duplicate / 409 conflict), atomic writes, account rules, and six decision-envelope coherence validators; SQLite ledger with `accounts` and append-only `events` (RAISE triggers, foreign keys on, `ingest_sequence` tie-break); canonical NovaSignal AI fixture (seven envelopes, stable `evidence_version_id`s, logic artifacts `v3.2` and `v5.1`, decision hash verified) seeded only through the collector; server-rendered `/` and `/accounts/{account_ref}` trace with text kind labels, separately labeled occurred/recorded times, synthetic banner in the shared layout.
-- Not yet: normalized domain projections (full AC-15 open), evaluator, decision inspection page, replay, attribution, Insights, 200-account dataset, README.
+- `main` = `597bdff` plus this STATE commit (content identical to `ffa42bd` except `STATE.md`), pushed, working tree clean.
+- `phase-2/projections` = `1dd52f5` (three commits on `597bdff`), pushed, not merged, no PR. Coordinator verification on that commit in a temporary worktree on the user's Mac (2026-09-04): `uv run pytest` 172 passed (136 acceptance/unit, 36 invariant); `ruff check` and `ruff format --check` clean; `reset && seed` → 9 created, second `seed` → 0 created, 9 duplicate; projection counts `evidence_versions` 7, `logic_artifacts` 2, `decisions` 1 (86 / 75 / `PRIORITIZE` / `v3.2` / `db3a8bde…`), `decision_context` 8, `decision_consumed_inputs` 5, `persona_selections` 1, `actions` 1, `outcomes` 1; `/` lists only NovaSignal AI; `/accounts/_system` → 404; `/accounts/novasignal-ai` still seven rows with the synthetic banner. Branch CI at `1dd52f5`: run 33907988381, `lint` / `tests` / `invariants` green. `PRODUCT.md`, `DECISIONS.md`, `AGENTS.md`, `STATE.md`, templates, CSS, and `web/summaries.py` untouched on the branch.
+- What 2A adds (on the branch): schema-v1 event type `logic_artifact.registered` under the reserved `_system` principal (strict `LogicArtifact` model; excluded from every account-facing surface through `accounts_query()` in `ledger/schema.py`); eight append-only projection tables written atomically with each accepted event (`evidence_versions`, `logic_artifacts`, `decisions`, `decision_context`, `decision_consumed_inputs`, `persona_selections`, `actions`, `outcomes`), each guarded by database UPDATE/DELETE triggers; cross-event reference and time-boundary validation at ingest; the append-only evidence supersession representation. Canonical seed is nine envelopes; the NovaSignal AI trace is still seven rows. Full AC-15 closed on the branch; INV-01 enforced at the database on all projection tables; INV-02 reference rule enforced at ingest with before/at/after coverage; INV-04 representation proven; INV-05 identity bound to artifact hash plus evaluator version.
+- What exists on `main` (Phase 1): Python 3.13 project via uv; collector at `POST /api/v1/decision-events` with strict JSON-mode validation, canonical-JSON idempotency (200 duplicate / 409 conflict), atomic writes, account rules, and six decision-envelope coherence validators; SQLite ledger with `accounts` and append-only `events`; canonical NovaSignal AI fixture seeded only through the collector; server-rendered `/` and `/accounts/{account_ref}` trace.
+- Not yet: evaluator, exact `v3.2` reconstruction, decision inspection page, replay, attribution, Insights, 200-account dataset, README.
 
 ## Accepted Constraints Carried Forward (no `DECISIONS.md` entry; they enforce existing truth)
 
@@ -45,4 +47,5 @@ None. The 2A design question is resolved (2026-09-04, reviewer recommendation ad
 
 ## Next Action (exactly one)
 
-Run Phase 2A (`.handoffs/phase-2-task-2a.md`, local only) in Claude Code on a new branch `phase-2/projections` from current `main`; the coordinator reconciles its report and prepares a review packet before 2B is scoped.
+The user sends `.handoffs/review-packet-p2a.md` to ChatGPT; on ACCEPT and the user's authorization, the coordinator merges `phase-2/projections` at `1dd52f5` into `main` with `--no-ff` from the Mac shell and re-verifies on `main`; 2B is scoped only after that.
+
