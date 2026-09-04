@@ -7,7 +7,14 @@ from sqlalchemy import select
 from flight_recorder.collector.canonical import canonical_bytes, canonical_hash
 from flight_recorder.collector.schema import validate_envelope_json
 from flight_recorder.ledger.schema import events
-from tests.conftest import canonical_by_type, canonical_raw, logic_artifact, reformatted, seed_all
+from tests.conftest import (
+    canonical_by_type,
+    canonical_raw,
+    logic_artifact,
+    reformatted,
+    register_artifacts,
+    seed_all,
+)
 
 
 def test_canonical_bytes_known_answer():
@@ -40,6 +47,7 @@ def test_decision_artifact_hash_matches_logic_artifact_file(harness):
 def test_stored_payload_is_canonical_regardless_of_raw_formatting(harness):
     discovery = canonical_by_type("account.discovered")
     decision = canonical_by_type("decision.recorded")
+    register_artifacts(harness)
     harness.post_raw(canonical_raw(0))
     harness.post_raw(canonical_raw(1))
     harness.post_raw(canonical_raw(2))

@@ -12,7 +12,12 @@ from sqlalchemy import func, select
 
 from flight_recorder.fixtures import canonical_envelope_paths, load_json, logic_artifact_path
 from flight_recorder.ledger.database import reset_database
-from flight_recorder.ledger.schema import accounts, events
+from flight_recorder.ledger.schema import (
+    PROJECTION_TABLES,
+    SYSTEM_ACCOUNT_REF,
+    accounts,
+    events,
+)
 
 warnings.filterwarnings(
     "ignore",
@@ -68,8 +73,24 @@ class Harness:
             query = select(accounts).order_by(accounts.c.account_ref)
             return [tuple(r) for r in conn.execute(query)]
 
-    def snapshot(self) -> tuple[int, list[tuple]]:
-        return self.event_count(), self.account_rows()
+    def projection_rows(self) -> dict[str, list[tuple]]:
+        """Every row of every projection table, keyed by table name."""
+        with self.engine.connect() as conn:
+            return {
+                table.name: [
+                    tuple(r)
+                    for r in conn.execute(select(table).order_by(*table.primary_key.columns))
+                ]
+                for table in PROJECTION_TABLES
+            }
+
+    def snapshot(self) -> tuple[int, list[tuple], dict[str, list[tuple]]]:
+        return self.event_count(), self.account_rows(), self.projection_rows()
+
+    def is_empty(self) -> bool:
+        """No event, no account, and no projected row anywhere."""
+        count, account_rows, projections = self.snapshot()
+        return count == 0 and account_rows == [] and not any(projections.values())
 
 
 @pytest.fixture
@@ -83,7 +104,26 @@ def client(harness: Harness) -> TestClient:
 
 
 def canonical_envelopes() -> list[dict]:
+    """All canonical envelopes, including the two `_system` registrations."""
     return [load_json(p) for p in canonical_envelope_paths()]
+
+
+def account_envelope_paths() -> list[Path]:
+    """The canonical envelopes belonging to the NovaSignal AI account."""
+    return [
+        p for p in canonical_envelope_paths() if load_json(p)["account_ref"] != SYSTEM_ACCOUNT_REF
+    ]
+
+
+def system_envelope_paths() -> list[Path]:
+    """The canonical envelopes submitted under the `_system` principal."""
+    return [
+        p for p in canonical_envelope_paths() if load_json(p)["account_ref"] == SYSTEM_ACCOUNT_REF
+    ]
+
+
+def account_envelopes() -> list[dict]:
+    return [load_json(p) for p in account_envelope_paths()]
 
 
 def canonical_by_type(event_type: str) -> dict:
@@ -91,7 +131,19 @@ def canonical_by_type(event_type: str) -> dict:
 
 
 def canonical_raw(index: int) -> bytes:
-    return canonical_envelope_paths()[index].read_bytes()
+    """Raw bytes of the index-th *account* envelope (0 = account.discovered)."""
+    return account_envelope_paths()[index].read_bytes()
+
+
+def system_raw(index: int) -> bytes:
+    """Raw bytes of the index-th `_system` envelope (0 = v3.2, 1 = v5.1)."""
+    return system_envelope_paths()[index].read_bytes()
+
+
+def register_artifacts(harness: "Harness") -> None:
+    """Submit both logic-artifact registrations; prerequisite for any decision."""
+    for path in system_envelope_paths():
+        assert harness.post_raw(path.read_bytes()).status_code == 201
 
 
 def logic_artifact(version: str) -> dict:

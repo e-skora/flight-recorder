@@ -8,7 +8,13 @@ import json
 
 import pytest
 
-from tests.conftest import Harness, canonical_by_type, canonical_raw, reformatted
+from tests.conftest import (
+    Harness,
+    canonical_by_type,
+    canonical_raw,
+    reformatted,
+    register_artifacts,
+)
 
 
 def _discover(harness: Harness):
@@ -92,14 +98,14 @@ def test_invalid_envelopes_are_rejected_without_writes(harness, mutate):
     response = harness.post(env)
     assert response.status_code == 422
     assert response.json()["status"] == "rejected"
-    assert harness.snapshot() == (0, [])
+    assert harness.is_empty()
 
 
 def test_non_discovery_event_for_unknown_account_is_rejected(harness):
     response = harness.post_raw(canonical_raw(1))
     assert response.status_code == 422
     assert response.json()["reason"] == "unknown_account_ref"
-    assert harness.snapshot() == (0, [])
+    assert harness.is_empty()
 
 
 @pytest.mark.parametrize("bad_value", ["184", 184.0], ids=["string-integer", "float-integer"])
@@ -120,7 +126,7 @@ def test_integer_employee_count_is_accepted(harness):
 def test_non_json_body_is_rejected(harness):
     response = harness.post_raw(b"not json")
     assert response.status_code == 422
-    assert harness.snapshot() == (0, [])
+    assert harness.is_empty()
 
 
 def test_openapi_publishes_envelope_schema(client):
@@ -135,10 +141,10 @@ def test_full_canonical_seed_and_reseed(harness):
     from tests.conftest import seed_all
 
     first = seed_all(harness)
-    assert [r.status_code for r in first] == [201] * 7
+    assert [r.status_code for r in first] == [201] * 9
     second = seed_all(harness)
-    assert [r.json()["status"] for r in second] == ["duplicate"] * 7
-    assert harness.event_count() == 7
+    assert [r.json()["status"] for r in second] == ["duplicate"] * 9
+    assert harness.event_count() == 9
 
 
 # --- Decision-envelope coherence at the collector boundary ------------------
@@ -150,7 +156,9 @@ UNAVAILABLE_KEY = "website_intent"
 
 
 def _seed_through_decision_prerequisites(harness: Harness) -> None:
-    """Discovery plus both evidence events, so only the decision is under test."""
+    """Both logic artifacts, discovery, and both evidence events, so only the
+    decision is under test."""
+    register_artifacts(harness)
     for index in (0, 1, 2):
         assert harness.post_raw(canonical_raw(index)).status_code == 201
 
@@ -237,10 +245,10 @@ def test_coherent_decision_is_accepted_and_its_retry_is_a_duplicate(harness):
     _seed_through_decision_prerequisites(harness)
     first = harness.post_raw(canonical_raw(3))
     assert first.status_code == 201 and first.json()["status"] == "created"
-    assert harness.event_count() == 4
+    assert harness.event_count() == 6
 
     retry = harness.post_raw(reformatted(_decision()))
     assert retry.status_code == 200
     assert retry.json()["status"] == "duplicate"
     assert retry.json()["canonical_hash"] == first.json()["canonical_hash"]
-    assert harness.event_count() == 4
+    assert harness.event_count() == 6

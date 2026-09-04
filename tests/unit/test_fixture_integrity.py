@@ -3,9 +3,16 @@
 import json
 from datetime import datetime, timedelta
 
+from flight_recorder.collector.canonical import canonical_hash
 from flight_recorder.collector.schema import validate_envelope_json
 from flight_recorder.fixtures import canonical_envelope_paths, load_json
-from tests.conftest import canonical_envelopes, logic_artifact
+from flight_recorder.ledger.schema import SYSTEM_ACCOUNT_REF
+from tests.conftest import (
+    account_envelopes,
+    canonical_envelopes,
+    logic_artifact,
+    system_envelope_paths,
+)
 
 
 def _ts(text: str) -> datetime:
@@ -33,12 +40,14 @@ def test_fixture_files_parse_and_validate_strictly():
         validate_envelope_json(path.read_bytes())
 
 
-def test_seven_envelopes_in_chronological_file_order():
+def test_nine_envelopes_in_chronological_file_order():
     envs = _events()
-    assert len(envs) == 7
+    assert len(envs) == 9
     occurred = [_ts(e["occurred_at"]) for e in envs]
     assert occurred == sorted(occurred)
     assert [e["event_type"] for e in envs] == [
+        "logic_artifact.registered",
+        "logic_artifact.registered",
         "account.discovered",
         "evidence.recorded",
         "evidence.recorded",
@@ -47,6 +56,27 @@ def test_seven_envelopes_in_chronological_file_order():
         "action.recorded",
         "outcome.evaluated",
     ]
+
+
+def test_the_registrations_are_the_only_system_envelopes_and_come_first():
+    envs = _events()
+    system = [e for e in envs if e["account_ref"] == SYSTEM_ACCOUNT_REF]
+    assert [e["event_id"] for e in system] == [e["event_id"] for e in envs[:2]]
+    assert all(e["event_type"] == "logic_artifact.registered" for e in system)
+    assert len(account_envelopes()) == 7
+
+
+def test_registered_artifacts_are_the_logic_artifact_files_byte_for_byte():
+    for path, version in zip(system_envelope_paths(), ("v3.2", "v5.1"), strict=True):
+        envelope = load_json(path)
+        assert envelope["payload"]["artifact"] == logic_artifact(version)
+
+
+def test_the_decision_references_the_registered_v32_hash():
+    decision = _by_type("decision.recorded")[0]
+    registered = load_json(system_envelope_paths()[0])["payload"]["artifact"]
+    assert registered["logic_version"] == "v3.2"
+    assert decision["payload"]["logic_artifact"]["artifact_hash"] == canonical_hash(registered)
 
 
 def test_recorded_at_is_explicit_and_equals_occurred_at():
@@ -99,8 +129,9 @@ def test_decision_and_action_references_resolve_to_earlier_events():
         for key in ("decision_event_id", "action_event_id"):
             if key in env["payload"]:
                 assert position[env["payload"][key]] < i
-    assert envs[3]["event_type"] == "decision.recorded"
-    assert envs[6]["payload"]["action_event_id"] == envs[5]["event_id"]
+    account = account_envelopes()
+    assert account[3]["event_type"] == "decision.recorded"
+    assert account[6]["payload"]["action_event_id"] == account[5]["event_id"]
 
 
 def test_contributions_sum_to_score_and_match_logic_weights():
