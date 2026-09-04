@@ -146,6 +146,14 @@ def register_artifacts(harness: "Harness") -> None:
         assert harness.post_raw(path.read_bytes()).status_code == 201
 
 
+TEST_FIXTURES_DIR = Path(__file__).parent / "fixtures"
+
+
+def local_fixture(name: str) -> dict:
+    """A non-canonical fixture used by one test file, not part of the demo seed."""
+    return load_json(TEST_FIXTURES_DIR / name)
+
+
 def logic_artifact(version: str) -> dict:
     return load_json(logic_artifact_path(version))
 

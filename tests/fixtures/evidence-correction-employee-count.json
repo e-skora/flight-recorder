@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "event_id": "evt-novasignal-08-employee-count-corrected",
+  "event_type": "evidence.recorded",
+  "source": "clay-sim-correction",
+  "account_ref": "novasignal-ai",
+  "occurred_at": "2026-04-20T09:00:00Z",
+  "recorded_at": "2026-04-20T09:00:00Z",
+  "payload": {
+    "items": [
+      {
+        "evidence_version_id": "ev-novasignal-employee-count-v2",
+        "evidence_type": "employee_count",
+        "value": 191,
+        "supersedes_evidence_version_id": "ev-novasignal-employee-count-v1"
+      }
+    ]
+  }
+}

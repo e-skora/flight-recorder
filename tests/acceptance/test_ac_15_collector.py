@@ -1,6 +1,10 @@
-"""AC-15, Phase 1 subset: canonical ingestion, idempotency, conflicts, rejection.
+"""AC-15 in full: canonical ingestion, idempotency, conflicts, rejection, and the
+domain records each accepted event creates.
 
-Full AC-15 stays open until Phase 2 projects domain records from accepted events.
+The first half covers the collector boundary itself (INV-11). The second half
+covers the projections of `PRODUCT.md` §6: every accepted event writes its
+normalized historical records in the same transaction, and a retry, a
+conflicting reuse, or an invalid envelope leaves them untouched.
 """
 
 import copy
@@ -252,3 +256,183 @@ def test_coherent_decision_is_accepted_and_its_retry_is_a_duplicate(harness):
     assert retry.json()["status"] == "duplicate"
     assert retry.json()["canonical_hash"] == first.json()["canonical_hash"]
     assert harness.event_count() == 6
+
+
+# --- Full AC-15: every accepted event creates its domain records ------------
+#
+# `PRODUCT.md` §6 requires normalized historical records, written in the same
+# transaction as the event. Each case below seeds the canonical envelopes up to
+# the event under test and asserts the rows it produced.
+
+from sqlalchemy import select  # noqa: E402
+
+from flight_recorder.ledger.schema import (  # noqa: E402
+    actions,
+    decision_consumed_inputs,
+    decision_context,
+    decisions,
+    evidence_versions,
+    logic_artifacts,
+    outcomes,
+    persona_selections,
+)
+from tests.conftest import seed_all  # noqa: E402
+
+ACCOUNT_REF = "novasignal-ai"
+DECISION_EVENT_ID = "evt-novasignal-04-decision-recorded"
+V32_HASH = "db3a8bdebf2befe286ab49a2381dfe6fb931ac6f848923d35e0e732adcc82db0"
+
+
+def _rows(harness: Harness, table, order_by=None):
+    with harness.engine.connect() as conn:
+        query = select(table)
+        if order_by is not None:
+            query = query.order_by(order_by)
+        return conn.execute(query).all()
+
+
+def test_registration_projects_one_logic_artifact_row_per_hash(harness):
+    seed_all(harness)
+    rows = _rows(harness, logic_artifacts, logic_artifacts.c.logic_version)
+    assert [r.logic_version for r in rows] == ["v3.2", "v5.1"]
+    assert rows[0].artifact_hash == V32_HASH
+    assert rows[0].decision_class == "account_prioritization"
+    assert rows[0].evaluator_version == "evaluator-v1"
+
+
+def test_discovery_projects_the_account(harness):
+    seed_all(harness)
+    account = [r for r in harness.account_rows() if r[0] == ACCOUNT_REF]
+    assert account == [
+        (ACCOUNT_REF, "NovaSignal AI", "novasignal.ai", "evt-novasignal-01-account-discovered")
+    ]
+
+
+def test_evidence_projects_one_immutable_version_per_item(harness):
+    seed_all(harness)
+    rows = _rows(harness, evidence_versions, evidence_versions.c.evidence_version_id)
+    assert len(rows) == 7
+    by_type = {r.evidence_type: r for r in rows}
+
+    employees = by_type["employee_count"]
+    assert employees.evidence_version_id == "ev-novasignal-employee-count-v1"
+    assert employees.account_ref == ACCOUNT_REF
+    assert employees.value_json == '{"value":184}'
+    assert employees.source == "clay-sim"
+    assert employees.observed_at is None
+    assert employees.available_at == "2026-04-17T10:04:37.000000Z"
+    assert employees.source_event_id == "evt-novasignal-02-evidence-enrichment"
+    assert employees.supersedes_evidence_version_id is None
+
+    # Types carrying an observation date store it in both places (§2a).
+    funding = by_type["funding_event"]
+    assert funding.observed_at == "2026-03-30"
+    assert funding.value_json == '{"observed_at":"2026-03-30","value":"Series B"}'
+
+    # `basis` is a semantic field of the item, so it belongs in value_json.
+    pressure = by_type["verified_integration_pressure"]
+    assert json.loads(pressure.value_json)["value"] == "LOW"
+    assert json.loads(pressure.value_json)["basis"] == [
+        "one documented production integration",
+        "no public API",
+        "no agent-tool directory",
+    ]
+    assert pressure.observed_at is None
+    assert pressure.source == "relaybridge-research-sim"
+
+
+def test_decision_projects_one_decision_eight_context_and_five_consumed_rows(harness):
+    seed_all(harness)
+    (decision,) = _rows(harness, decisions)
+    assert decision.decision_event_id == DECISION_EVENT_ID
+    assert decision.account_ref == ACCOUNT_REF
+    assert decision.decision_class == "account_prioritization"
+    assert decision.decision_boundary == "2026-04-17T10:05:02.000000Z"
+    assert decision.workflow_version == "v4.2"
+    assert decision.artifact_hash == V32_HASH
+    assert decision.evaluator_version == "evaluator-v1"
+    assert decision.logic_version == "v3.2"
+    assert (decision.score, decision.threshold, decision.output) == (86, 75, "PRIORITIZE")
+    assert decision.explanation == canonical_by_type("decision.recorded")["payload"]["explanation"]
+    assert decision.ingest_sequence > 0
+
+    context = _rows(harness, decision_context, decision_context.c.input_key)
+    assert len(context) == 8
+    by_key = {r.input_key: r for r in context}
+    assert by_key["employee_count"].availability == "available"
+    assert by_key["employee_count"].value_text == "184"
+    assert by_key["employee_count"].evidence_version_id == "ev-novasignal-employee-count-v1"
+    assert by_key["industry"].value_text == '"B2B AI Software"'
+    # INV-03: available-but-ignored is preserved as context, not as a consumed input.
+    assert by_key["verified_integration_pressure"].availability == "available"
+    # INV-09: an explicitly unavailable input keeps no value and no evidence.
+    assert by_key["website_intent"].availability == "unavailable"
+    assert by_key["website_intent"].value_text is None
+    assert by_key["website_intent"].evidence_version_id is None
+
+    consumed = _rows(harness, decision_consumed_inputs, decision_consumed_inputs.c.input_key)
+    assert len(consumed) == 5
+    assert sum(r.contribution for r in consumed) == decision.score
+    assert "verified_integration_pressure" not in {r.input_key for r in consumed}
+    assert all(r.decision_event_id == DECISION_EVENT_ID for r in consumed)
+
+
+def test_persona_selection_projects_the_decision_to_persona_link(harness):
+    seed_all(harness)
+    (persona,) = _rows(harness, persona_selections)
+    assert persona.event_id == "evt-novasignal-05-persona-selected"
+    assert persona.account_ref == ACCOUNT_REF
+    assert persona.decision_event_id == DECISION_EVENT_ID
+    assert persona.persona == "Head of Platform"
+    assert persona.explanation.startswith("Explanation:")
+
+
+def test_action_projects_its_decision_link_cost_and_time(harness):
+    seed_all(harness)
+    (action,) = _rows(harness, actions)
+    assert action.action_event_id == "evt-novasignal-06-action-recorded"
+    assert action.account_ref == ACCOUNT_REF
+    assert action.decision_event_id == DECISION_EVENT_ID
+    assert (action.action_type, action.play_id) == ("outbound_play", 14)
+    assert (action.target_persona, action.status) == ("Head of Platform", "sent")
+    assert (action.cost, action.currency) == ("1.42", "USD")
+    assert action.occurred_at == "2026-04-17T10:07:00.000000Z"
+
+
+def test_outcome_projects_a_later_separate_observation(harness):
+    seed_all(harness)
+    (outcome,) = _rows(harness, outcomes)
+    assert outcome.outcome_event_id == "evt-novasignal-07-outcome-evaluated"
+    assert outcome.account_ref == ACCOUNT_REF
+    assert outcome.action_event_id == "evt-novasignal-06-action-recorded"
+    assert outcome.window_days == 90
+    assert (outcome.reply, outcome.meeting, outcome.opportunity) == (False, False, False)
+    assert outcome.occurred_at == "2026-07-16T10:07:00.000000Z"
+    assert outcome.recorded_at == "2026-07-16T10:07:00.000000Z"
+
+
+def test_canonically_identical_retry_creates_no_projection_rows(harness):
+    seed_all(harness)
+    before = harness.snapshot()
+    for envelope in (canonical_by_type(t) for t in ("evidence.recorded", "decision.recorded")):
+        assert harness.post_raw(reformatted(envelope)).status_code == 200
+    assert harness.snapshot() == before
+
+
+def test_conflicting_reuse_leaves_the_projections_unchanged(harness):
+    seed_all(harness)
+    before = harness.snapshot()
+    env = _decision()
+    env["source"] = "relaybridge-scoring-v2"
+    assert harness.post(env).status_code == 409
+    assert harness.snapshot() == before
+
+
+def test_invalid_envelope_leaves_the_projections_unchanged(harness):
+    seed_all(harness)
+    before = harness.snapshot()
+    env = _decision()
+    env["event_id"] = "evt-novasignal-04b-decision-recorded"
+    env["payload"]["result"]["score"] = 86.0
+    assert harness.post(env).status_code == 422
+    assert harness.snapshot() == before
