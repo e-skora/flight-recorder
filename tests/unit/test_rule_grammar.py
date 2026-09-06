@@ -160,6 +160,28 @@ def test_a_malformed_rule_string_is_unsupported(text):
         parse_rule(text.split(" ", 1)[0], text)
 
 
+@pytest.mark.parametrize("rule_text", sorted(EXPECTED_RULES))
+@pytest.mark.parametrize(
+    ("label", "decorate"),
+    [
+        ("trailing newline", lambda text: text + "\n"),
+        ("trailing carriage return and newline", lambda text: text + "\r\n"),
+        ("leading space", lambda text: " " + text),
+        ("trailing space", lambda text: text + " "),
+    ],
+)
+def test_a_canonical_rule_with_anything_around_it_is_unsupported(rule_text, label, decorate):
+    """The grammar accepts the exact string and nothing else.
+
+    Anchoring alone would not do it: in Python `$` also matches immediately
+    before a trailing newline, so the patterns are applied with `fullmatch`.
+    """
+    key = rule_text.split(" ", 1)[0]
+    assert parse_rule(key, rule_text) == EXPECTED_RULES[rule_text], "the exact string still parses"
+    with pytest.raises(UnsupportedRule):
+        parse_rule(key, decorate(rule_text)), label
+
+
 def test_a_rule_naming_a_different_input_than_its_factor_fails():
     with pytest.raises(RuleKeyMismatch) as caught:
         parse_rule("industry", "employee_count at least 3")

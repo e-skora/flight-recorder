@@ -29,7 +29,7 @@ from enum import StrEnum
 from types import MappingProxyType
 
 from flight_recorder.collector.schema import LogicArtifact, ScalarValue
-from flight_recorder.logic.rules import Rule, parse_rule
+from flight_recorder.logic.rules import Rule, parse_rule, require_aware_boundary
 
 __all__ = [
     "EVALUATOR_VERSION",
@@ -165,9 +165,13 @@ def evaluate(
 ) -> EvaluationResult:
     """Evaluate `artifact` over the preserved context `context` at `boundary`.
 
-    Every rule is parsed before any factor is evaluated, so an unsupported rule
-    fails even when its input is unavailable or absent.
+    The boundary is validated at entry and every rule is parsed before any
+    factor is evaluated, so a naive boundary and an unsupported rule both fail
+    even when the input they concern is unavailable or absent.
     """
+    # INV-02: on every path, not only the one where a temporal rule runs.
+    boundary = require_aware_boundary(boundary)
+
     if artifact.missing_value_behavior != SUPPORTED_MISSING_VALUE_BEHAVIOR:
         raise UnsupportedMissingValueBehavior(artifact.missing_value_behavior)
 

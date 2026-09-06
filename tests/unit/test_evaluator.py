@@ -16,6 +16,7 @@ from flight_recorder.logic.evaluator import (
     UnsupportedMissingValueBehavior,
     evaluate,
 )
+from flight_recorder.logic.rules import UnsupportedBoundary
 from tests.conftest import (
     canonical_boundary,
     canonical_context,
@@ -125,6 +126,27 @@ def test_an_unknown_missing_value_behavior_is_refused_rather_than_guessed():
     with pytest.raises(UnsupportedMissingValueBehavior) as caught:
         evaluate(artifact, canonical_context(), canonical_boundary())
     assert caught.value.behavior == "something_else"
+
+
+@pytest.mark.parametrize(
+    ("label", "funding"),
+    [
+        ("unavailable", ContextInput(key="funding_event", availability="unavailable")),
+        ("absent", None),
+    ],
+)
+def test_a_naive_boundary_is_rejected_at_entry_even_when_no_temporal_rule_executes(label, funding):
+    """INV-02: a naive boundary is never assumed to be UTC, on any path.
+
+    With `funding_event` unavailable or absent, the only rule that reads the
+    boundary never runs -- so the check has to happen at the evaluator's
+    entry, not inside that rule.
+    """
+    context = replace_context(canonical_context(), "funding_event", funding)
+    naive = canonical_boundary().replace(tzinfo=None)
+
+    with pytest.raises(UnsupportedBoundary):
+        evaluate(logic_artifact_model(), context, naive)
 
 
 def test_evaluation_is_deterministic():

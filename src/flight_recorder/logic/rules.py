@@ -11,9 +11,10 @@ an explicit failure rather than a silent non-match (INV-05, INV-09):
 - `<key> observed within <n> days before the decision boundary` -- temporal
   window, see below
 
-The grammar is deliberately narrow: the patterns are anchored and
-case-sensitive, bounds are integers, and literals are single-quoted. An extra
-word, a capitalized keyword, a float bound, a missing quote, or an unknown verb
+The grammar is deliberately narrow: each pattern must match the rule text in
+full, matching is case-sensitive, bounds are integers, and literals are
+single-quoted. An extra word, a capitalized keyword, a float bound, a missing
+quote, an unknown verb, or so much as a leading space or trailing newline
 raises `UnsupportedRule`. There is no fallback and no fuzzy matching.
 
 **Temporal semantics (introduced by `evaluator-v1`).** `PRODUCT.md` does not
@@ -44,6 +45,7 @@ __all__ = [
     "UnsupportedRule",
     "parse_boundary",
     "parse_rule",
+    "require_aware_boundary",
 ]
 
 
@@ -188,7 +190,7 @@ class ObservedWithinRule:
                 f"{observed_at!r}",
             )
         instant = datetime(observed_at.year, observed_at.month, observed_at.day, tzinfo=UTC)
-        boundary = _require_aware(boundary)
+        boundary = require_aware_boundary(boundary)
         if instant > boundary:
             return False
         return boundary - instant <= timedelta(days=self.days)
@@ -209,7 +211,10 @@ def parse_rule(key: str, text: str) -> Rule:
         (_AT_LEAST, lambda m: AtLeastRule(m["key"], int(m["minimum"]))),
         (_OBSERVED_WITHIN, lambda m: ObservedWithinRule(m["key"], int(m["days"]))),
     ):
-        match = pattern.match(text)
+        # `fullmatch`, not `match`: `$` also matches immediately before a
+        # trailing newline, so anchors alone would admit `"... inclusive\n"`
+        # as a valid rule. A closed grammar accepts the exact string only.
+        match = pattern.fullmatch(text)
         if match is None:
             continue
         if match["key"] != key:
@@ -218,7 +223,12 @@ def parse_rule(key: str, text: str) -> Rule:
     raise UnsupportedRule(key, text)
 
 
-def _require_aware(boundary: datetime) -> datetime:
+def require_aware_boundary(boundary: datetime) -> datetime:
+    """`T(d)` as a UTC-aware instant, refusing a naive one (INV-02, INV-09).
+
+    Public because every evaluation path must apply it, not only the temporal
+    rule: a naive boundary is never assumed to be UTC, whatever the factors do.
+    """
     if boundary.tzinfo is None or boundary.tzinfo.utcoffset(boundary) is None:
         raise UnsupportedBoundary(
             boundary.isoformat(),
