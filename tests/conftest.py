@@ -4,12 +4,15 @@ import json
 import os
 import uuid
 import warnings
+from contextlib import contextmanager
+from datetime import date, datetime
 from pathlib import Path
 
 import pytest
 from hypothesis import HealthCheck, settings
-from sqlalchemy import func, select
+from sqlalchemy import event, func, select
 
+from flight_recorder.collector.schema import LogicArtifact
 from flight_recorder.fixtures import canonical_envelope_paths, load_json, logic_artifact_path
 from flight_recorder.ledger.database import reset_database
 from flight_recorder.ledger.schema import (
@@ -18,6 +21,9 @@ from flight_recorder.ledger.schema import (
     accounts,
     events,
 )
+from flight_recorder.logic.evaluator import ContextInput
+from flight_recorder.logic.rules import parse_boundary
+from flight_recorder.replay.reconstruct import ConsumedInputRow
 
 warnings.filterwarnings(
     "ignore",
@@ -174,3 +180,116 @@ def reversed_keys(obj):
 def reformatted(envelope: dict) -> bytes:
     """Same content, reversed keys, indented with tabs, trailing newline."""
     return (json.dumps(reversed_keys(envelope), indent="\t") + "\n").encode("utf-8")
+
+
+# --- Phase 2B: evaluator, reconstruction ------------------------------------
+
+DECISION_EVENT_ID = "evt-novasignal-04-decision-recorded"
+
+
+def logic_artifact_model(version: str = "v3.2") -> LogicArtifact:
+    """The canonical artifact of `version`, through the strict schema-v1 model."""
+    return LogicArtifact.model_validate(logic_artifact(version))
+
+
+def canonical_boundary() -> datetime:
+    """`T(d)` of the canonical decision, from the fixture."""
+    return parse_boundary(canonical_by_type("decision.recorded")["payload"]["decision_boundary"])
+
+
+def canonical_observed_at() -> dict[str, date]:
+    """`observed_at` per evidence version id, from the canonical evidence events.
+
+    The dates a temporal rule reads come from the evidence versions, never from
+    the decision payload, so the tests source them the same way.
+    """
+    return {
+        item["evidence_version_id"]: date.fromisoformat(item["observed_at"])
+        for envelope in canonical_envelopes()
+        if envelope["event_type"] == "evidence.recorded"
+        for item in envelope["payload"]["items"]
+        if "observed_at" in item
+    }
+
+
+def canonical_context() -> tuple[ContextInput, ...]:
+    """`H(d)` of the canonical decision, hand-built from the fixtures.
+
+    Ordered by input key, matching how the reconstruction loads it.
+    """
+    observed = canonical_observed_at()
+    entries = canonical_by_type("decision.recorded")["payload"]["historical_context"]
+    return tuple(
+        ContextInput(
+            key=entry["input_key"],
+            availability=entry["availability"],
+            value=entry["value"],
+            evidence_version_id=entry.get("evidence_version_id"),
+            observed_at=observed.get(entry.get("evidence_version_id")),
+        )
+        for entry in sorted(entries, key=lambda e: e["input_key"])
+    )
+
+
+def canonical_consumed_rows() -> tuple[ConsumedInputRow, ...]:
+    """`U(d)` of the canonical decision as stored comparison rows."""
+    consumed = canonical_by_type("decision.recorded")["payload"]["consumed_inputs"]
+    return tuple(
+        ConsumedInputRow(
+            input_key=used["input_key"],
+            evidence_version_id=used["evidence_version_id"],
+            contribution=used["contribution"],
+        )
+        for used in sorted(consumed, key=lambda u: u["input_key"])
+    )
+
+
+def replace_context(
+    context: tuple[ContextInput, ...], key: str, replacement: ContextInput | None
+) -> tuple[ContextInput, ...]:
+    """`context` with `key` replaced, or dropped entirely when `replacement` is None."""
+    return tuple(
+        replacement if entry.key == key else entry
+        for entry in context
+        if replacement is not None or entry.key != key
+    )
+
+
+def evidence_envelope(
+    event_id: str,
+    items: list[dict],
+    *,
+    occurred_at: str,
+    account_ref: str = "novasignal-ai",
+    source: str = "clay-sim-later",
+) -> dict:
+    """A well-formed `evidence.recorded` envelope. Test-only, never canonical."""
+    return {
+        "schema_version": "1",
+        "event_id": event_id,
+        "event_type": "evidence.recorded",
+        "source": source,
+        "account_ref": account_ref,
+        "occurred_at": occurred_at,
+        "recorded_at": occurred_at,
+        "payload": {"items": items},
+    }
+
+
+@contextmanager
+def captured_statements(engine):
+    """Every SQL statement the engine executes inside the block.
+
+    Used to prove that reconstruction writes nothing and reads no `events` or
+    `accounts` row (INV-01, INV-02).
+    """
+    statements: list[str] = []
+
+    def _record(_conn, _cursor, statement, _parameters, _context, _executemany):
+        statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", _record)
+    try:
+        yield statements
+    finally:
+        event.remove(engine, "before_cursor_execute", _record)
