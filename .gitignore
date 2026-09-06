@@ -22,3 +22,6 @@ dist/
 
 # Local-only task prompts; never committed
 .handoffs/
+
+# Copies of handoff files saved from Claude chat cards; never committed
+Claude outputs/
