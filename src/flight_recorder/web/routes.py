@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 
-from flight_recorder.ledger.schema import accounts, events
+from flight_recorder.ledger.schema import accounts, accounts_query, events
 from flight_recorder.web.summaries import trace_row
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
@@ -31,7 +31,9 @@ def trace_query(account_ref: str):
 def account_list(request: Request):
     engine = request.app.state.engine
     with engine.connect() as conn:
-        rows = conn.execute(select(accounts).order_by(accounts.c.name)).all()
+        # `accounts_query()` excludes the reserved `_system` principal, which is
+        # infrastructure metadata rather than an account.
+        rows = conn.execute(accounts_query().order_by(accounts.c.name)).all()
     return templates.TemplateResponse(
         request,
         "accounts.html",
@@ -44,7 +46,7 @@ def account_trace(request: Request, account_ref: str):
     engine = request.app.state.engine
     with engine.connect() as conn:
         account = conn.execute(
-            select(accounts).where(accounts.c.account_ref == account_ref)
+            accounts_query().where(accounts.c.account_ref == account_ref)
         ).first()
         if account is None:
             raise HTTPException(status_code=404, detail="unknown account")

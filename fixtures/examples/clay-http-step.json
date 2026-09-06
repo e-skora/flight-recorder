@@ -38,6 +38,8 @@
   "notes": [
     "event_id must be stable across retries; Clay's row id plus the run id gives that.",
     "The account must already exist through an account.discovered event, or the collector answers 422.",
+    "Every evidence_version_id must already exist through an evidence.recorded event for the same account, with an availability time at or before decision_boundary; the recorded value and evidence_type must match this envelope exactly.",
+    "The logic artifact must already be registered through a logic_artifact.registered event under account_ref \"_system\"; an unregistered or contradicting artifact answers 422.",
     "artifact_hash is the SHA-256 of the canonical JSON of the logic artifact the workflow actually used; the zeros above are a placeholder.",
     "A retry with identical content returns 200 duplicate; a changed retry with the same event_id returns 409."
   ]

@@ -11,6 +11,11 @@ strings such as `"1.42"`. No schema-v1 field accepts a float.
 
 Timestamp convention (D-010): timezone-aware on input, normalized to UTC, and
 serialized as ISO-8601 text ending in `Z` with microsecond precision.
+
+Reserved principal: `account_ref = "_system"` (`SYSTEM_ACCOUNT_REF`) is a system
+principal, not a prospect or tenant. `logic_artifact.registered` MUST use it and
+no other event type may; both violations are rejected here, before any write.
+See `flight_recorder.ledger.schema` for the account-facing exclusion.
 """
 
 import re
@@ -28,9 +33,12 @@ from pydantic import (
     model_validator,
 )
 
+from flight_recorder.ledger.schema import SYSTEM_ACCOUNT_REF
+
 SCHEMA_VERSION = "1"
 
 EVENT_TYPES = (
+    "logic_artifact.registered",
     "account.discovered",
     "evidence.recorded",
     "decision.recorded",
@@ -83,6 +91,10 @@ class AccountDiscoveredPayload(StrictModel):
 
 class _EvidenceItemBase(StrictModel):
     evidence_version_id: NonEmptyStr
+    # INV-04: a correction appends a new version linked to the one it replaces.
+    # Whether the referenced version exists is a cross-event question, decided
+    # by the collector service, not here.
+    supersedes_evidence_version_id: NonEmptyStr | None = None
 
 
 class EmployeeCountEvidence(_EvidenceItemBase):
@@ -138,8 +150,20 @@ EvidenceItem = Annotated[
 class EvidenceRecordedPayload(StrictModel):
     items: list[EvidenceItem] = Field(min_length=1)
 
+    @model_validator(mode="after")
+    def _evidence_version_ids_are_unique(self) -> "EvidenceRecordedPayload":
+        """An evidence version is minted exactly once, so one envelope may not
+        declare the same identifier twice."""
+        duplicates = _duplicates(item.evidence_version_id for item in self.items)
+        if duplicates:
+            raise ValueError(
+                "items has more than one entry for evidence_version_id(s): "
+                + ", ".join(repr(key) for key in duplicates)
+            )
+        return self
 
-def _same_scalar(left: ScalarValue, right: ScalarValue) -> bool:
+
+def same_scalar(left: ScalarValue, right: ScalarValue) -> bool:
     """Exact scalar equality, including type.
 
     `bool` is a subclass of `int` in Python, so a plain `==` would treat JSON
@@ -251,7 +275,7 @@ class DecisionRecordedPayload(StrictModel):
                     f"consumed_inputs[{consumed.input_key!r}]: the historical_context entry "
                     f"is {entry.availability}, so it cannot have been consumed"
                 )
-            if not _same_scalar(consumed.value, entry.value):
+            if not same_scalar(consumed.value, entry.value):
                 raise ValueError(
                     f"consumed_inputs[{consumed.input_key!r}]: value {consumed.value!r} does "
                     f"not equal the historical_context value {entry.value!r}"
@@ -289,6 +313,58 @@ class OutcomeEvaluatedPayload(StrictModel):
     action_event_id: NonEmptyStr
 
 
+# --- Logic artifacts (INV-05) ----------------------------------------------
+#
+# The artifact is the logic's identity, not the `v3.2` label. Every field below
+# is part of the canonical content that `artifact_hash` digests, so the model is
+# exact: unknown fields at any level are rejected rather than silently dropped,
+# which would let two different artifacts hash alike.
+
+
+class Factor(StrictModel):
+    key: NonEmptyStr
+    rule: NonEmptyStr
+    weight: int
+
+
+class OutputMapping(StrictModel):
+    at_or_above_threshold: NonEmptyStr
+    below_threshold: NonEmptyStr
+
+
+class Activation(StrictModel):
+    activated_at: Timestamp
+    deactivated_at: Timestamp | None = None
+    status: NonEmptyStr
+
+
+class LogicArtifact(StrictModel):
+    artifact_schema_version: Literal["1"]
+    artifact_id: NonEmptyStr
+    logic_version: NonEmptyStr
+    decision_class: Literal["account_prioritization"]
+    evaluator_version: NonEmptyStr
+    factors: list[Factor] = Field(min_length=1)
+    missing_value_behavior: NonEmptyStr
+    threshold: int
+    output_mapping: OutputMapping
+    activation: Activation
+
+    @model_validator(mode="after")
+    def _factor_keys_are_unique(self) -> "LogicArtifact":
+        duplicates = _duplicates(factor.key for factor in self.factors)
+        if duplicates:
+            raise ValueError(
+                "factors has more than one entry for key(s): "
+                + ", ".join(repr(key) for key in duplicates)
+            )
+        return self
+
+
+class LogicArtifactRegisteredPayload(StrictModel):
+    artifact: LogicArtifact
+
+
 # --- Envelope --------------------------------------------------------------
 
 
@@ -305,6 +381,30 @@ class _EnvelopeBase(StrictModel):
         if self.recorded_at < self.occurred_at:
             raise ValueError("recorded_at must not be earlier than occurred_at")
         return self
+
+    @model_validator(mode="after")
+    def _system_principal_is_reserved(self) -> "_EnvelopeBase":
+        """`_system` carries logic-artifact registrations and nothing else."""
+        event_type = getattr(self, "event_type", None)
+        is_registration = event_type == "logic_artifact.registered"
+        is_system = self.account_ref == SYSTEM_ACCOUNT_REF
+        if is_registration and not is_system:
+            raise ValueError(
+                f"account_ref must be {SYSTEM_ACCOUNT_REF!r} for "
+                f"{event_type!r}; got {self.account_ref!r}"
+            )
+        if is_system and not is_registration:
+            raise ValueError(
+                f"account_ref {SYSTEM_ACCOUNT_REF!r} is reserved for "
+                "'logic_artifact.registered' and is not an account; "
+                f"{event_type!r} may not use it"
+            )
+        return self
+
+
+class LogicArtifactRegisteredEnvelope(_EnvelopeBase):
+    event_type: Literal["logic_artifact.registered"]
+    payload: LogicArtifactRegisteredPayload
 
 
 class AccountDiscoveredEnvelope(_EnvelopeBase):
@@ -348,7 +448,8 @@ class OutcomeEvaluatedEnvelope(_EnvelopeBase):
 
 
 Envelope = Annotated[
-    AccountDiscoveredEnvelope
+    LogicArtifactRegisteredEnvelope
+    | AccountDiscoveredEnvelope
     | EvidenceRecordedEnvelope
     | DecisionRecordedEnvelope
     | PersonaSelectedEnvelope
@@ -360,7 +461,8 @@ Envelope = Annotated[
 EnvelopeAdapter: TypeAdapter = TypeAdapter(Envelope)
 
 AnyEnvelope = (
-    AccountDiscoveredEnvelope
+    LogicArtifactRegisteredEnvelope
+    | AccountDiscoveredEnvelope
     | EvidenceRecordedEnvelope
     | DecisionRecordedEnvelope
     | PersonaSelectedEnvelope

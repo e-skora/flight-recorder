@@ -5,9 +5,9 @@ import re
 
 from sqlalchemy import select
 
-from flight_recorder.ledger.schema import events
+from flight_recorder.ledger.schema import SYSTEM_ACCOUNT_REF, events
 from flight_recorder.web.routes import trace_query
-from tests.conftest import canonical_by_type, canonical_envelopes, canonical_raw, seed_all
+from tests.conftest import account_envelopes, canonical_by_type, canonical_raw, seed_all
 
 KIND_ORDER = ["EVENT", "EVIDENCE", "EVIDENCE", "DECISION", "EVENT", "ACTION", "OUTCOME"]
 
@@ -18,10 +18,10 @@ def _kinds(html: str) -> list[str]:
 
 def test_seeded_trace_has_seven_rows_in_canonical_order(harness):
     seed_all(harness)
-    account_ref = canonical_envelopes()[0]["account_ref"]
+    account_ref = account_envelopes()[0]["account_ref"]
     with harness.engine.connect() as conn:
         rows = conn.execute(trace_query(account_ref)).all()
-    assert [r.event_id for r in rows] == [e["event_id"] for e in canonical_envelopes()]
+    assert [r.event_id for r in rows] == [e["event_id"] for e in account_envelopes()]
 
     page = harness.client.get(f"/accounts/{account_ref}")
     assert page.status_code == 200
@@ -58,7 +58,7 @@ def test_same_occurred_at_orders_by_ingest_sequence(harness):
 
 def test_pages_show_time_labels_and_synthetic_banner(harness):
     seed_all(harness)
-    account_ref = canonical_envelopes()[0]["account_ref"]
+    account_ref = account_envelopes()[0]["account_ref"]
     home = harness.client.get("/")
     trace = harness.client.get(f"/accounts/{account_ref}")
     for page in (home, trace):
@@ -68,6 +68,7 @@ def test_pages_show_time_labels_and_synthetic_banner(harness):
         assert "Merge" not in page.text
         assert "RelayBridge" in page.text
     assert f'href="/accounts/{account_ref}"' in home.text
+    assert SYSTEM_ACCOUNT_REF not in home.text
     assert "Occurred at" in trace.text and "Recorded at" in trace.text
     assert trace.text.count("Occurred at:") == 7
     assert trace.text.count("Recorded at:") == 7
