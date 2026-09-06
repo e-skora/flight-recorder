@@ -2,18 +2,18 @@
 
 > The only live status record. Keep it short and current. Not a backlog, roadmap, or branch log.
 
-**Updated:** 2026-09-05 (evening)
+**Updated:** 2026-09-06
 
 ## Phase
 
-**Phase 2 — Historical Decision Core: current; 2A complete, 2B built and coordinator-verified, awaiting review.** 2B built on `phase-2/evaluator` at `20e75ca` (from `main` `4ede1b3`) on 2026-09-05, verified by the coordinating session, not yet reviewed or merged. 2A accepted by ChatGPT/Codex re-review at `816b2db` on 2026-09-05, merge authorized by the user, merged into `main` as `a9a9cc4` (no-ff) on 2026-09-05. Phase 1 (Skeleton and One Trace) complete: accepted at `071da0a`, merged as `ffa42bd` on 2026-09-04. Phase 0 completed at `2cdb8b5`; stack ratified (D-010) at `d183f60`.
+**Phase 2 — Historical Decision Core: current; 2A complete, 2B built, reviewed CHANGES REQUIRED, correction in progress.** 2B built on `phase-2/evaluator` at `20e75ca` (from `main` `4ede1b3`) on 2026-09-05 and verified by the coordinating session; reviewed 2026-09-06: CHANGES REQUIRED on two narrow gaps (rule patterns accept a trailing newline; the pure evaluator does not validate boundary awareness at entry), everything else accepted. Correction task P2-B-02 issued; not merged. 2A accepted by ChatGPT/Codex re-review at `816b2db` on 2026-09-05, merge authorized by the user, merged into `main` as `a9a9cc4` (no-ff) on 2026-09-05. Phase 1 (Skeleton and One Trace) complete: accepted at `071da0a`, merged as `ffa42bd` on 2026-09-04. Phase 0 completed at `2cdb8b5`; stack ratified (D-010) at `d183f60`.
 
 ## Present Objective
 
 Phase 2 in three narrow, sequential tasks, each reviewed before the next:
 
 - **2A (done, merged `a9a9cc4`)** — domain projections (evidence versions, historical context, consumed inputs, logic artifacts, decisions, actions, outcomes) written atomically from accepted events; cross-event reference and time-boundary validation; database-level append-only protection for every projected historical record; the append-only evidence-correction/supersession representation. Closes full AC-15.
-- **2B (built, under review; branch `phase-2/evaluator` at `20e75ca`)** — `evaluator-v1`: closed rule grammar over the schema-v1 artifacts (`logic/rules.py`), pure deterministic evaluation (`logic/evaluator.py`), exact reconstruction from the projection tables (`replay/reconstruct.py`) that verifies artifact presence, JSON, content hash, strict schema, row/content identity, decision/artifact identity, and runtime evaluator identity before evaluating; NovaSignal AI reconstructs to 86 / 75 / `PRIORITIZE` with the five stored contributions and the preserved `-v1` evidence ids (AC-01, INV-05); reconstruction writes nothing, reads no `events`/`accounts`, and is unchanged by later evidence, a second account, or a new artifact (AC-04, INV-01); every integrity failure is explicit and named (AC-07 integrity half, INV-09). Branch verification at `20e75ca`: 236 tests (197 + 39 invariant), ruff clean, seed 9/0 then 0/9, CI run 34009429332 green.
+- **2B (built, correction P2-B-02 pending on branch `phase-2/evaluator`; reviewed at `20e75ca`)** — `evaluator-v1`: closed rule grammar over the schema-v1 artifacts (`logic/rules.py`), pure deterministic evaluation (`logic/evaluator.py`), exact reconstruction from the projection tables (`replay/reconstruct.py`) that verifies artifact presence, JSON, content hash, strict schema, row/content identity, decision/artifact identity, and runtime evaluator identity before evaluating; NovaSignal AI reconstructs to 86 / 75 / `PRIORITIZE` with the five stored contributions and the preserved `-v1` evidence ids (AC-01, INV-05); reconstruction writes nothing, reads no `events`/`accounts`, and is unchanged by later evidence, a second account, or a new artifact (AC-04, INV-01); every integrity failure is explicit and named (AC-07 integrity half, INV-09). Branch verification at `20e75ca`: 236 tests (197 + 39 invariant), ruff clean, seed 9/0 then 0/9, CI run 34009429332 green.
 - **2C** — correction immutability (AC-05, INV-04) and the before/at/after boundary tests (AC-03, INV-02).
 
 Phase 2 is complete only when 2A, 2B, and 2C are all proven. Counterfactual replay under `v5.1` (AC-02) is Phase 3.
@@ -45,4 +45,4 @@ None.
 
 ## Next Action (exactly one)
 
-Send `.handoffs/review-packet-p2b.md` to the reviewer; on ACCEPT and the user's explicit authorization, merge `phase-2/evaluator` at `20e75ca` into `main` (`--no-ff`) and re-verify on `main`; on CHANGES REQUIRED, write the `-02` correction task.
+Run `.handoffs/phase-2-task-2b-02.md` in the existing 2B Claude Code session on `phase-2/evaluator` (full-string rule matching; boundary awareness validated at `evaluate` entry; regression tests), then coordinator-verify the new commit, refresh `.handoffs/review-packet-p2b.md`, and send it for re-review.
