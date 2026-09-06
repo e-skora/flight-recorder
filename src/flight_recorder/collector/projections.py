@@ -118,12 +118,19 @@ def _validate_evidence(conn, normalized: dict) -> None:
             select(evidence_versions).where(evidence_versions.c.evidence_version_id == version_id)
         ).first()
         if existing is not None:
+            # Content identity of an evidence version. `available_at` belongs
+            # here because it decides which historical decisions the version was
+            # eligible for (INV-02, INV-04); re-stamping it is a different
+            # version, not a re-mint of this one. `source_event_id` does not: a
+            # re-mint always arrives under a different event, and an identical
+            # retry of the original event never reaches this function.
             submitted = (
                 account_ref,
                 item["evidence_type"],
                 evidence_value_json(item),
                 normalized["source"],
                 item.get("observed_at"),
+                available_at,
                 item.get("supersedes_evidence_version_id"),
             )
             stored = (
@@ -132,6 +139,7 @@ def _validate_evidence(conn, normalized: dict) -> None:
                 existing.value_json,
                 existing.source,
                 existing.observed_at,
+                existing.available_at,
                 existing.supersedes_evidence_version_id,
             )
             if submitted == stored:
@@ -306,7 +314,9 @@ def _validate_decision_reference(conn, normalized: dict) -> None:
 
 
 def _validate_action_reference(conn, normalized: dict) -> None:
-    """INV-08: an outcome is a later observation of an action for the same account."""
+    """INV-08 / D-007: an outcome is a *strictly* later observation of an action
+    for the same account. Persona and action events may share their decision's
+    boundary instant; an outcome may not share its action's."""
     action_event_id = normalized["payload"]["action_event_id"]
     row = conn.execute(select(actions).where(actions.c.action_event_id == action_event_id)).first()
     if row is None:
@@ -322,11 +332,12 @@ def _validate_action_reference(conn, normalized: dict) -> None:
             f"{normalized['account_ref']!r}",
             action_event_id=action_event_id,
         )
-    if row.occurred_at > normalized["occurred_at"]:
+    if row.occurred_at >= normalized["occurred_at"]:
         raise _rejected(
-            "action_is_later_than_the_outcome",
-            f"action {action_event_id!r} occurred at {row.occurred_at}, after the outcome's "
-            f"occurred_at {normalized['occurred_at']}",
+            "action_is_not_before_the_outcome",
+            f"action {action_event_id!r} occurred at {row.occurred_at}, which is not before "
+            f"the outcome's occurred_at {normalized['occurred_at']}; an outcome is a later "
+            "observation of an action that already happened",
             action_event_id=action_event_id,
         )
 

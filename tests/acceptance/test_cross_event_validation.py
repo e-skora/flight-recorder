@@ -266,6 +266,24 @@ def test_reminting_the_same_evidence_version_under_a_new_event_id_is_rejected(ha
     _assert_rejected(harness, env, "evidence_version_already_minted", EMPLOYEE_COUNT_ID)
 
 
+def test_reusing_an_evidence_version_id_with_a_different_availability_time_conflicts(harness):
+    """INV-04: `available_at` is part of the version's immutable content, because
+    it decides which historical decisions the version was eligible for."""
+    _seed_through(harness, 2)
+    env = copy.deepcopy(canonical_by_type("evidence.recorded"))
+    env["event_id"] = "evt-test-restamped-evidence"
+    later = "2026-04-17T10:04:38Z"
+    assert env["recorded_at"] != later
+    env["occurred_at"] = later
+    env["recorded_at"] = later
+    before = harness.snapshot()
+    response = harness.post(env)
+    assert response.status_code == 409
+    assert response.json()["reason"] == "evidence_version_id_reused_with_different_content"
+    assert EMPLOYEE_COUNT_ID in json.dumps(response.json())
+    assert harness.snapshot() == before
+
+
 def test_reusing_an_evidence_version_id_with_different_content_conflicts(harness):
     _seed_through(harness, 2)
     env = copy.deepcopy(canonical_by_type("evidence.recorded"))
@@ -342,16 +360,19 @@ def test_an_outcome_earlier_than_its_action_is_rejected(harness):
     env["event_id"] = "evt-test-early-outcome"
     env["occurred_at"] = "2026-04-17T10:06:59.999000Z"
     env["recorded_at"] = "2026-04-17T10:06:59.999000Z"
-    _assert_rejected(harness, env, "action_is_later_than_the_outcome", ACTION_EVENT_ID)
+    _assert_rejected(harness, env, "action_is_not_before_the_outcome", ACTION_EVENT_ID)
 
 
-def test_an_outcome_at_exactly_the_action_instant_is_admitted(harness):
+def test_an_outcome_at_exactly_the_action_instant_is_rejected(harness):
+    """INV-08 and D-007: an outcome is a *later* observation, and an eligible
+    action occurs *before* it, so the same instant is not a valid pairing."""
     _seed_through(harness, 6)
     env = copy.deepcopy(canonical_by_type("outcome.evaluated"))
     env["event_id"] = "evt-test-outcome-at-action"
     env["occurred_at"] = "2026-04-17T10:07:00Z"
     env["recorded_at"] = "2026-04-17T10:07:00Z"
-    assert harness.post(env).status_code == 201
+    body = _assert_rejected(harness, env, "action_is_not_before_the_outcome", ACTION_EVENT_ID)
+    assert "2026-04-17T10:07:00.000000Z" in body["detail"]
 
 
 def test_an_outcome_referencing_another_accounts_action_is_rejected(harness):
