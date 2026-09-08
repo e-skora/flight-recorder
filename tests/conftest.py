@@ -13,6 +13,7 @@ import pytest
 from hypothesis import HealthCheck, settings
 from sqlalchemy import event, func, select
 
+from flight_recorder.collector.canonical import canonical_hash
 from flight_recorder.collector.schema import LogicArtifact, format_utc
 from flight_recorder.fixtures import canonical_envelope_paths, load_json, logic_artifact_path
 from flight_recorder.ledger.database import reset_database
@@ -28,6 +29,7 @@ from flight_recorder.ledger.schema import (
 )
 from flight_recorder.logic.evaluator import ContextInput, InputState
 from flight_recorder.logic.rules import parse_boundary
+from flight_recorder.replay.counterfactual import replay
 from flight_recorder.replay.reconstruct import ConsumedInputRow
 
 warnings.filterwarnings(
@@ -422,3 +424,116 @@ def decision_envelope_with(
         envelope["recorded_at"] = boundary
         payload["decision_boundary"] = boundary
     return envelope
+
+
+# --- Phase 3A: the counterfactual -------------------------------------------
+#
+# Shared by `test_ac_02_counterfactual.py`, `test_ac_06_missing_inputs.py`,
+# `test_inv_06_separation.py` and the 3A additions to `test_ac_03_boundary.py`,
+# `test_ac_04_isolation.py` and `test_inv_02_boundary.py`.
+
+#: Every field of a `Counterfactual` other than `original` and `result`.
+COUNTERFACTUAL_FIELDS = (
+    "label",
+    "decision_event_id",
+    "decision_boundary",
+    "current_artifact_hash",
+    "current_logic_version",
+    "current_evaluator_version",
+    "stored_artifact_hash",
+    "recomputed_artifact_hash",
+    "runtime_evaluator_version",
+)
+
+
+def v5_1_hash() -> str:
+    """The canonical `v5.1` artifact's content hash, derived, never typed."""
+    return canonical_hash(logic_artifact("v5.1"))
+
+
+def canonical_evidence_ids() -> dict[str, str]:
+    """`input_key -> evidence_version_id` for every available entry of `H(d)`."""
+    return {
+        entry.key: entry.evidence_version_id
+        for entry in canonical_context()
+        if entry.evidence_version_id is not None
+    }
+
+
+def derived_artifact_envelope(
+    artifact_id: str,
+    logic_version: str,
+    factors: list[dict],
+    *,
+    event_id: str,
+    evaluator_version: str | None = None,
+    threshold: int | None = None,
+) -> dict:
+    """A test-only artifact derived from canonical `v5.1`, registered under `_system`.
+
+    Same evaluator, schema, missing-value behavior and output mapping as `v5.1`
+    unless overridden; its own identity. Never canonical.
+    """
+    content = copy.deepcopy(logic_artifact("v5.1"))
+    content["artifact_id"] = artifact_id
+    content["logic_version"] = logic_version
+    content["factors"] = copy.deepcopy(factors)
+    if evaluator_version is not None:
+        content["evaluator_version"] = evaluator_version
+    if threshold is not None:
+        content["threshold"] = threshold
+    content["activation"] = {
+        "activated_at": "2026-05-05T09:00:00.000000Z",
+        "deactivated_at": None,
+        "status": "current",
+    }
+    return {
+        "schema_version": "1",
+        "event_id": event_id,
+        "event_type": "logic_artifact.registered",
+        "source": "relaybridge-logic-registry",
+        "account_ref": SYSTEM_ACCOUNT_REF,
+        "occurred_at": "2026-05-05T09:00:00Z",
+        "recorded_at": "2026-05-05T09:00:00Z",
+        "payload": {"artifact": content},
+    }
+
+
+def register_derived_artifact(harness: Harness, envelope: dict) -> str:
+    """Register a test-only artifact through the collector; returns its content hash."""
+    response = harness.post(envelope)
+    assert response.status_code == 201, (envelope["event_id"], response.json())
+    return canonical_hash(envelope["payload"]["artifact"])
+
+
+def replay_under(harness: Harness, artifact_hash: str, decision_event_id: str = DECISION_EVENT_ID):
+    """`R(Lc, H(d))` through the application's replay path, on a fresh connection."""
+    with harness.engine.connect() as conn:
+        return replay(conn, decision_event_id, artifact_hash)
+
+
+def assert_same_counterfactual(after, before) -> None:
+    """`after` equals `before` field by field -- the counterfactual's own fields,
+    the original inside it, every result field, every factor's
+    `evidence_version_id` -- and then as a whole."""
+    for field in COUNTERFACTUAL_FIELDS:
+        assert getattr(after, field) == getattr(before, field), field
+    assert_same_reconstruction(after.original, before.original)
+    for field in RESULT_FIELDS:
+        assert getattr(after.result, field) == getattr(before.result, field), field
+    assert dict(after.result.context_states) == dict(before.result.context_states)
+    for after_factor, before_factor in zip(
+        after.result.factors, before.result.factors, strict=True
+    ):
+        assert after_factor == before_factor, after_factor.key
+        assert after_factor.evidence_version_id == before_factor.evidence_version_id
+    assert after == before
+
+
+def assert_same_comparison(after, before) -> None:
+    """`after` equals `before` entry by entry and then as a whole."""
+    for after_change, before_change in zip(after.contributions, before.contributions, strict=True):
+        assert after_change == before_change, after_change.key
+        assert after_change.evidence_version_id == before_change.evidence_version_id
+    assert after.missing_inputs == before.missing_inputs
+    assert after == before

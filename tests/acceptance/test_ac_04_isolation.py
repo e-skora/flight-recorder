@@ -12,18 +12,25 @@ import copy
 import pytest
 from sqlalchemy import select
 
+from flight_recorder.collector.canonical import canonical_hash
 from flight_recorder.ledger.schema import (
     decision_consumed_inputs,
     decision_context,
     decisions,
 )
 from flight_recorder.logic.evaluator import InputState
+from flight_recorder.replay.counterfactual import COUNTERFACTUAL_LABEL, compare
 from flight_recorder.replay.reconstruct import reconstruct
 from tests.conftest import (
     DECISION_EVENT_ID,
+    assert_same_comparison,
+    assert_same_counterfactual,
+    consumed_versions,
     evidence_envelope,
     logic_artifact,
+    replay_under,
     seed_all,
+    v5_1_hash,
 )
 
 #: The `-v1` evidence versions the decision preserved. Nothing appended later
@@ -198,3 +205,40 @@ def test_the_reconstruction_still_resolves_the_v1_evidence_versions(seeded):
             )
         ).scalars()
         assert "ev-novasignal-employee-count-v9" not in set(newer)
+
+
+# --- The counterfactual half ------------------------------------------------------
+
+
+def test_later_evidence_new_accounts_and_new_logic_leave_the_counterfactual_unchanged(seeded):
+    """The `v3.3` artifact `append_the_present` registers is a *different*
+    current artifact: nothing may pick it up. The current artifact is the
+    explicitly selected one, never "the latest"."""
+    before_cf = replay_under(seeded, v5_1_hash())
+    rows_before = decision_rows(seeded)
+    assert before_cf.result.score == 51
+
+    append_the_present(seeded)
+
+    after_cf = replay_under(seeded, v5_1_hash())
+    assert_same_counterfactual(after_cf, before_cf)
+    assert_same_comparison(compare(after_cf), compare(before_cf))
+    assert consumed_versions(after_cf.result) == {
+        **PRESERVED_EVIDENCE,
+        "verified_integration_pressure": "ev-novasignal-verified-integration-pressure-v1",
+    }
+    assert after_cf.result.score == 51
+    assert decision_rows(seeded) == rows_before
+
+    v33_hash = canonical_hash(new_artifact_envelope()["payload"]["artifact"])
+    under_v33 = replay_under(seeded, v33_hash)
+    assert under_v33 != after_cf
+    assert under_v33.label == COUNTERFACTUAL_LABEL
+    assert under_v33.current_logic_version == "v3.3"
+    assert under_v33.current_artifact_hash == v33_hash
+    assert (under_v33.result.score, under_v33.result.output) == (86 + 25, "PRIORITIZE")
+    assert consumed_versions(under_v33.result) == PRESERVED_EVIDENCE
+    for change in compare(under_v33).contributions:
+        assert (change.change, change.contribution_delta) == ("reweighted", 5), change.key
+    assert compare(under_v33).score_delta == 25
+    assert decision_rows(seeded) == rows_before
