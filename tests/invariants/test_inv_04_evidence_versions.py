@@ -7,6 +7,7 @@ this representation is Phase 2A's obligation; AC-05's full proof is 2C.
 """
 
 import copy
+import re
 
 import pytest
 from sqlalchemy import select
@@ -16,7 +17,18 @@ from flight_recorder.ledger.schema import (
     decision_context,
     evidence_versions,
 )
-from tests.conftest import Harness, local_fixture, seed_all
+from flight_recorder.replay.reconstruct import reconstruct
+from tests.conftest import (
+    Harness,
+    canonical_by_type,
+    captured_statements,
+    consumed_versions,
+    evidence_envelope,
+    factor,
+    local_fixture,
+    seed_all,
+    stored_form,
+)
 
 pytestmark = pytest.mark.invariant
 
@@ -197,3 +209,77 @@ def test_the_supersession_link_is_itself_append_only(harness):
             .values(supersedes_evidence_version_id=None)
         )
     assert harness.projection_rows() == before
+
+
+# --- Phase 2C: the full proof obligations, at the reconstruction level ---------
+#
+# INV-04: "tests append a corrected version, retain both, and prove the
+# original decision resolves to the original value and provenance."
+
+
+def _chain(harness: Harness) -> None:
+    """`-v1` -> `-v2` (191) -> `-v3` (205), both corrections after the boundary."""
+    for response in seed_all(harness):
+        assert response.status_code == 201
+    assert harness.post(correction()).status_code == 201
+    assert (
+        harness.post(
+            evidence_envelope(
+                "evt-test-employee-count-corrected-again",
+                [
+                    {
+                        "evidence_version_id": "ev-novasignal-employee-count-v3",
+                        "evidence_type": "employee_count",
+                        "value": 205,
+                        "supersedes_evidence_version_id": CORRECTION_ID,
+                    }
+                ],
+                occurred_at="2026-04-22T09:00:00Z",
+                source="clay-sim-correction",
+            )
+        ).status_code
+        == 201
+    )
+
+
+def test_the_reconstruction_reads_evidence_by_preserved_id_only_after_a_chain(harness):
+    _chain(harness)
+
+    with captured_statements(harness.engine) as statements, harness.engine.connect() as conn:
+        reconstructed = reconstruct(conn, DECISION_EVENT_ID)
+
+    reads = [s for s in statements if "evidence_versions" in s]
+    assert reads, "the reconstruction must read evidence_versions at least once"
+    for statement in reads:
+        assert "evidence_versions.evidence_version_id = ?" in statement, statement
+        for forbidden in ("supersedes_evidence_version_id", "account_ref", "evidence_type"):
+            assert forbidden not in statement, statement
+        assert not re.search(r"\bORDER BY\b", statement, re.IGNORECASE), statement
+
+    assert consumed_versions(reconstructed.result)["employee_count"] == ORIGINAL_ID
+    assert factor(reconstructed.result, "employee_count").contribution == 25
+
+
+def test_the_original_resolves_to_the_original_provenance_through_reconstruction(harness):
+    _seeded_and_corrected(harness)
+    enrichment = canonical_by_type("evidence.recorded")
+
+    with harness.engine.connect() as conn:
+        reconstructed = reconstruct(conn, DECISION_EVENT_ID)
+    reported = consumed_versions(reconstructed.result)
+    assert len(reported) == 5
+
+    for input_key, version_id in reported.items():
+        assert version_id.endswith("-v1"), (input_key, version_id)
+        assert not version_id.endswith("-v2"), (input_key, version_id)
+        row = _evidence(harness, version_id)
+        assert row is not None
+        assert row.evidence_type == input_key
+        assert row.source == enrichment["source"] == "clay-sim"
+        assert row.available_at == stored_form(enrichment["recorded_at"])
+        assert row.available_at == "2026-04-17T10:04:37.000000Z"
+        assert row.source_event_id == enrichment["event_id"]
+        assert row.supersedes_evidence_version_id is None
+
+    assert CORRECTION_ID not in reported.values()
+    assert _evidence(harness, CORRECTION_ID) is not None

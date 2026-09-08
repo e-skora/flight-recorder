@@ -1,5 +1,6 @@
 """Shared fixtures: temp SQLite per test, in-process client, canonical fixture access."""
 
+import copy
 import json
 import os
 import uuid
@@ -12,16 +13,20 @@ import pytest
 from hypothesis import HealthCheck, settings
 from sqlalchemy import event, func, select
 
-from flight_recorder.collector.schema import LogicArtifact
+from flight_recorder.collector.schema import LogicArtifact, format_utc
 from flight_recorder.fixtures import canonical_envelope_paths, load_json, logic_artifact_path
 from flight_recorder.ledger.database import reset_database
 from flight_recorder.ledger.schema import (
     PROJECTION_TABLES,
     SYSTEM_ACCOUNT_REF,
     accounts,
+    decision_consumed_inputs,
+    decision_context,
+    decisions,
     events,
+    evidence_versions,
 )
-from flight_recorder.logic.evaluator import ContextInput
+from flight_recorder.logic.evaluator import ContextInput, InputState
 from flight_recorder.logic.rules import parse_boundary
 from flight_recorder.replay.reconstruct import ConsumedInputRow
 
@@ -293,3 +298,127 @@ def captured_statements(engine):
         yield statements
     finally:
         event.remove(engine, "before_cursor_execute", _record)
+
+
+# --- Phase 2C: corrections, the decision boundary ---------------------------
+#
+# Shared by `test_ac_05_corrections.py`, `test_ac_03_boundary.py`,
+# `test_inv_02_boundary.py` and the 2C additions to
+# `test_inv_04_evidence_versions.py`.
+
+#: Every field of a `Reconstruction` other than `result`.
+RECONSTRUCTION_FIELDS = (
+    "decision_event_id",
+    "artifact_hash",
+    "logic_version",
+    "evaluator_version",
+    "decision_boundary",
+    "stored_artifact_hash",
+    "recomputed_artifact_hash",
+    "runtime_evaluator_version",
+)
+
+#: Every field of an `EvaluationResult`.
+RESULT_FIELDS = ("score", "threshold", "output", "ignored_inputs", "factors", "context_states")
+
+
+def stored_form(text: str) -> str:
+    """The persisted D-010 form of an ISO-8601 instant: microseconds and `Z`.
+
+    The same normalization the collector applies (`Timestamp` -> `format_utc`),
+    so a test can state an instant in any aware spelling and still know the
+    exact text the ledger holds for it.
+    """
+    return format_utc(datetime.fromisoformat(text))
+
+
+def decision_rows(harness: Harness, decision_event_id: str = DECISION_EVENT_ID):
+    """Every projected row belonging to one decision, keyed by table name."""
+    with harness.engine.connect() as conn:
+        return {
+            table.name: [
+                tuple(row)
+                for row in conn.execute(
+                    select(table)
+                    .where(table.c.decision_event_id == decision_event_id)
+                    .order_by(*table.primary_key.columns)
+                )
+            ]
+            for table in (decisions, decision_context, decision_consumed_inputs)
+        }
+
+
+def evidence_version_row(harness: Harness, evidence_version_id: str):
+    """One `evidence_versions` row by primary key, or None."""
+    with harness.engine.connect() as conn:
+        return conn.execute(
+            select(evidence_versions).where(
+                evidence_versions.c.evidence_version_id == evidence_version_id
+            )
+        ).first()
+
+
+def factor(result, key: str):
+    """The evaluated factor for `key`."""
+    return next(f for f in result.factors if f.key == key)
+
+
+def consumed_versions(result) -> dict[str, str]:
+    """`input_key -> evidence_version_id` for every consumed factor."""
+    return {
+        f.key: f.evidence_version_id for f in result.factors if f.input_state is InputState.CONSUMED
+    }
+
+
+def assert_same_reconstruction(after, before) -> None:
+    """`after` equals `before` field by field, including every factor's
+    `evidence_version_id`, and then as a whole."""
+    for field in RECONSTRUCTION_FIELDS:
+        assert getattr(after, field) == getattr(before, field), field
+    for field in RESULT_FIELDS:
+        assert getattr(after.result, field) == getattr(before.result, field), field
+    assert dict(after.result.context_states) == dict(before.result.context_states)
+    for after_factor, before_factor in zip(
+        after.result.factors, before.result.factors, strict=True
+    ):
+        assert after_factor == before_factor, after_factor.key
+        assert after_factor.evidence_version_id == before_factor.evidence_version_id
+    assert after == before
+
+
+def decision_envelope_with(
+    event_id: str,
+    *,
+    input_key: str,
+    value,
+    evidence_version_id: str,
+    contribution: int,
+    score: int,
+    output: str,
+    boundary: str | None = None,
+) -> dict:
+    """The canonical `decision.recorded` envelope with one input re-pointed.
+
+    Everything is the canonical decision except: `event_id`; the
+    `historical_context` and `consumed_inputs` entries for `input_key`, which
+    now preserve `value` from `evidence_version_id` with `contribution`; the
+    recorded `result`; and, when `boundary` is given, `occurred_at`,
+    `recorded_at` and `payload.decision_boundary`, all set to that one spelling.
+    """
+    envelope = copy.deepcopy(canonical_by_type("decision.recorded"))
+    envelope["event_id"] = event_id
+    payload = envelope["payload"]
+    entry = next(e for e in payload["historical_context"] if e["input_key"] == input_key)
+    entry.update(value=value, availability="available", evidence_version_id=evidence_version_id)
+    used = next(u for u in payload["consumed_inputs"] if u["input_key"] == input_key)
+    used.update(value=value, evidence_version_id=evidence_version_id, contribution=contribution)
+    payload["result"] = {
+        "score": score,
+        "threshold": payload["result"]["threshold"],
+        "output": output,
+    }
+    if boundary is not None:
+        envelope["occurred_at"] = boundary
+        envelope["recorded_at"] = boundary
+        payload["decision_boundary"] = boundary
+    return envelope
