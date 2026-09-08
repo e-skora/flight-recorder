@@ -14,6 +14,7 @@ from datetime import date
 import pytest
 from sqlalchemy import select
 
+from flight_recorder.collector.schema import format_utc
 from flight_recorder.ledger.schema import decision_consumed_inputs, evidence_versions
 from flight_recorder.logic.evaluator import EVALUATOR_VERSION, InputState, evaluate
 from flight_recorder.logic.rules import RuleTypeError
@@ -99,7 +100,7 @@ def test_the_funding_rule_reads_the_preserved_evidence_versions_observation_date
                 evidence_versions.c.evidence_version_id == FUNDING_EVIDENCE_ID
             )
         ).scalar_one()
-        context = load_context(conn, DECISION_EVENT_ID)
+        context = load_context(conn, DECISION_EVENT_ID, format_utc(canonical_boundary()))
 
     assert observed_at == "2026-03-30"
     funding = next(entry for entry in context if entry.key == "funding_event")

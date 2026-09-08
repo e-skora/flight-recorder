@@ -22,7 +22,9 @@ these steps in order and stops at the first failure:
 8. require the verified `evaluator_version` to equal this runtime's
    `EVALUATOR_VERSION` (field `evaluator_version`);
 9. load `H(d)` for this decision, resolving each linked evidence version by the
-   immutable id the decision preserved;
+   immutable id the decision preserved and requiring its `available_at` not to
+   be after the decision boundary (field `available_at`) -- for every preserved
+   reference, consumed or ignored, before anything is evaluated (INV-02);
 10. parse every rule, then evaluate;
 11. compare the result with what was recorded (`ReconstructionMismatch`).
 
@@ -32,6 +34,13 @@ directly; `reconstruct` calls that same helper rather than a parallel copy.
 Reads only. Reconstruction writes nothing anywhere, and touches neither
 `events` nor `accounts`: evidence is resolved by the preserved
 `evidence_version_id`, never by account or recency (INV-01, INV-02).
+
+Step 9 verifies the sealed context; it never rebuilds it. Membership in `H(d)`
+is what the decision preserved, the supersession link is never followed, and no
+timestamp decides which version to read. The availability check only refuses a
+preserved reference that the collector would have refused at ingest, so a row
+that reached `evidence_versions` without crossing the collector cannot smuggle
+later evidence into a reconstruction.
 """
 
 import json
@@ -61,6 +70,7 @@ __all__ = [
     "ConsumedInputRow",
     "DecisionNotFound",
     "DecisionRow",
+    "EvidenceVersionRow",
     "IntegrityFailure",
     "Reconstruction",
     "ReconstructionError",
@@ -71,6 +81,7 @@ __all__ = [
     "load_consumed_inputs",
     "load_context",
     "load_decision_row",
+    "load_evidence_version",
     "reconstruct",
     "verify_artifact",
 ]
@@ -419,15 +430,26 @@ def load_artifact_row(conn, artifact_hash: str) -> ArtifactRow | None:
     )
 
 
-def _observed_at(conn, evidence_version_id: str) -> date | None:
-    """The observation date of one evidence version, resolved by primary key.
+@dataclass(frozen=True)
+class EvidenceVersionRow:
+    """The two columns of one evidence version that reconstruction reads."""
+
+    evidence_version_id: str
+    observed_at: date | None
+    #: Stored D-010 text, `YYYY-MM-DDTHH:MM:SS.ffffffZ`.
+    available_at: str
+
+
+def load_evidence_version(conn, evidence_version_id: str) -> EvidenceVersionRow:
+    """One evidence version's `observed_at` and `available_at`, by primary key.
 
     This is the only read of `evidence_versions` in the whole reconstruction,
     and it is by the immutable id the decision preserved. The supersession link
-    is never followed and no newer version is ever consulted (INV-01, INV-02).
+    is never followed, no `account_ref` or `evidence_type` filter is applied,
+    and no newer version is ever consulted (INV-01, INV-02).
     """
     row = conn.execute(
-        select(evidence_versions.c.observed_at).where(
+        select(evidence_versions.c.observed_at, evidence_versions.c.available_at).where(
             evidence_versions.c.evidence_version_id == evidence_version_id
         )
     ).first()
@@ -438,32 +460,69 @@ def _observed_at(conn, evidence_version_id: str) -> date | None:
             "which is not stored",
             stored=evidence_version_id,
         )
-    return date.fromisoformat(row.observed_at) if row.observed_at is not None else None
+    return EvidenceVersionRow(
+        evidence_version_id=evidence_version_id,
+        observed_at=date.fromisoformat(row.observed_at) if row.observed_at is not None else None,
+        available_at=row.available_at,
+    )
 
 
-def load_context(conn, decision_event_id: str) -> tuple[ContextInput, ...]:
-    """`H(d)`: every preserved input of one decision, in a stable key order."""
+def load_context(conn, decision_event_id: str, decision_boundary: str) -> tuple[ContextInput, ...]:
+    """`H(d)`: every preserved input of one decision, in a stable key order.
+
+    Every entry that carries an `evidence_version_id` is resolved by that id
+    and its stored `available_at` is required not to be after
+    `decision_boundary` (INV-02: `available_at(e) > T(d) => e not in H(d)`).
+    The check runs here, at the context read, for every preserved reference --
+    a historically available input no factor consumes is checked exactly like a
+    consumed one -- and before any evaluation. A later reference is an
+    `IntegrityFailure` on field `available_at`, with `stored` the row's
+    `available_at` and `recomputed` the boundary text. Equality is admitted.
+
+    Precondition: `decision_boundary` is the decision's stored boundary text
+    from the `decisions` row (or a value produced by `format_utc`), and both it
+    and every `available_at` are in the collector's fixed-width normalized
+    format `YYYY-MM-DDTHH:MM:SS.ffffffZ`, on which lexical order is
+    chronological order. The comparison is the same string comparison the
+    collector makes at ingest (`_validate_decision`); an arbitrary ISO string
+    is not a valid argument.
+
+    This verifies the sealed context; it does not rebuild it. Membership stays
+    what the decision preserved and the supersession link is never followed.
+    """
     rows = conn.execute(
         select(decision_context)
         .where(decision_context.c.decision_event_id == decision_event_id)
         .order_by(decision_context.c.input_key)
     ).all()
-    return tuple(
-        ContextInput(
-            key=row.input_key,
-            availability=row.availability,
-            # The same canonical JSON codec the projection wrote with, so
-            # `184`, `"184"` and `true` stay distinguishable.
-            value=json.loads(row.value_text) if row.value_text is not None else None,
-            evidence_version_id=row.evidence_version_id,
-            observed_at=(
-                _observed_at(conn, row.evidence_version_id)
-                if row.evidence_version_id is not None
-                else None
-            ),
+    context: list[ContextInput] = []
+    for row in rows:
+        evidence = (
+            load_evidence_version(conn, row.evidence_version_id)
+            if row.evidence_version_id is not None
+            else None
         )
-        for row in rows
-    )
+        if evidence is not None and evidence.available_at > decision_boundary:
+            raise IntegrityFailure(
+                "available_at",
+                f"the preserved context of {decision_event_id!r} references evidence version "
+                f"{evidence.evidence_version_id!r} for {row.input_key!r}, available at "
+                f"{evidence.available_at}, after the decision boundary {decision_boundary}",
+                stored=evidence.available_at,
+                recomputed=decision_boundary,
+            )
+        context.append(
+            ContextInput(
+                key=row.input_key,
+                availability=row.availability,
+                # The same canonical JSON codec the projection wrote with, so
+                # `184`, `"184"` and `true` stay distinguishable.
+                value=json.loads(row.value_text) if row.value_text is not None else None,
+                evidence_version_id=row.evidence_version_id,
+                observed_at=evidence.observed_at if evidence is not None else None,
+            )
+        )
+    return tuple(context)
 
 
 def load_consumed_inputs(conn, decision_event_id: str) -> tuple[ConsumedInputRow, ...]:
@@ -496,7 +555,7 @@ def reconstruct(conn, decision_event_id: str) -> Reconstruction:
     verified = verify_artifact(artifact_row, decision_row)
 
     boundary = parse_boundary(decision_row.decision_boundary)
-    context = load_context(conn, decision_event_id)
+    context = load_context(conn, decision_event_id, decision_row.decision_boundary)
     result = evaluate(verified.artifact, context, boundary)
 
     compare_with_recorded(result, decision_row, load_consumed_inputs(conn, decision_event_id))
