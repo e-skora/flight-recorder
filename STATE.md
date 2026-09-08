@@ -2,11 +2,11 @@
 
 > The only live status record. Keep it short and current. Not a backlog, roadmap, or branch log.
 
-**Updated:** 2026-09-07
+**Updated:** 2026-09-08
 
 ## Phase
 
-**Phase 2 — Historical Decision Core: current; 2A and 2B complete, 2C next.** 2B built on `phase-2/evaluator` at `20e75ca`, reviewed CHANGES REQUIRED 2026-09-06 (two narrow gaps), corrected in `2558803` (task P2-B-02), accepted by the ChatGPT project reviewer 2026-09-07, merge authorized by the user, merged into `main` as `04222b3` (no-ff) on 2026-09-07. 2A accepted by ChatGPT/Codex re-review at `816b2db` on 2026-09-05, merge authorized by the user, merged into `main` as `a9a9cc4` (no-ff) on 2026-09-05. Phase 1 (Skeleton and One Trace) complete: accepted at `071da0a`, merged as `ffa42bd` on 2026-09-04. Phase 0 completed at `2cdb8b5`; stack ratified (D-010) at `d183f60`.
+**Phase 2 — Historical Decision Core: current; 2A and 2B complete, 2C built and under review.** 2C built on `phase-2/corrections` at `53df754` (five commits on `main` `9aab4d0`, 2026-09-08), coordinator-verified (290 tests, ruff clean, seed unchanged, CI run 34202851891 green), review packet sent to the ChatGPT project reviewer; not merged. 2B built on `phase-2/evaluator` at `20e75ca`, reviewed CHANGES REQUIRED 2026-09-06 (two narrow gaps), corrected in `2558803` (task P2-B-02), accepted by the ChatGPT project reviewer 2026-09-07, merge authorized by the user, merged into `main` as `04222b3` (no-ff) on 2026-09-07. 2A accepted by ChatGPT/Codex re-review at `816b2db` on 2026-09-05, merge authorized by the user, merged into `main` as `a9a9cc4` (no-ff) on 2026-09-05. Phase 1 (Skeleton and One Trace) complete: accepted at `071da0a`, merged as `ffa42bd` on 2026-09-04. Phase 0 completed at `2cdb8b5`; stack ratified (D-010) at `d183f60`.
 
 ## Present Objective
 
@@ -14,7 +14,7 @@ Phase 2 in three narrow, sequential tasks, each reviewed before the next:
 
 - **2A (done, merged `a9a9cc4`)** — domain projections (evidence versions, historical context, consumed inputs, logic artifacts, decisions, actions, outcomes) written atomically from accepted events; cross-event reference and time-boundary validation; database-level append-only protection for every projected historical record; the append-only evidence-correction/supersession representation. Closes full AC-15.
 - **2B (done, merged `04222b3`)** — `evaluator-v1`: closed rule grammar over the schema-v1 artifacts (`logic/rules.py`), pure deterministic evaluation (`logic/evaluator.py`), exact reconstruction from the projection tables (`replay/reconstruct.py`) that verifies artifact presence, JSON, content hash, strict schema, row/content identity, decision/artifact identity, and runtime evaluator identity before evaluating; NovaSignal AI reconstructs to 86 / 75 / `PRIORITIZE` with the five stored contributions and the preserved `-v1` evidence ids (AC-01, INV-05); reconstruction writes nothing, reads no `events`/`accounts`, and is unchanged by later evidence, a second account, or a new artifact (AC-04, INV-01); every integrity failure is explicit and named (AC-07 integrity half, INV-09). Rule grammar closed with `fullmatch`; boundary awareness validated at `evaluate` entry.
-- **2C** — correction immutability (AC-05, INV-04) and the before/at/after boundary tests (AC-03, INV-02).
+- **2C (built, under review; branch `phase-2/corrections` at `53df754`)** — correction immutability (AC-05, INV-04) and the before/at/after boundary tests (AC-03, INV-02) proven at the reconstruction level; one code change (`load_context` verifies every preserved evidence reference's `available_at` against the stored boundary before evaluation, consumed or ignored; equality admitted). Counterfactual half of AC-03 stays Phase 3.
 
 Phase 2 is complete only when 2A, 2B, and 2C are all proven. Counterfactual replay under `v5.1` (AC-02) is Phase 3.
 
@@ -48,4 +48,4 @@ None.
 
 ## Next Action (exactly one)
 
-Scope Phase 2C narrowly (correction immutability: AC-05 / INV-04 full proof obligations; the before/at/after decision-boundary suite: AC-03 / INV-02) as `.handoffs/phase-2-task-2c.md`, send the task file for pre-dispatch review, then run it in Claude Code on a new branch `phase-2/corrections` from current `main`.
+Obtain the ChatGPT project reviewer's decision on `.handoffs/review-packet-p2c.md` (branch `phase-2/corrections` at `53df754`); on ACCEPT and the user's explicit authorization, merge `--no-ff` into `main`, re-verify on `main`, and record 2C complete here with its accepted constraints. On CHANGES REQUIRED, a `-02` correction task in the same Claude Code session on the same branch.
