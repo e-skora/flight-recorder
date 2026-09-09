@@ -53,6 +53,18 @@ from flight_recorder.ledger.schema import (
     logic_artifacts,
     outcomes,
 )
+from flight_recorder.logic.evaluator import (
+    DuplicateContextKey,
+    EvaluationError,
+    UnsupportedMissingValueBehavior,
+)
+from flight_recorder.logic.rules import (
+    RuleError,
+    RuleKeyMismatch,
+    RuleTypeError,
+    UnsupportedBoundary,
+    UnsupportedRule,
+)
 from flight_recorder.replay.reconstruct import (
     ArtifactMissing,
     DecisionNotFound,
@@ -63,9 +75,13 @@ from flight_recorder.replay.reconstruct import (
 
 __all__ = [
     "ABSENT",
+    "ARTIFACT_UNREADABLE",
     "AVAILABLE_BUT_IGNORED",
     "CONSUMED",
+    "CONTEXT_WITHOUT_ARTIFACT",
     "NOT_CONSUMED",
+    "ORIGIN_RECORDED_LOGIC",
+    "ORIGIN_SELECTED_ARTIFACT",
     "UNAVAILABLE",
     "ActionRow",
     "ArtifactOption",
@@ -230,12 +246,19 @@ class FailureField:
 
 @dataclass(frozen=True)
 class ReplayFailure:
-    """A `ReconstructionError`, named and readable, for the failure region."""
+    """One replay failure, named and readable, for the failure region.
+
+    The failure is a `ReconstructionError`, a `RuleError` or an
+    `EvaluationError`. `origin` is the sentence saying which side of the replay
+    raised it -- the decision's own recorded logic, or the selected current
+    artifact -- and is None only when the caller did not establish it.
+    """
 
     class_name: str
     summary: str
     message: str
     fields: tuple[FailureField, ...]
+    origin: str | None = None
 
 
 @dataclass(frozen=True)
@@ -579,12 +602,21 @@ def _triple_lines(value) -> tuple[str, ...]:
 #: What each failure class carries, under its own attribute names. A
 #: `ReconstructionMismatch` is never relabelled as stored/recomputed: those mean
 #: the ledger versus a recomputation, while recorded/reconstructed mean the
-#: record versus the reproduction.
+#: record versus the reproduction. The rule and evaluation families are keyed
+#: here too: a logic artifact the collector accepts can still carry a rule the
+#: closed grammar refuses or a missing-value behavior the evaluator does not
+#: implement, and each must name itself on the page rather than crash it.
 _FAILURE_FIELDS: dict[type, tuple[str, ...]] = {
     DecisionNotFound: ("decision_event_id",),
     ArtifactMissing: ("artifact_hash",),
     IntegrityFailure: ("field", "detail", "stored", "recomputed"),
     ReconstructionMismatch: ("field", "recorded", "reconstructed"),
+    UnsupportedRule: ("key", "text"),
+    RuleKeyMismatch: ("key", "rule_key", "text"),
+    RuleTypeError: ("key", "detail"),
+    UnsupportedBoundary: ("text", "detail"),
+    UnsupportedMissingValueBehavior: ("behavior",),
+    DuplicateContextKey: ("key",),
 }
 
 _FAILURE_SUMMARIES: dict[type, str] = {
@@ -603,20 +635,66 @@ _FAILURE_SUMMARIES: dict[type, str] = {
         "Re-running the preserved logic over the preserved context did not reproduce the "
         "recorded decision, so no counterfactual was computed."
     ),
+    UnsupportedRule: (
+        "A factor's rule is not a shape this evaluator can interpret, so the logic could not "
+        "be evaluated and no counterfactual was computed."
+    ),
+    RuleKeyMismatch: (
+        "A factor's rule names a different input from the factor's own key, so the logic "
+        "could not be evaluated and no counterfactual was computed."
+    ),
+    RuleTypeError: (
+        "A factor's rule does not fit the preserved value it was applied to, so the logic "
+        "could not be evaluated and no counterfactual was computed."
+    ),
+    UnsupportedBoundary: (
+        "The decision boundary is not an explicit UTC instant, so nothing could be evaluated "
+        "against it and no counterfactual was computed."
+    ),
+    UnsupportedMissingValueBehavior: (
+        "The artifact declares a missing-value behavior this evaluator does not implement, so "
+        "the logic could not be evaluated and no counterfactual was computed."
+    ),
+    DuplicateContextKey: (
+        "The preserved historical context presents the same input key more than once, so it "
+        "could not be evaluated and no counterfactual was computed."
+    ),
 }
+
+#: Which side of the replay raised the failure. Reproducing the decision's own
+#: preserved logic and evaluating the selected current artifact are different
+#: facts, and the page never guesses between them from the exception's type.
+ORIGIN_RECORDED_LOGIC = (
+    "This failure arose while reproducing the decision's own recorded logic, not while "
+    "evaluating the selected current logic artifact."
+)
+ORIGIN_SELECTED_ARTIFACT = (
+    "This failure arose while evaluating the selected current logic artifact, not while "
+    "reproducing the decision's own recorded logic."
+)
 
 _GENERIC_SUMMARY = (
     "Replay could not be established for this decision, so no counterfactual was computed."
 )
 
 
-def failure_view(error: ReconstructionError) -> ReplayFailure:
-    """One `ReconstructionError` as a named, readable view model.
+def failure_view(
+    error: ReconstructionError | RuleError | EvaluationError,
+    origin: str | None = None,
+) -> ReplayFailure:
+    """One replay failure as a named, readable view model.
 
-    Every class exposes the attributes it actually carries, under those names.
-    The diagnostic values are shown deliberately: a mismatch's recorded and
-    reconstructed values are the whole point of the failure, and hiding them
-    would defeat it. Nothing here is a comparison or a counterfactual result.
+    Every class exposes the attributes it actually carries, under those names,
+    and `class_name` is always the concrete class -- `UnsupportedRule`, never
+    the family's base `RuleError`. The diagnostic values are shown
+    deliberately: a mismatch's recorded and reconstructed values are the whole
+    point of the failure, and hiding them would defeat it. Nothing here is a
+    comparison or a counterfactual result.
+
+    A family member with no entry in `_FAILURE_FIELDS` still renders. Rather
+    than an empty field table it falls back to its own class name and the
+    exception's message, so a failure this module has not been taught about is
+    still inspectable instead of anonymous.
     """
     names = _FAILURE_FIELDS.get(type(error), ())
     fields = tuple(
@@ -624,9 +702,15 @@ def failure_view(error: ReconstructionError) -> ReplayFailure:
         for name in names
         if hasattr(error, name)
     )
+    if not fields:
+        fields = (
+            FailureField(name="failure class", lines=(type(error).__name__,)),
+            FailureField(name="message", lines=(str(error),)),
+        )
     return ReplayFailure(
         class_name=type(error).__name__,
         summary=_FAILURE_SUMMARIES.get(type(error), _GENERIC_SUMMARY),
         message=str(error),
         fields=fields,
+        origin=origin,
     )

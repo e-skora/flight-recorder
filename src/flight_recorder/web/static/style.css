@@ -47,3 +47,5 @@ select, button { font: inherit; padding: .3rem .5rem; }
 button { cursor: pointer; }
 select:focus-visible, button:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 .failure-name, .list-label { font-weight: 700; }
+.failure-origin { font-weight: 700; }
+.counterfactual-computed { color: var(--muted); }

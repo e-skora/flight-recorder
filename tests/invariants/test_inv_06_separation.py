@@ -54,6 +54,10 @@ from tests.conftest import (
     seed_all,
     v5_1_hash,
 )
+from tests.invariants.test_inv_09_visible_failure_states import (
+    mutated_artifact,
+    register_unsupported_rule_artifact,
+)
 
 pytestmark = pytest.mark.invariant
 
@@ -302,3 +306,41 @@ def test_viewing_the_decision_page_persists_no_counterfactual(seeded):
 
     with seeded.engine.connect() as conn:
         assert_same_reconstruction(reconstruct(conn, DECISION_EVENT_ID), before)
+
+
+def test_viewing_a_failing_decision_page_persists_nothing_either(seeded):
+    """A page that cannot replay writes no more than one that can.
+
+    Two failure pages are loaded: an artifact whose rule the grammar does not
+    support, and one whose `missing_value_behavior` the evaluator does not
+    implement. Both render a named failure at 200, and the failure path --
+    including the second `reconstruct` that establishes where the failure arose
+    -- is read-only like every other page path (INV-06, INV-09).
+    """
+    unsupported_rule_hash = register_unsupported_rule_artifact(seeded)
+    bad_behavior_hash = mutated_artifact(
+        seeded,
+        "test-bad-missing-value",
+        "v5.1-test-bad-missing-value",
+        "evt-system-logic-artifact-test-bad-missing-value",
+        lambda artifact: artifact.update(missing_value_behavior="guess_the_value"),
+    )
+
+    snapshot_before = seeded.snapshot()
+    rows_before = decision_rows(seeded)
+    events_before = seeded.event_count()
+
+    url = decision_url()
+    with captured_statements(seeded.app.state.engine) as statements:
+        for artifact_hash in (unsupported_rule_hash, bad_behavior_hash):
+            response = seeded.client.get(url + f"?current={artifact_hash}")
+            assert response.status_code == 200, response.status_code
+            assert 'id="replay-integrity-failure"' in response.text
+
+    assert [s for s in statements if "logic_artifacts" in s]
+    for statement in statements:
+        assert not statement.strip().upper().startswith(("INSERT", "UPDATE", "DELETE")), statement
+
+    assert seeded.snapshot() == snapshot_before
+    assert decision_rows(seeded) == rows_before
+    assert seeded.event_count() == events_before

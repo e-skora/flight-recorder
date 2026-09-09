@@ -6,7 +6,7 @@
 <section id="decision-summary">
   <nav aria-label="Breadcrumb"><a href="/">Accounts</a> › <a href="/accounts/{{ account.account_ref }}">{{ account.name }}</a> › Decision</nav>
   <h1>{{ account.name }}: recorded {{ decision.decision_class }} decision</h1>
-  <p class="lede">Every field below is read from the recorded ledger. Nothing on this page recomputes the decision.</p>
+  <p class="lede">Every field in the recorded sections below is read from the recorded ledger, and nothing in them recomputes the decision. The replay panel at the end of the page is the exception: it is computed now, on each load, and is not part of the record.</p>
   <dl class="fields">
     <dt>Decision class</dt><dd>{{ decision.decision_class }}</dd>
     <dt>Output</dt><dd id="decision-output">{{ decision.output }}</dd>
@@ -186,8 +186,7 @@
 
 <section id="replay-panel">
   <h2>Replay: the preserved historical context under selected current logic</h2>
-  <p class="counterfactual-warning"><strong>Counterfactual. This decision did not occur.</strong> It is the historical context preserved at <time datetime="{{ decision.decision_boundary }}">{{ decision.decision_boundary }}</time>, evaluated now under {{ current_logic_text }}. No present-day evidence entered it.</p>
-  <p>The counterfactual is computed on demand each time this page is opened and is never stored: no table, column, event, or cache holds it.</p>
+  <p class="counterfactual-warning"><strong>Replay produces a counterfactual. This decision did not occur.</strong> Replay evaluates the historical context preserved at the decision boundary under a selected current logic artifact. No present-day evidence enters it, and a replay result is never stored: no table, column, event, or cache holds one.</p>
 
   <div id="current-logic-selector">
     <form method="get" action="/accounts/{{ account.account_ref }}/decisions/{{ decision.decision_event_id }}">
@@ -200,7 +199,11 @@
       <button type="submit">Replay under this artifact</button>
     </form>
     {% if current_hash %}
-    <p class="in-effect">In effect: {% if selected_option %}logic version {{ selected_option.logic_version }}, evaluator {{ selected_option.evaluator_version }}, {% else %}an artifact that is not registered for this decision class, {% endif %}full artifact hash <code class="hash">{{ current_hash }}</code>.</p>
+    {% if comparison %}
+    <p class="in-effect">In effect: logic version {{ comparison.current_logic.logic_version }}, evaluator {{ comparison.current_logic.evaluator_version }}, full artifact hash <code class="hash">{{ comparison.current_logic.artifact_hash }}</code>.</p>
+    {% else %}
+    <p class="in-effect">Selected: {% if selected_option %}logic version {{ selected_option.logic_version }}, evaluator {{ selected_option.evaluator_version }}, {% else %}an artifact that is not registered for this decision class, {% endif %}full artifact hash <code class="hash">{{ current_hash }}</code>. No comparison used it.</p>
+    {% endif %}
     {% if default_resolved %}
     <p class="in-effect-default">No artifact was selected in the request, so the default was resolved by logic version {{ default_logic_version }}, which names exactly one registered artifact: <code class="hash">{{ current_hash }}</code>.</p>
     {% endif %}
@@ -212,6 +215,7 @@
   {% if comparison %}
   <div id="replay-comparison">
     <h3>Comparison</h3>
+    <p class="counterfactual-computed">This result is the historical context preserved at <time datetime="{{ decision.decision_boundary }}">{{ decision.decision_boundary }}</time>, evaluated now under {{ current_logic_text }}. It was computed on demand when this page was opened and was not stored.</p>
     <dl class="fields">
       <dt>{{ original_label }} (recorded) logic version</dt><dd id="original-logic-version">{{ comparison.historical_logic.logic_version }}</dd>
       <dt>{{ original_label }} (recorded) artifact hash</dt><dd id="original-artifact-hash"><code class="hash">{{ comparison.historical_logic.artifact_hash }}</code></dd>
@@ -286,6 +290,7 @@
   <div id="replay-integrity-failure">
     <h3>Replay could not be established: {{ failure.class_name }}</h3>
     <p>{{ failure.summary }}</p>
+    {% if failure.origin %}<p class="failure-origin">{{ failure.origin }}</p>{% endif %}
     <table id="failure-fields-table" class="grid">
       <caption>What the failure {{ failure.class_name }} reports, under its own field names.</caption>
       <thead><tr><th scope="col">Field</th><th scope="col">Value</th></tr></thead>

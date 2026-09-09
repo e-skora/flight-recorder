@@ -9,14 +9,18 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 
 from flight_recorder.ledger.schema import accounts, accounts_query, events, logic_artifacts
+from flight_recorder.logic.evaluator import EvaluationError
+from flight_recorder.logic.rules import RuleError
 from flight_recorder.replay.counterfactual import (
     COUNTERFACTUAL_LABEL,
     ORIGINAL_LABEL,
     compare,
     replay,
 )
-from flight_recorder.replay.reconstruct import ReconstructionError
+from flight_recorder.replay.reconstruct import ReconstructionError, reconstruct
 from flight_recorder.web.decision_view import (
+    ORIGIN_RECORDED_LOGIC,
+    ORIGIN_SELECTED_ARTIFACT,
     artifact_label,
     artifact_options,
     failure_view,
@@ -41,6 +45,32 @@ DEMO_CURRENT_LOGIC_VERSION = "v5.1"
 #: can answer; an unregistered but well-formed hash is a different matter and
 #: reaches `replay`, which names it `ArtifactMissing`.
 ARTIFACT_HASH = re.compile(r"[0-9a-f]{64}")
+
+
+#: The failures the replay panel names. `RuleError` and `EvaluationError` are
+#: siblings of `ReconstructionError`, all three deriving from `Exception`, so
+#: all three are listed: a logic artifact the collector accepts can still carry
+#: a rule the closed grammar refuses or a missing-value behavior the evaluator
+#: does not implement, and neither may crash a page. `Exception` itself is
+#: never caught: a programming error must still propagate as a 500.
+REPLAY_FAILURES = (ReconstructionError, RuleError, EvaluationError)
+
+
+def _failure_origin(conn, decision_event_id: str) -> str:
+    """Which side of the replay raised the failure, established by re-running.
+
+    `replay` reconstructs the original first, so re-running `reconstruct`
+    alone separates the two cases: if it also fails, the origin is the
+    decision's own preserved logic; if it succeeds, the failure came from
+    evaluating the selected current artifact. The origin is never guessed from
+    the exception's type, which is the same class on both sides. The call is
+    read-only and writes nothing (INV-06).
+    """
+    try:
+        reconstruct(conn, decision_event_id)
+    except REPLAY_FAILURES:
+        return ORIGIN_RECORDED_LOGIC
+    return ORIGIN_SELECTED_ARTIFACT
 
 
 def _signed(value: int) -> str:
@@ -143,11 +173,13 @@ def decision_detail(
     """One recorded decision (§4.4) with its replay panel (§4.5).
 
     The recorded sections come from the projection tables and render whatever
-    happens to replay. Only the panel depends on `replay`, and every
-    `ReconstructionError` from it becomes a named, visible failure state rather
-    than a fallback, a cached result, or a partial comparison (AC-07, INV-09).
-    The page still returns 200: the page rendered correctly, and the failure is
-    a data condition rather than a transport error.
+    happens to replay. Only the panel depends on `replay`, and every failure
+    from it -- a `ReconstructionError`, a `RuleError` or an `EvaluationError`
+    -- becomes a named, visible failure state rather than a fallback, a cached
+    result, or a partial comparison (AC-07, INV-09). The page still returns
+    200: the page rendered correctly, and the failure is a data condition
+    rather than a transport error. Anything outside those three families is a
+    programming error and still propagates.
     """
     if current is not None and not ARTIFACT_HASH.fullmatch(current):
         raise HTTPException(
@@ -185,8 +217,8 @@ def decision_detail(
         if current_hash is not None:
             try:
                 comparison = compare(replay(conn, decision_event_id, current_hash))
-            except ReconstructionError as error:
-                failure = failure_view(error)
+            except REPLAY_FAILURES as error:
+                failure = failure_view(error, _failure_origin(conn, decision_event_id))
 
     selected_option = next((o for o in options if o.artifact_hash == current_hash), None)
     return templates.TemplateResponse(
