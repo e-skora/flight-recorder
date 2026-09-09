@@ -4,7 +4,7 @@ This is the original half of `PRODUCT.md` §4.5. It answers one question --
 *does the preserved historical logic, re-run over the preserved historical
 context, still produce the decision that was recorded?* -- and answers it from
 the projection tables alone. The counterfactual half, `R(Lc, H(d))`, is a
-separate computation with separate labels and arrives in Phase 3 (INV-06).
+separate computation with separate labels in `replay.counterfactual` (INV-06).
 
 Verification comes before evaluation (INV-05, D-005). `reconstruct` performs
 these steps in order and stops at the first failure:
@@ -13,8 +13,8 @@ these steps in order and stops at the first failure:
 2. load the `logic_artifacts` row by the decision's `artifact_hash`
    (`ArtifactMissing`);
 3. decode `artifact_json` (`IntegrityFailure`, field `artifact_json`);
-4. recompute the canonical content hash and require it to equal both the row's
-   and the decision's `artifact_hash` (field `artifact_hash`);
+4. recompute the canonical content hash and require it to equal the row's
+   `artifact_hash`, then the decision's (field `artifact_hash`);
 5. validate the stored text through the strict `LogicArtifact` model (field
    `artifact_schema`);
 6. compare the validated content's identity fields with the row's columns;
@@ -28,8 +28,13 @@ these steps in order and stops at the first failure:
 10. parse every rule, then evaluate;
 11. compare the result with what was recorded (`ReconstructionMismatch`).
 
-Steps 2-8 are the pure helper `verify_artifact`, which the integrity tests call
-directly; `reconstruct` calls that same helper rather than a parallel copy.
+Steps 2 to 6 and 8 are the pure helper `verify_artifact_row`, which verifies
+one stored artifact row against the hash it was looked up by and needs no
+decision; step 7 (and the decision's half of step 4) stays in `verify_artifact`,
+which wraps it. The integrity tests call these helpers directly; `reconstruct`
+calls the same helpers rather than a parallel copy, and the counterfactual
+engine reuses `verify_artifact_row` for a current artifact, which legitimately
+differs from the decision on `logic_version` and so must skip step 7 only.
 
 Reads only. Reconstruction writes nothing anywhere, and touches neither
 `events` nor `accounts`: evidence is resolved by the preserved
@@ -84,6 +89,7 @@ __all__ = [
     "load_evidence_version",
     "reconstruct",
     "verify_artifact",
+    "verify_artifact_row",
 ]
 
 
@@ -259,17 +265,23 @@ def _decode_artifact_json(text: str) -> dict:
     return decoded
 
 
-def verify_artifact(
+def verify_artifact_row(
     artifact_row: ArtifactRow | None,
-    decision_row: DecisionRow,
+    artifact_hash: str,
     *,
     runtime_evaluator_version: str | None = None,
 ) -> VerifiedArtifact:
-    """Steps 2-8: prove the stored artifact is the one the decision used.
+    """Steps 2 to 6 and 8: prove one stored artifact row is what it claims to be.
+
+    `artifact_hash` is the hash the row was looked up by; a missing row is
+    `ArtifactMissing(artifact_hash)`. Then the stored text must decode, hash to
+    the row's `artifact_hash`, satisfy the strict schema, agree with the row's
+    identity columns, and name this runtime's evaluator. Nothing here depends
+    on a decision, so a current artifact is verified by exactly the same checks
+    as a historical one (INV-05, INV-09).
 
     Nothing is evaluated here. Every failure is explicit and names the field
-    that disagrees, so a mismatched artifact can never become a best-effort
-    answer presented as exact (INV-05, INV-09).
+    that disagrees.
     """
     if runtime_evaluator_version is None:
         # Resolved at call time so the runtime identity can be substituted in a
@@ -277,7 +289,7 @@ def verify_artifact(
         runtime_evaluator_version = evaluator_module.EVALUATOR_VERSION
 
     if artifact_row is None:
-        raise ArtifactMissing(decision_row.artifact_hash)
+        raise ArtifactMissing(artifact_hash)
 
     content = _decode_artifact_json(artifact_row.artifact_json)
 
@@ -296,14 +308,6 @@ def verify_artifact(
             f"the stored content hashes to {recomputed}, not the registered "
             f"{artifact_row.artifact_hash}",
             stored=artifact_row.artifact_hash,
-            recomputed=recomputed,
-        )
-    if recomputed != decision_row.artifact_hash:
-        raise IntegrityFailure(
-            "artifact_hash",
-            f"the decision names artifact {decision_row.artifact_hash}, but the verified "
-            f"content hashes to {recomputed}",
-            stored=decision_row.artifact_hash,
             recomputed=recomputed,
         )
 
@@ -328,6 +332,53 @@ def verify_artifact(
                 recomputed=content_value,
             )
 
+    if artifact.evaluator_version != runtime_evaluator_version:
+        raise IntegrityFailure(
+            "evaluator_version",
+            f"the artifact was written for {artifact.evaluator_version!r}; this runtime is "
+            f"{runtime_evaluator_version!r}, which cannot claim to evaluate it exactly",
+            stored=artifact.evaluator_version,
+            recomputed=runtime_evaluator_version,
+        )
+
+    return VerifiedArtifact(
+        artifact=artifact,
+        stored_artifact_hash=artifact_row.artifact_hash,
+        recomputed_artifact_hash=recomputed,
+        runtime_evaluator_version=runtime_evaluator_version,
+    )
+
+
+def verify_artifact(
+    artifact_row: ArtifactRow | None,
+    decision_row: DecisionRow,
+    *,
+    runtime_evaluator_version: str | None = None,
+) -> VerifiedArtifact:
+    """Steps 2-8: prove the stored artifact is the one the decision used.
+
+    `verify_artifact_row` for the row itself, then the decision's half of step
+    4 (the verified content hashes to the hash the decision names) and step 7
+    (the decision's declared logic identity equals the verified artifact's).
+    Nothing is evaluated here, so a mismatched artifact can never become a
+    best-effort answer presented as exact (INV-05, INV-09).
+    """
+    verified = verify_artifact_row(
+        artifact_row,
+        decision_row.artifact_hash,
+        runtime_evaluator_version=runtime_evaluator_version,
+    )
+    artifact = verified.artifact
+
+    if verified.recomputed_artifact_hash != decision_row.artifact_hash:
+        raise IntegrityFailure(
+            "artifact_hash",
+            f"the decision names artifact {decision_row.artifact_hash}, but the verified "
+            f"content hashes to {verified.recomputed_artifact_hash}",
+            stored=decision_row.artifact_hash,
+            recomputed=verified.recomputed_artifact_hash,
+        )
+
     for field in _DECISION_IDENTITY_FIELDS:
         decision_value = getattr(decision_row, field)
         content_value = getattr(artifact, field)
@@ -340,21 +391,7 @@ def verify_artifact(
                 recomputed=content_value,
             )
 
-    if artifact.evaluator_version != runtime_evaluator_version:
-        raise IntegrityFailure(
-            "evaluator_version",
-            f"the decision was produced by {artifact.evaluator_version!r}; this runtime is "
-            f"{runtime_evaluator_version!r}, which cannot claim to replay it exactly",
-            stored=artifact.evaluator_version,
-            recomputed=runtime_evaluator_version,
-        )
-
-    return VerifiedArtifact(
-        artifact=artifact,
-        stored_artifact_hash=artifact_row.artifact_hash,
-        recomputed_artifact_hash=recomputed,
-        runtime_evaluator_version=runtime_evaluator_version,
-    )
+    return verified
 
 
 # --- Comparison (step 11) ---------------------------------------------------

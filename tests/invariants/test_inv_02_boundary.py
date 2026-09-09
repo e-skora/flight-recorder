@@ -33,8 +33,15 @@ from flight_recorder.ledger.schema import (
     evidence_versions,
 )
 from flight_recorder.logic.evaluator import InputState
+from flight_recorder.replay import counterfactual as counterfactual_module
 from flight_recorder.replay import reconstruct as reconstruct_module
-from flight_recorder.replay.reconstruct import IntegrityFailure, load_context, reconstruct
+from flight_recorder.replay.counterfactual import replay
+from flight_recorder.replay.reconstruct import (
+    IntegrityFailure,
+    load_context,
+    load_decision_row,
+    reconstruct,
+)
 from tests.conftest import (
     DECISION_EVENT_ID,
     Harness,
@@ -44,8 +51,10 @@ from tests.conftest import (
     decision_envelope_with,
     evidence_envelope,
     factor,
+    replay_under,
     seed_all,
     stored_form,
+    v5_1_hash,
 )
 from tests.invariants.test_inv_05_evaluator_integrity import refuse_to_evaluate
 
@@ -387,4 +396,42 @@ def test_a_reference_available_exactly_at_the_boundary_is_admitted_and_reconstru
     assert consumed_versions(result) == {**PRESERVED, "employee_count": late_id}
 
     monkeypatch.undo()
+    assert_canonical_still_reconstructs(harness)
+
+
+# --- The counterfactual side: a late reference on an input `v5.1` consumes -----
+
+
+def test_a_late_reference_on_an_input_current_logic_consumes_fails_before_any_counterfactual_evaluation(  # noqa: E501
+    harness, monkeypatch
+):
+    """`verified_integration_pressure` is ignored by `v3.2` and consumed by
+    `v5.1`: the exact hindsight-leak shape. The failure comes from the
+    original's context read (step 1 of `replay`), before any evaluation on
+    either side; both evaluators are stubbed so reaching either is an
+    `AssertionError`, and the `IntegrityFailure` proves neither was reached."""
+    input_key = "verified_integration_pressure"
+    late_available_at = "2026-04-17T10:05:02.001000Z"
+    boundary = insert_late_reference(harness, input_key, late_available_at)
+    with harness.engine.connect() as conn:
+        stored_boundary = load_decision_row(conn, DECISION_EVENT_ID).decision_boundary
+    assert boundary == stored_boundary
+
+    monkeypatch.setattr(reconstruct_module, "evaluate", refuse_to_evaluate)
+    monkeypatch.setattr(counterfactual_module, "evaluate", refuse_to_evaluate)
+    with harness.engine.connect() as conn, pytest.raises(IntegrityFailure) as caught:
+        replay(conn, DIRECT_DECISION_ID, v5_1_hash())
+
+    assert caught.value.field == "available_at"
+    assert caught.value.stored == late_available_at
+    assert caught.value.recomputed == stored_boundary
+    assert LATE_IDS[input_key] in caught.value.detail
+
+    monkeypatch.undo()
+    cf = replay_under(harness, v5_1_hash())
+    assert cf.result.score == 51
+    assert consumed_versions(cf.result) == {
+        **PRESERVED,
+        input_key: "ev-novasignal-verified-integration-pressure-v1",
+    }
     assert_canonical_still_reconstructs(harness)

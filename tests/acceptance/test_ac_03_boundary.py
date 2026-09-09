@@ -7,7 +7,9 @@ denotes the same instant -- so what these tests exercise is the collector's
 normalization (`Timestamp`: aware, converted to UTC) and the reconstruction
 that reads the normalized text, not any one spelling.
 
-The counterfactual half of AC-03 (a counterfactual run under `v5.1`) is Phase 3.
+The counterfactual half of AC-03 (a counterfactual run under `v5.1`) is the
+last test in this file: the same evidence, at the same instants, changes the
+counterfactual no more than it changes the original.
 """
 
 from datetime import UTC, datetime
@@ -15,22 +17,29 @@ from datetime import UTC, datetime
 import pytest
 
 from flight_recorder.logic.evaluator import InputState
+from flight_recorder.replay.counterfactual import compare
 from flight_recorder.replay.reconstruct import load_context, load_decision_row, reconstruct
 from tests.conftest import (
     DECISION_EVENT_ID,
     Harness,
+    assert_same_comparison,
+    assert_same_counterfactual,
     assert_same_reconstruction,
     canonical_boundary,
     canonical_by_type,
+    canonical_evidence_ids,
     canonical_raw,
+    consumed_versions,
     decision_envelope_with,
     decision_rows,
     evidence_envelope,
     evidence_version_row,
     factor,
     register_artifacts,
+    replay_under,
     seed_all,
     stored_form,
+    v5_1_hash,
 )
 
 EMPLOYEE_COUNT_V1 = "ev-novasignal-employee-count-v1"
@@ -265,3 +274,47 @@ def test_a_naive_timestamp_never_enters_the_ledger(seeded):
     assert seeded.snapshot() == snapshot
     assert evidence_version_row(seeded, EMPLOYEE_COUNT_V2) is None
     assert_same_reconstruction(reconstruction(seeded), before)
+
+
+# --- The counterfactual half: the same instants, under `v5.1` -----------------
+
+V51_KEYS = (
+    "employee_count",
+    "industry",
+    "funding_event",
+    "open_platform_engineering_roles",
+    "headquarters_country",
+    "verified_integration_pressure",
+)
+
+
+@pytest.mark.parametrize("label,spelling", spellings("T-1ms", "T", "T+1ms"))
+def test_unreferenced_evidence_at_any_instant_around_the_boundary_leaves_the_counterfactual_alone(
+    seeded, label, spelling
+):
+    """AC-03: the evidence "changes neither the original reconstruction nor a
+    counterfactual run", so both sides are asserted in one test. The value 40
+    would remove +25 on either side if it leaked."""
+    before_cf = replay_under(seeded, v5_1_hash())
+    before = reconstruction(seeded)
+    rows_before = decision_rows(seeded)
+    assert before_cf.result.score == 51
+
+    response = seeded.post(evidence_at(spelling))
+    assert response.status_code == 201, response.json()
+
+    after_cf = replay_under(seeded, v5_1_hash())
+    assert_same_counterfactual(after_cf, before_cf)
+    assert after_cf.result.score == 51
+    ids = canonical_evidence_ids()
+    assert consumed_versions(after_cf.result) == {key: ids[key] for key in V51_KEYS}
+    employee_count = factor(after_cf.result, "employee_count")
+    assert employee_count.evidence_version_id == EMPLOYEE_COUNT_V1
+    assert employee_count.contribution == 25
+    assert_same_comparison(compare(after_cf), compare(before_cf))
+
+    assert_same_reconstruction(reconstruction(seeded), before)
+    assert decision_rows(seeded) == rows_before
+
+    stored = evidence_version_row(seeded, EMPLOYEE_COUNT_V2)
+    assert stored.available_at == SPELLINGS[label][0] == stored_form(spelling)
