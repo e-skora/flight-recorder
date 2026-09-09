@@ -17,3 +17,33 @@ table.trace th, table.trace td { text-align: left; vertical-align: top; padding:
 .kind { font-family: ui-monospace, monospace; font-weight: 700; letter-spacing: .04em; }
 .time-label { display: block; color: var(--muted); font-size: .8em; }
 time { font-family: ui-monospace, monospace; }
+
+/* --- Decision detail (Phase 3B). Appended; no rule above is changed. ------- */
+section { margin: 0 0 2.5rem; }
+section h2 { margin-bottom: .25rem; }
+.lede { color: var(--muted); margin-top: .25rem; }
+dl.fields { display: grid; grid-template-columns: minmax(12rem, max-content) 1fr; gap: .15rem 1rem; margin: .5rem 0; }
+dl.fields dt { color: var(--muted); }
+dl.fields dd { margin: 0; }
+code.hash { font-family: ui-monospace, monospace; word-break: break-all; }
+table.grid { border-collapse: collapse; width: 100%; margin: .5rem 0; }
+table.grid caption { text-align: left; color: var(--muted); padding: .25rem 0; }
+table.grid th, table.grid td { text-align: left; vertical-align: top; padding: .4rem .6rem; border-bottom: 1px solid var(--line); }
+table.grid th { border-bottom: 2px solid var(--line); }
+.state-word, .change-word { font-family: ui-monospace, monospace; }
+.state-unavailable .state-word, .state-absent .state-word { font-weight: 700; text-decoration: underline dotted; }
+.observation, .reference, .reference-note, .attribution, .attribution-note, .failure-line { display: block; }
+.reference-note, .attribution-note { color: var(--muted); font-size: .9em; }
+.confidence { border-left: 4px solid var(--line); padding-left: .75rem; }
+blockquote { margin: .5rem 0; border-left: 4px solid var(--line); padding: .25rem .75rem; }
+.counterfactual-warning { border: 2px solid var(--focus); padding: .6rem .75rem; }
+.unavailable-state { border: 2px dashed var(--line); padding: .6rem .75rem; }
+#replay-integrity-failure { border: 2px solid #8a1f11; padding: .6rem .75rem; }
+#replay-integrity-failure h3 { margin-top: .25rem; }
+#replay-no-selection { border: 2px dashed var(--line); padding: .6rem .75rem; }
+#current-logic-selector form { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: .5rem 0; }
+#current-logic-selector label { font-weight: 700; }
+select, button { font: inherit; padding: .3rem .5rem; }
+button { cursor: pointer; }
+select:focus-visible, button:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.failure-name, .list-label { font-weight: 700; }
