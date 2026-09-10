@@ -471,7 +471,7 @@ def test_the_page_is_keyboard_usable_and_states_are_text(seeded):
     selector = element(html, "current-logic-selector")
     assert '<form method="get"' in selector
     assert '<label for="current-artifact">' in selector
-    assert '<select name="current" id="current-artifact">' in selector
+    assert '<select name="current" id="current-artifact" required>' in selector
     assert '<button type="submit">' in selector
 
     for state in ("consumed", "available but ignored", "unavailable"):

@@ -18,6 +18,8 @@ asserted as rendered cell text.
 """
 
 import copy
+from dataclasses import dataclass
+from html.parser import HTMLParser
 
 import pytest
 
@@ -44,6 +46,88 @@ from tests.conftest import (
 
 DID_NOT_OCCUR = "This decision did not occur."
 DUPLICATE_LABEL_ID = "logic-account-prioritization-v5.1-duplicate-label"
+
+#: The `<select>` placeholder that holds the control whenever no registered
+#: artifact is selected, so the browser never displays the first registered
+#: option as an accidental default.
+PLACEHOLDER_TEXT = "No registered artifact is chosen \u2014 select one"
+
+#: The recorded-sections lede, which claims nothing about computation.
+LEDE = (
+    "The recorded sections show stored decision data. The replay panel can compare "
+    "that preserved context under selected logic without changing the record."
+)
+
+#: The one sentence that says a replay was computed. It renders on the success
+#: path only, inside `#replay-comparison`.
+COMPUTED_CLAIM = "computed on demand when this page was opened"
+
+UNSUPPORTED_RULE_TEXT = "employee_count is quite large"
+
+
+@dataclass(frozen=True)
+class SelectOption:
+    """One rendered `<option>`: what a reader of the control actually sees."""
+
+    value: str
+    disabled: bool
+    selected: bool
+    text: str
+
+
+class _Options(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.options: list[SelectOption] = []
+        self._attrs: dict | None = None
+        self._text: list[str] = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "option":
+            self._attrs, self._text = dict(attrs), []
+
+    def handle_endtag(self, tag):
+        if tag == "option" and self._attrs is not None:
+            self.options.append(
+                SelectOption(
+                    value=self._attrs.get("value") or "",
+                    disabled="disabled" in self._attrs,
+                    selected="selected" in self._attrs,
+                    text="".join(self._text).strip(),
+                )
+            )
+            self._attrs = None
+
+    def handle_data(self, data):
+        if self._attrs is not None:
+            self._text.append(data)
+
+
+def artifact_select_options(html: str) -> list[SelectOption]:
+    """Every `<option>` of `#current-artifact`, in rendered order."""
+    parser = _Options()
+    parser.feed(element(html, "current-artifact"))
+    parser.close()
+    return parser.options
+
+
+def assert_placeholder_holds_the_control(html: str) -> None:
+    """No registered artifact is shown as chosen; the placeholder is."""
+    assert '<select name="current" id="current-artifact" required>' in html
+    options = artifact_select_options(html)
+    placeholder = options[0]
+    assert placeholder.value == ""
+    assert placeholder.disabled and placeholder.selected
+    assert placeholder.text == PLACEHOLDER_TEXT
+    assert "No registered artifact is chosen" in placeholder.text
+    assert [option for option in options[1:] if option.selected] == []
+
+
+def assert_no_placeholder(html: str) -> None:
+    for option in artifact_select_options(html):
+        assert option.value != "", option
+        assert not option.disabled, option
+    assert PLACEHOLDER_TEXT not in html
 
 
 @pytest.fixture
@@ -79,6 +163,25 @@ def removed_changed_envelope() -> dict:
         "test-removed-changed",
         factors,
         event_id="evt-system-logic-artifact-test-removed-changed",
+    )
+
+
+def unsupported_rule_envelope() -> dict:
+    """`v5.1` with the first factor's rule written outside the rule grammar.
+
+    The same construction as
+    `tests/invariants/test_inv_09_visible_failure_states.py`, duplicated
+    locally on purpose. Its own `logic_version` keeps the default resolution by
+    `v5.1` unambiguous.
+    """
+    factors = copy.deepcopy(logic_artifact("v5.1")["factors"])
+    assert factors[0]["key"] == "employee_count"
+    factors[0]["rule"] = UNSUPPORTED_RULE_TEXT
+    return derived_artifact_envelope(
+        "test-unsupported-rule",
+        "v5.1-test-unsupported-rule",
+        factors,
+        event_id="evt-system-logic-artifact-test-unsupported-rule",
     )
 
 
@@ -308,3 +411,119 @@ def test_the_second_registration_does_not_disturb_the_canonical_fixture(seeded):
     assert logic_artifact("v5.1")["artifact_id"] == "logic-account-prioritization-v5.1"
     assert canonical_hash(envelope["payload"]["artifact"]) != v5_1_hash()
     assert decision_url() == "/accounts/novasignal-ai/decisions/evt-novasignal-04-decision-recorded"
+
+
+# --- The control never shows an accidental default ----------------------------
+#
+# The `<select>` must never display a registered artifact the page did not
+# select. In the three states where nothing registered is selected -- an
+# unregistered hash, a missing default, an ambiguous default -- a disabled,
+# empty-valued placeholder holds the control, and `required` refuses a
+# submission that leaves it. A registered artifact that fails evaluation is a
+# real selection and stays selected.
+
+
+def test_an_unregistered_selection_shows_a_disabled_placeholder(seeded):
+    unregistered = "0" * 64
+    html = page(seeded, query=f"?current={unregistered}")
+
+    assert_placeholder_holds_the_control(html)
+
+    selector = element(html, "current-logic-selector")
+    assert "Selected:" in selector
+    assert "an artifact that is not registered for this decision class" in selector
+    assert unregistered in selector
+    assert "No comparison used it." in selector
+
+
+def test_the_missing_default_state_shows_the_placeholder(harness):
+    assert harness.post_raw(system_raw(0)).status_code == 201
+    for index in range(4):
+        assert harness.post_raw(canonical_raw(index)).status_code == 201
+
+    html = page(harness)
+    assert_placeholder_holds_the_control(html)
+
+    v32_hash = canonical_hash(logic_artifact("v3.2"))
+    registered = {option.value: option for option in artifact_select_options(html)}
+    assert v32_hash in registered
+    assert not registered[v32_hash].selected
+
+    assert "Default replay logic v5.1 is not registered for this decision class." in element(
+        html, "replay-no-selection"
+    )
+
+
+def test_the_ambiguous_default_state_shows_the_placeholder(seeded):
+    envelope = derived_artifact_envelope(
+        DUPLICATE_LABEL_ID,
+        "v5.1",
+        logic_artifact("v5.1")["factors"],
+        event_id="evt-system-logic-artifact-v5.1-duplicate-label",
+    )
+    duplicate_hash = register_derived_artifact(seeded, envelope)
+
+    html = page(seeded)
+    assert_placeholder_holds_the_control(html)
+
+    registered = {option.value: option for option in artifact_select_options(html)}
+    assert not registered[v5_1_hash()].selected
+    assert not registered[duplicate_hash].selected
+
+    no_selection = element(html, "replay-no-selection")
+    assert "More than one registered artifact carries logic version v5.1" in no_selection
+    assert v5_1_hash() in no_selection and duplicate_hash in no_selection
+
+
+def test_a_registered_artifact_that_fails_stays_selected(seeded):
+    artifact_hash = register_derived_artifact(seeded, unsupported_rule_envelope())
+
+    html = page(seeded, query=f"?current={artifact_hash}")
+
+    registered = {option.value: option for option in artifact_select_options(html)}
+    assert registered[artifact_hash].selected
+    assert_no_placeholder(html)
+    assert "UnsupportedRule" in element(html, "replay-integrity-failure")
+
+
+def test_the_canonical_selection_is_unchanged(seeded):
+    html = page(seeded)
+
+    registered = {option.value: option for option in artifact_select_options(html)}
+    assert registered[v5_1_hash()].selected
+    assert [value for value, option in registered.items() if option.selected] == [v5_1_hash()]
+    assert_no_placeholder(html)
+
+    assert element(html, "original-score") == "86"
+    assert element(html, "counterfactual-score") == "51"
+    assert element(html, "score-delta") == "-35"
+
+
+# --- The introduction claims nothing about computation ------------------------
+
+
+def test_the_recorded_sections_lede_makes_no_computation_claim(seeded):
+    success = page(seeded)
+    assert LEDE in element(success, "decision-summary")
+    assert COMPUTED_CLAIM in element(success, "replay-comparison")
+    assert success.count(COMPUTED_CLAIM) == 1
+
+    failing_hash = register_derived_artifact(seeded, unsupported_rule_envelope())
+    failure = page(seeded, query=f"?current={failing_hash}")
+    assert LEDE in element(failure, "decision-summary")
+    assert has_element(failure, "replay-integrity-failure")
+    assert COMPUTED_CLAIM not in failure
+
+    register_derived_artifact(
+        seeded,
+        derived_artifact_envelope(
+            DUPLICATE_LABEL_ID,
+            "v5.1",
+            logic_artifact("v5.1")["factors"],
+            event_id="evt-system-logic-artifact-v5.1-duplicate-label",
+        ),
+    )
+    no_selection = page(seeded)
+    assert LEDE in element(no_selection, "decision-summary")
+    assert has_element(no_selection, "replay-no-selection")
+    assert COMPUTED_CLAIM not in no_selection

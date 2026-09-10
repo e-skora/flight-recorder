@@ -6,7 +6,7 @@
 <section id="decision-summary">
   <nav aria-label="Breadcrumb"><a href="/">Accounts</a> › <a href="/accounts/{{ account.account_ref }}">{{ account.name }}</a> › Decision</nav>
   <h1>{{ account.name }}: recorded {{ decision.decision_class }} decision</h1>
-  <p class="lede">Every field in the recorded sections below is read from the recorded ledger, and nothing in them recomputes the decision. The replay panel at the end of the page is the exception: it is computed now, on each load, and is not part of the record.</p>
+  <p class="lede">The recorded sections show stored decision data. The replay panel can compare that preserved context under selected logic without changing the record.</p>
   <dl class="fields">
     <dt>Decision class</dt><dd>{{ decision.decision_class }}</dd>
     <dt>Output</dt><dd id="decision-output">{{ decision.output }}</dd>
@@ -191,7 +191,15 @@
   <div id="current-logic-selector">
     <form method="get" action="/accounts/{{ account.account_ref }}/decisions/{{ decision.decision_event_id }}">
       <label for="current-artifact">Current logic artifact</label>
-      <select name="current" id="current-artifact">
+      {# No option is ever selected by position. When nothing registered is
+         selected, an explicit placeholder holds the control so the browser
+         cannot display the first registered artifact as an accidental
+         default, and `required` refuses a submission that leaves it. #}
+      {% set nothing_selected = artifact_options | selectattr("selected") | list | length == 0 %}
+      <select name="current" id="current-artifact" required>
+        {% if nothing_selected %}
+        <option value="" disabled selected>No registered artifact is chosen — select one</option>
+        {% endif %}
         {% for option in artifact_options %}
         <option value="{{ option.artifact_hash }}"{% if option.selected %} selected{% endif %}>{{ option.label }}</option>
         {% endfor %}
