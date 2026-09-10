@@ -24,7 +24,7 @@
       <td>{{ row.source }}</td>
       <td><span class="time-label">Occurred at:</span> <time datetime="{{ row.occurred_at }}">{{ row.occurred_at }}</time></td>
       <td><span class="time-label">Recorded at:</span> <time datetime="{{ row.recorded_at }}">{{ row.recorded_at }}</time></td>
-      <td>{{ row.summary }}</td>
+      <td>{% if row.event_type == 'decision.recorded' %}<a href="/accounts/{{ account.account_ref }}/decisions/{{ row.event_id }}">{{ row.summary }}</a>{% else %}{{ row.summary }}{% endif %}</td>
     </tr>
     {% endfor %}
   </tbody>

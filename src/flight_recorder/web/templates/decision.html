@@ -1,0 +1,324 @@
+{% extends "base.html" %}
+{% block title %}{{ account.name }} decision · GTM Flight Recorder{% endblock %}
+{% block content %}
+{% set current_logic_text = comparison.current_logic.logic_version if comparison else (selected_option.logic_version if selected_option else "the selected current logic") %}
+
+<section id="decision-summary">
+  <nav aria-label="Breadcrumb"><a href="/">Accounts</a> › <a href="/accounts/{{ account.account_ref }}">{{ account.name }}</a> › Decision</nav>
+  <h1>{{ account.name }}: recorded {{ decision.decision_class }} decision</h1>
+  <p class="lede">The recorded sections show stored decision data. The replay panel can compare that preserved context under selected logic without changing the record.</p>
+  <dl class="fields">
+    <dt>Decision class</dt><dd>{{ decision.decision_class }}</dd>
+    <dt>Output</dt><dd id="decision-output">{{ decision.output }}</dd>
+    <dt>Score and threshold</dt><dd id="decision-score-threshold">score {{ decision.score }} / threshold {{ decision.threshold }}</dd>
+    <dt>Decision boundary T(d)</dt><dd><time datetime="{{ decision.decision_boundary }}">{{ decision.decision_boundary }}</time></dd>
+    <dt>Occurred at</dt><dd><time datetime="{{ decision.occurred_at }}">{{ decision.occurred_at }}</time></dd>
+    <dt>Recorded at</dt><dd><time datetime="{{ decision.recorded_at }}">{{ decision.recorded_at }}</time></dd>
+    <dt>Event source</dt><dd>{{ decision.source }}</dd>
+    <dt>Workflow version</dt><dd>{{ decision.workflow_version }}</dd>
+    <dt>Decision event id</dt><dd><code>{{ decision.decision_event_id }}</code></dd>
+  </dl>
+  <p class="confidence">Confidence: not provided. No confidence value was recorded for this decision, so no number and no bar is shown for it.</p>
+</section>
+
+<section id="logic-identity">
+  <h2>Historical logic identity</h2>
+  <dl class="fields">
+    <dt>Logic version (label)</dt><dd>{{ decision.logic_version }}</dd>
+    <dt>Artifact id</dt><dd>{{ decision.artifact_id if decision.artifact_id else "not recorded" }}</dd>
+    <dt>Artifact hash (identity)</dt><dd><code class="hash">{{ decision.artifact_hash }}</code></dd>
+    <dt>Artifact schema version</dt><dd>{{ decision.artifact_schema_version if decision.artifact_schema_version else "not recorded" }}</dd>
+    <dt>Evaluator version</dt><dd>{{ decision.evaluator_version }}</dd>
+  </dl>
+  <p>The version label is metadata. The artifact hash together with the evaluator version is the identity that makes this decision exactly replayable.</p>
+</section>
+
+<section id="ruleset">
+  <h2>Declarative ruleset as recorded</h2>
+  {% if ruleset.available %}
+  <table id="ruleset-table" class="grid">
+    <caption>The immutable declarative ruleset of {{ decision.logic_version }}, exactly as it was recorded. It is never edited in place.</caption>
+    <thead><tr><th scope="col">Factor</th><th scope="col">Rule</th><th scope="col">Weight</th></tr></thead>
+    <tbody>
+      {% for factor in ruleset.factors %}
+      <tr><td>{{ factor.key }}</td><td>{{ factor.rule }}</td><td>{{ factor.weight }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <dl class="fields">
+    <dt>Threshold</dt><dd>{{ ruleset.threshold }}</dd>
+    <dt>Output at or above threshold</dt><dd>{{ ruleset.at_or_above_threshold }}</dd>
+    <dt>Output below threshold</dt><dd>{{ ruleset.below_threshold }}</dd>
+    <dt>Missing-value behavior</dt><dd>{{ ruleset.missing_value_behavior }}</dd>
+    <dt>Activated at</dt><dd><time datetime="{{ ruleset.activated_at }}">{{ ruleset.activated_at }}</time></dd>
+    <dt>Deactivated at</dt><dd>{% if ruleset.deactivated_at %}<time datetime="{{ ruleset.deactivated_at }}">{{ ruleset.deactivated_at }}</time>{% else %}none{% endif %}</dd>
+    <dt>Activation status</dt><dd>{{ ruleset.activation_status }}</dd>
+  </dl>
+  {% else %}
+  <p class="unavailable-state">{{ ruleset.unavailable_note }}</p>
+  {% endif %}
+</section>
+
+<section id="evidence-context">
+  <h2>Preserved historical context</h2>
+  <table id="context-table" class="grid">
+    <caption>The values and availability states preserved at the decision boundary. Evidence recorded after that boundary is not part of them and is not shown here.</caption>
+    <thead>
+      <tr>
+        <th scope="col">Input</th>
+        <th scope="col">Value</th>
+        <th scope="col">State</th>
+        <th scope="col">Contribution</th>
+        <th scope="col">Evidence version</th>
+        <th scope="col">Source</th>
+        <th scope="col">Observed at</th>
+        <th scope="col">Available at</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in context_rows %}
+      <tr class="state-{{ row.state | replace(' ', '-') }}">
+        <td>{{ row.input_key }}</td>
+        <td>{{ row.value_display }}</td>
+        <td><span class="state-word">{{ row.state }}</span></td>
+        <td>{{ row.contribution_display }}</td>
+        <td>{% if row.evidence_version_id %}<code>{{ row.evidence_version_id }}</code>{% else %}none{% endif %}</td>
+        <td>{{ row.source if row.source else "none" }}</td>
+        <td>{% if row.observed_at %}<time datetime="{{ row.observed_at }}">{{ row.observed_at }}</time>{% else %}not recorded{% endif %}</td>
+        <td>{% if row.available_at %}<time datetime="{{ row.available_at }}">{{ row.available_at }}</time>{% else %}not recorded{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p>Each state is a recorded fact: <strong>consumed</strong> means the historical logic referenced the input, <strong>available but ignored</strong> means it was present and no factor referenced it, <strong>unavailable</strong> means it was explicitly recorded as unavailable at the boundary, and <strong>absent</strong> means the historical logic references a key the preserved context has no entry for. A consumed input whose rule did not match contributes 0; every other state reads <em>not consumed</em> rather than 0.</p>
+  {% if context_note %}<p class="unavailable-state">{{ context_note }}</p>{% endif %}
+</section>
+
+<section id="explanation">
+  <h2>Explanation (recorded narrative, not evidence or logic)</h2>
+  {% if decision.explanation %}
+  <blockquote>{{ decision.explanation }}</blockquote>
+  {% else %}
+  <p>No explanation recorded.</p>
+  {% endif %}
+  <p>The explanation presents the recorded basis for this decision. It is not the authoritative record: the evidence, the input states, the ruleset, and the score above are. It is stored exactly as it was submitted and is never regenerated or rewritten here.</p>
+</section>
+
+<section id="actions">
+  <h2>Downstream action</h2>
+  {% if action_rows %}
+  <table id="actions-table" class="grid">
+    <caption>The recorded outbound action for this decision, with its recorded synthetic cost.</caption>
+    <thead>
+      <tr>
+        <th scope="col">Action type</th>
+        <th scope="col">Play id</th>
+        <th scope="col">Target persona</th>
+        <th scope="col">Status</th>
+        <th scope="col">Cost</th>
+        <th scope="col">Occurred at</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in action_rows %}
+      <tr>
+        <td>{{ row.action_type }}</td>
+        <td>{{ row.play_id }}</td>
+        <td>{{ row.target_persona }}</td>
+        <td>{{ row.status }}</td>
+        <td>{{ row.cost }} {{ row.currency }}</td>
+        <td><time datetime="{{ row.occurred_at }}">{{ row.occurred_at }}</time></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p>The action names this decision as its recorded reference, and the collector required that decision to exist before accepting the action.</p>
+  {% else %}
+  <p>No action recorded for this decision.</p>
+  {% endif %}
+</section>
+
+<section id="outcomes">
+  <h2>Recorded account outcomes</h2>
+  <p class="lede">These are outcomes recorded for this account. Whether an outcome should be credited to this decision is an attribution question that has not been evaluated.</p>
+  {% if outcome_rows %}
+  <table id="outcomes-table" class="grid">
+    <caption>Every outcome recorded for {{ account.name }}, with its evaluation window and the observations recorded inside it.</caption>
+    <thead>
+      <tr>
+        <th scope="col">Evaluation window</th>
+        <th scope="col">Recorded observations</th>
+        <th scope="col">Occurred at</th>
+        <th scope="col">Recorded at</th>
+        <th scope="col">Recorded reference</th>
+        <th scope="col">Attribution</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in outcome_rows %}
+      <tr>
+        <td>{{ row.window_days }} days</td>
+        <td>
+          <span class="observation">{{ row.reply_display }}</span>
+          <span class="observation">{{ row.meeting_display }}</span>
+          <span class="observation">{{ row.opportunity_display }}</span>
+        </td>
+        <td><time datetime="{{ row.occurred_at }}">{{ row.occurred_at }}</time></td>
+        <td><time datetime="{{ row.recorded_at }}">{{ row.recorded_at }}</time></td>
+        <td>
+          {% if row.action_event_id %}
+          <span class="reference">recorded reference: action <code>{{ row.action_event_id }}</code>{% if row.referenced_decision_event_id %}, which references decision <code>{{ row.referenced_decision_event_id }}</code>{% if row.references_this_decision %} (the decision on this page, as a recorded reference){% endif %}{% endif %}</span>
+          <span class="reference-note">(recorded reference, not validated by an attribution policy)</span>
+          {% else %}
+          <span class="reference">no recorded action reference</span>
+          {% endif %}
+        </td>
+        <td><span class="attribution">Attribution not yet evaluated.</span> <span class="attribution-note">No policy-based link between this outcome and this decision has been established.</span></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p>An outcome whose three observations are all <em>no</em> is a recorded negative outcome for the account. The record states the evaluation window's length; it records nothing about whether that window is open or closed, and this page does not infer it.</p>
+  {% else %}
+  <p>No outcome recorded for this account. That is missing data, not a negative result and not a failure.</p>
+  {% endif %}
+</section>
+
+<section id="replay-panel">
+  <h2>Replay: the preserved historical context under selected current logic</h2>
+  <p class="counterfactual-warning"><strong>Replay produces a counterfactual. This decision did not occur.</strong> Replay evaluates the historical context preserved at the decision boundary under a selected current logic artifact. No present-day evidence enters it, and a replay result is never stored: no table, column, event, or cache holds one.</p>
+
+  <div id="current-logic-selector">
+    <form method="get" action="/accounts/{{ account.account_ref }}/decisions/{{ decision.decision_event_id }}">
+      <label for="current-artifact">Current logic artifact</label>
+      {# No option is ever selected by position. When nothing registered is
+         selected, an explicit placeholder holds the control so the browser
+         cannot display the first registered artifact as an accidental
+         default, and `required` refuses a submission that leaves it. #}
+      {% set nothing_selected = artifact_options | selectattr("selected") | list | length == 0 %}
+      <select name="current" id="current-artifact" required>
+        {% if nothing_selected %}
+        <option value="" disabled selected>No registered artifact is chosen — select one</option>
+        {% endif %}
+        {% for option in artifact_options %}
+        <option value="{{ option.artifact_hash }}"{% if option.selected %} selected{% endif %}>{{ option.label }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit">Replay under this artifact</button>
+    </form>
+    {% if current_hash %}
+    {% if comparison %}
+    <p class="in-effect">In effect: logic version {{ comparison.current_logic.logic_version }}, evaluator {{ comparison.current_logic.evaluator_version }}, full artifact hash <code class="hash">{{ comparison.current_logic.artifact_hash }}</code>.</p>
+    {% else %}
+    <p class="in-effect">Selected: {% if selected_option %}logic version {{ selected_option.logic_version }}, evaluator {{ selected_option.evaluator_version }}, {% else %}an artifact that is not registered for this decision class, {% endif %}full artifact hash <code class="hash">{{ current_hash }}</code>. No comparison used it.</p>
+    {% endif %}
+    {% if default_resolved %}
+    <p class="in-effect-default">No artifact was selected in the request, so the default was resolved by logic version {{ default_logic_version }}, which names exactly one registered artifact: <code class="hash">{{ current_hash }}</code>.</p>
+    {% endif %}
+    {% else %}
+    <p class="in-effect">No current logic artifact is in effect.</p>
+    {% endif %}
+  </div>
+
+  {% if comparison %}
+  <div id="replay-comparison">
+    <h3>Comparison</h3>
+    <p class="counterfactual-computed">This result is the historical context preserved at <time datetime="{{ decision.decision_boundary }}">{{ decision.decision_boundary }}</time>, evaluated now under {{ current_logic_text }}. It was computed on demand when this page was opened and was not stored.</p>
+    <dl class="fields">
+      <dt>{{ original_label }} (recorded) logic version</dt><dd id="original-logic-version">{{ comparison.historical_logic.logic_version }}</dd>
+      <dt>{{ original_label }} (recorded) artifact hash</dt><dd id="original-artifact-hash"><code class="hash">{{ comparison.historical_logic.artifact_hash }}</code></dd>
+      <dt>{{ original_label }} (recorded) evaluator version</dt><dd id="original-evaluator-version">{{ comparison.historical_logic.evaluator_version }}</dd>
+      <dt>{{ counterfactual_label }} (computed now, not recorded) logic version</dt><dd id="counterfactual-logic-version">{{ comparison.current_logic.logic_version }}</dd>
+      <dt>{{ counterfactual_label }} (computed now, not recorded) artifact hash</dt><dd id="counterfactual-artifact-hash"><code class="hash">{{ comparison.current_logic.artifact_hash }}</code></dd>
+      <dt>{{ counterfactual_label }} (computed now, not recorded) evaluator version</dt><dd id="counterfactual-evaluator-version">{{ comparison.current_logic.evaluator_version }}</dd>
+      <dt>{{ original_label }} score</dt><dd id="original-score">{{ comparison.original_score }}</dd>
+      <dt>{{ counterfactual_label }} score</dt><dd id="counterfactual-score">{{ comparison.counterfactual_score }}</dd>
+      <dt>score delta</dt><dd id="score-delta">{{ comparison.score_delta | signed }}</dd>
+      <dt>{{ original_label }} threshold</dt><dd id="original-threshold">{{ comparison.original_threshold }}</dd>
+      <dt>{{ counterfactual_label }} threshold</dt><dd id="counterfactual-threshold">{{ comparison.counterfactual_threshold }}</dd>
+      <dt>{{ original_label }} output</dt><dd id="original-output">{{ comparison.original_output }}</dd>
+      <dt>{{ counterfactual_label }} output</dt><dd id="counterfactual-output">{{ comparison.counterfactual_output }}</dd>
+    </dl>
+    <p id="output-changed">output changed: {{ "yes" if comparison.output_changed else "no" }}</p>
+
+    <table id="contributions-table" class="grid">
+      <caption>Every input key either artifact references, and how each side treated it.</caption>
+      <thead>
+        <tr>
+          <th scope="col">Input</th>
+          <th scope="col">Change</th>
+          <th scope="col">{{ original_label }} state</th>
+          <th scope="col">{{ original_label }} contribution</th>
+          <th scope="col">{{ counterfactual_label }} state</th>
+          <th scope="col">{{ counterfactual_label }} contribution</th>
+          <th scope="col">Delta</th>
+          <th scope="col">Evidence version</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for change in comparison.contributions %}
+        <tr class="change-{{ change.change }}">
+          <td>{{ change.key }}</td>
+          <td><span class="change-word">{{ change.change }}</span></td>
+          <td>{{ change.original_state | state_word }}</td>
+          <td>{{ change.original_contribution }}</td>
+          <td>{{ change.counterfactual_state | state_word }}</td>
+          <td>{{ change.counterfactual_contribution }}</td>
+          <td>{{ change.contribution_delta | signed }}</td>
+          <td>{% if change.evidence_version_id %}<code>{{ change.evidence_version_id }}</code>{% else %}none{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <table id="missing-inputs-table" class="grid">
+      <caption>Inputs the selected current logic expects that the preserved context does not supply.</caption>
+      <thead>
+        <tr><th scope="col">Input</th><th scope="col">State</th><th scope="col">Substitution</th></tr>
+      </thead>
+      <tbody>
+        {% if comparison.missing_inputs %}
+        {% for missing in comparison.missing_inputs %}
+        <tr><td>{{ missing.key }}</td><td><span class="state-word">{{ missing.state | state_word }}</span></td><td>No present-day value was substituted.</td></tr>
+        {% endfor %}
+        {% else %}
+        <tr><td colspan="3">None.</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+
+    <div id="ignored-lists">
+      <p><span class="list-label">Available in the preserved context but not referenced by the {{ original_label }} logic:</span>
+        {% if comparison.ignored_by_historical %}{{ comparison.ignored_by_historical | join(", ") }}{% else %}none{% endif %}</p>
+      <p><span class="list-label">Available in the preserved context but not referenced by the {{ counterfactual_label }} logic:</span>
+        {% if comparison.ignored_by_current %}{{ comparison.ignored_by_current | join(", ") }}{% else %}none{% endif %}</p>
+    </div>
+  </div>
+  {% elif failure %}
+  <div id="replay-integrity-failure">
+    <h3>Replay could not be established: {{ failure.class_name }}</h3>
+    <p>{{ failure.summary }}</p>
+    {% if failure.origin %}<p class="failure-origin">{{ failure.origin }}</p>{% endif %}
+    <table id="failure-fields-table" class="grid">
+      <caption>What the failure {{ failure.class_name }} reports, under its own field names.</caption>
+      <thead><tr><th scope="col">Field</th><th scope="col">Value</th></tr></thead>
+      <tbody>
+        {% for field in failure.fields %}
+        <tr>
+          <td><span class="failure-name">{{ field.name }}</span></td>
+          <td>{% for line in field.lines %}<span class="failure-line">{{ line }}</span>{% endfor %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="failure-message">{{ failure.message }}</p>
+    <p>No comparison and no counterfactual result is shown, and no other artifact, cached value, or partial result stands in for one.</p>
+  </div>
+  {% else %}
+  <div id="replay-no-selection">
+    <p class="no-selection-message">{{ no_selection_message }}</p>
+    <p>No replay was attempted. This is a selection state, not a replay failure. Choose a registered artifact above to run one against its exact hash.</p>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

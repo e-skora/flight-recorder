@@ -1,6 +1,6 @@
 """INV-06: the original and the counterfactual cannot be blurred.
 
-Three proofs against a real seeded ledger:
+Four proofs against a real seeded ledger:
 
 1. A counterfactual is a different type from a reconstruction, carries its own
    fixed label on the value, is never equal to the original it contains, and
@@ -12,6 +12,9 @@ Three proofs against a real seeded ledger:
    threshold, dropped factors, an optional factor over an unavailable input --
    registered through the collector never moves the original and always reads
    the sealed `-v1` versions.
+4. The decision-detail page, which renders a counterfactual on every load,
+   writes nothing either: three loads leave every row, every event, and the
+   reconstruction untouched, and no table holds a counterfactual (3B).
 """
 
 import re
@@ -33,6 +36,7 @@ from flight_recorder.replay.counterfactual import (
     replay,
 )
 from flight_recorder.replay.reconstruct import Reconstruction, reconstruct
+from tests.acceptance.test_decision_detail_page import decision_url
 from tests.conftest import (
     DECISION_EVENT_ID,
     Harness,
@@ -49,6 +53,10 @@ from tests.conftest import (
     replay_under,
     seed_all,
     v5_1_hash,
+)
+from tests.invariants.test_inv_09_visible_failure_states import (
+    mutated_artifact,
+    register_unsupported_rule_artifact,
 )
 
 pytestmark = pytest.mark.invariant
@@ -260,3 +268,79 @@ def test_random_current_logic_never_moves_the_original_and_always_reads_the_seal
             assert set(rows) < set(projections_after[name])
         else:
             assert projections_after[name] == rows, name
+
+
+# --- 4. The decision page persists nothing either (3B) ------------------------
+
+
+def test_viewing_the_decision_page_persists_no_counterfactual(seeded):
+    """Three page loads -- default, an explicit hash, an unregistered hash --
+    write nothing, append no event, and move no row. The counterfactual the
+    panel renders is computed on demand every time and is stored nowhere
+    (D-011, INV-06)."""
+    snapshot_before = seeded.snapshot()
+    rows_before = decision_rows(seeded)
+    events_before = seeded.event_count()
+    with seeded.engine.connect() as conn:
+        before = reconstruct(conn, DECISION_EVENT_ID)
+
+    url = decision_url()
+    # The page runs on the application's own engine, not the harness's.
+    with captured_statements(seeded.app.state.engine) as statements:
+        for query in ("", f"?current={v5_1_hash()}", "?current=" + "0" * 64):
+            assert seeded.client.get(url + query).status_code == 200
+
+    # The listener saw real SQL, so the negative matches below mean something.
+    assert [s for s in statements if "decision_context" in s]
+    assert [s for s in statements if "logic_artifacts" in s]
+    for statement in statements:
+        assert not statement.strip().upper().startswith(("INSERT", "UPDATE", "DELETE")), statement
+
+    assert seeded.snapshot() == snapshot_before
+    assert decision_rows(seeded) == rows_before
+    assert seeded.event_count() == events_before
+
+    names = set(inspect(seeded.engine).get_table_names())
+    assert names == {"accounts", "events", *PROJECTION_TABLE_NAMES}
+    assert not [n for n in names if "counterfactual" in n or "replay" in n]
+
+    with seeded.engine.connect() as conn:
+        assert_same_reconstruction(reconstruct(conn, DECISION_EVENT_ID), before)
+
+
+def test_viewing_a_failing_decision_page_persists_nothing_either(seeded):
+    """A page that cannot replay writes no more than one that can.
+
+    Two failure pages are loaded: an artifact whose rule the grammar does not
+    support, and one whose `missing_value_behavior` the evaluator does not
+    implement. Both render a named failure at 200, and the failure path --
+    including the second `reconstruct` that establishes where the failure arose
+    -- is read-only like every other page path (INV-06, INV-09).
+    """
+    unsupported_rule_hash = register_unsupported_rule_artifact(seeded)
+    bad_behavior_hash = mutated_artifact(
+        seeded,
+        "test-bad-missing-value",
+        "v5.1-test-bad-missing-value",
+        "evt-system-logic-artifact-test-bad-missing-value",
+        lambda artifact: artifact.update(missing_value_behavior="guess_the_value"),
+    )
+
+    snapshot_before = seeded.snapshot()
+    rows_before = decision_rows(seeded)
+    events_before = seeded.event_count()
+
+    url = decision_url()
+    with captured_statements(seeded.app.state.engine) as statements:
+        for artifact_hash in (unsupported_rule_hash, bad_behavior_hash):
+            response = seeded.client.get(url + f"?current={artifact_hash}")
+            assert response.status_code == 200, response.status_code
+            assert 'id="replay-integrity-failure"' in response.text
+
+    assert [s for s in statements if "logic_artifacts" in s]
+    for statement in statements:
+        assert not statement.strip().upper().startswith(("INSERT", "UPDATE", "DELETE")), statement
+
+    assert seeded.snapshot() == snapshot_before
+    assert decision_rows(seeded) == rows_before
+    assert seeded.event_count() == events_before
