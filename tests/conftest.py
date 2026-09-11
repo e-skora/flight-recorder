@@ -13,8 +13,13 @@ import pytest
 from hypothesis import HealthCheck, settings
 from sqlalchemy import event, func, select
 
-from flight_recorder.attribution.policy import attribute, ledger_maximum
-from flight_recorder.attribution.service import run_attribution
+from flight_recorder.attribution.policy import (
+    POLICY_VERSION,
+    attribute,
+    ledger_maximum,
+    load_outcome,
+)
+from flight_recorder.attribution.service import build_envelope, run_attribution
 from flight_recorder.collector.canonical import canonical_hash
 from flight_recorder.collector.schema import LogicArtifact, format_utc
 from flight_recorder.fixtures import canonical_envelope_paths, load_json, logic_artifact_path
@@ -551,9 +556,10 @@ def assert_same_comparison(after, before) -> None:
 # `test_outcome_schema_versions.py`, and the setup of the parametrized tests
 # in `test_inv_01_projections_append_only.py`.
 
-ACCOUNT_REF = "novasignal-ai"
-ACTION_EVENT_ID = "evt-novasignal-06-action-recorded"
-OUTCOME_EVENT_ID = "evt-novasignal-07-outcome-evaluated"
+#: Canonical identities, read from the fixtures rather than retyped.
+ACCOUNT_REF = canonical_by_type("account.discovered")["account_ref"]
+ACTION_EVENT_ID = canonical_by_type("action.recorded")["event_id"]
+OUTCOME_EVENT_ID = canonical_by_type("outcome.evaluated")["event_id"]
 
 
 class FixedClock:
@@ -731,6 +737,85 @@ def post_created(harness: Harness, *envelopes: dict) -> None:
     for envelope in envelopes:
         response = harness.post(envelope)
         assert response.status_code == 201, (envelope["event_id"], response.json())
+
+
+def attribution_envelope(
+    harness: Harness,
+    outcome_event_id: str,
+    *,
+    cutoff: int | None = None,
+    supersedes: str | None = None,
+    clock=None,
+    policy_version: str | None = None,
+) -> dict:
+    """A policy-correct `outcome.attributed` envelope, built as the command
+    builds it but not submitted, so a test can submit or mutate it by hand."""
+    with harness.engine.connect() as conn:
+        at = cutoff if cutoff is not None else ledger_maximum(conn)
+        result = attribute(
+            conn,
+            outcome_event_id,
+            cutoff=at,
+            **({"policy_version": policy_version} if policy_version else {}),
+        )
+        account_ref = load_outcome(conn, outcome_event_id, cutoff=at).account_ref
+    now = (clock if clock is not None else FixedClock())()
+    return build_envelope(
+        result,
+        account_ref=account_ref,
+        attributed_at=now,
+        recorded_at=now,
+        supersedes_attribution_event_id=supersedes,
+    )
+
+
+def append_unrelated(harness: Harness, count: int = 1) -> None:
+    """Raise the ledger maximum with events no attribution depends on."""
+    for _ in range(count):
+        post_created(harness, discovery_envelope(f"filler-{uuid.uuid4().hex[:12]}"))
+
+
+def insert_ambiguous_attribution(harness: Harness, other_attribution_event_id: str) -> str:
+    """Corrupt the ledger *around* the collector: a second effective result for
+    the canonical outcome, inserted directly (the append-only triggers refuse
+    UPDATE and DELETE, not INSERT). Its supersession link names another
+    outcome's result, so both it and the genuine result are unsuperseded.
+    Used only to prove that selection raises instead of picking."""
+    corrupt_id = "evt-test-corrupt-attribution"
+    stamp = "2026-09-11T12:00:00.000000Z"
+    with harness.engine.begin() as conn:
+        conn.execute(
+            events.insert().values(
+                event_id=corrupt_id,
+                schema_version="1",
+                event_type="outcome.attributed",
+                source="test-corruption",
+                account_ref=ACCOUNT_REF,
+                occurred_at=stamp,
+                recorded_at=stamp,
+                canonical_hash="0" * 64,
+                payload="{}",
+            )
+        )
+        conn.execute(
+            outcome_attributions.insert().values(
+                attribution_event_id=corrupt_id,
+                account_ref=ACCOUNT_REF,
+                source_event_id=corrupt_id,
+                outcome_event_id=OUTCOME_EVENT_ID,
+                policy_version=POLICY_VERSION,
+                method="explicit_source_reference",
+                window_days=90,
+                resolved_action_event_id=ACTION_EVENT_ID,
+                resolved_decision_event_id=DECISION_EVENT_ID,
+                status="direct",
+                reason="valid_source_action_reference",
+                attributed_at=stamp,
+                ingest_cutoff=10**6,
+                supersedes_attribution_event_id=other_attribution_event_id,
+            )
+        )
+    return corrupt_id
 
 
 def seed_through_decision(harness: Harness) -> None:
