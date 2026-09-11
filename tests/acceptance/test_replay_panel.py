@@ -50,7 +50,7 @@ DUPLICATE_LABEL_ID = "logic-account-prioritization-v5.1-duplicate-label"
 #: The `<select>` placeholder that holds the control whenever no registered
 #: artifact is selected, so the browser never displays the first registered
 #: option as an accidental default.
-PLACEHOLDER_TEXT = "No registered artifact is chosen \u2014 select one"
+PLACEHOLDER_TEXT = "No registered artifact is chosen. Select one."
 
 #: The recorded-sections lede, which claims nothing about computation.
 LEDE = (

@@ -140,7 +140,7 @@
 
 <section id="outcomes">
   <h2>Recorded account outcomes</h2>
-  <p class="lede">These are outcomes recorded for this account. Whether an outcome should be credited to this decision is an attribution question that has not been evaluated.</p>
+  <p class="lede">These are outcomes recorded for this account. The attribution column shows, for each recorded outcome version, whether a policy-based link to a decision has been evaluated and what that evaluation recorded.</p>
   {% if outcome_rows %}
   <table id="outcomes-table" class="grid">
     <caption>Every outcome recorded for {{ account.name }}, with its evaluation window and the observations recorded inside it.</caption>
@@ -157,7 +157,14 @@
     <tbody>
       {% for row in outcome_rows %}
       <tr>
-        <td>{{ row.window_days }} days</td>
+        <td>
+          {% if row.schema_version == "1" %}{{ row.window_days }} days{% else %}
+          <span class="window-state">window {{ row.evaluation_state }}</span>
+          <span class="window-bounds"><time datetime="{{ row.window_opened_at }}">{{ row.window_opened_at }}</time> to <time datetime="{{ row.window_closes_at }}">{{ row.window_closes_at }}</time></span>
+          <span class="window-as-of">as of <time datetime="{{ row.observed_at }}">{{ row.observed_at }}</time></span>
+          {% endif %}
+          {% if row.superseded %}<span class="superseded">superseded; the effective version is <code>{{ row.effective_outcome_event_id }}</code></span>{% endif %}
+        </td>
         <td>
           <span class="observation">{{ row.reply_display }}</span>
           <span class="observation">{{ row.meeting_display }}</span>
@@ -166,19 +173,42 @@
         <td><time datetime="{{ row.occurred_at }}">{{ row.occurred_at }}</time></td>
         <td><time datetime="{{ row.recorded_at }}">{{ row.recorded_at }}</time></td>
         <td>
+          {% if row.schema_version == "1" %}
           {% if row.action_event_id %}
           <span class="reference">recorded reference: action <code>{{ row.action_event_id }}</code>{% if row.referenced_decision_event_id %}, which references decision <code>{{ row.referenced_decision_event_id }}</code>{% if row.references_this_decision %} (the decision on this page, as a recorded reference){% endif %}{% endif %}</span>
-          <span class="reference-note">(recorded reference, not validated by an attribution policy)</span>
+          {% if row.attribution %}<span class="reference-note">(recorded reference; the attribution column shows how the policy evaluated it)</span>{% else %}<span class="reference-note">(recorded reference, not validated by an attribution policy)</span>{% endif %}
           {% else %}
           <span class="reference">no recorded action reference</span>
           {% endif %}
+          {% elif row.source_action_event_id or row.source_decision_event_id %}
+          {% if row.source_action_event_id %}<span class="reference">source-provided claim: action <code>{{ row.source_action_event_id }}</code></span>{% endif %}
+          {% if row.source_decision_event_id %}<span class="reference">source-provided claim: decision <code>{{ row.source_decision_event_id }}</code>{% if row.source_decision_is_this_decision %} (the decision on this page, as a recorded claim){% endif %}</span>{% endif %}
+          {% if row.attribution %}<span class="reference-note">(source-provided claim; the attribution column shows how the policy evaluated it)</span>{% else %}<span class="reference-note">(source-provided claim, not validated by an attribution policy)</span>{% endif %}
+          {% else %}
+          <span class="reference">no source-provided reference recorded</span>
+          {% endif %}
         </td>
-        <td><span class="attribution">Attribution not yet evaluated.</span> <span class="attribution-note">No policy-based link between this outcome and this decision has been established.</span></td>
+        <td>
+          {% if row.attribution_failure %}
+          <span class="attribution-failure">Attribution could not be established: {{ row.attribution_failure.reason }}.</span> <span class="attribution-note">{{ row.attribution_failure.message }}</span>
+          {% elif row.attribution %}
+          {% set result = row.attribution %}
+          <span class="attribution-status">{{ result.status }}</span>{% if result.heuristic %} <span class="heuristic-label">heuristic: the most recent eligible action, not an explicit reference</span>{% endif %}
+          <span class="attribution-detail">policy {{ result.policy_version }}, method {{ result.method }}, attribution window {{ result.window_days }} days</span>
+          {% if result.resolved_action_event_id %}<span class="attribution-detail">policy-resolved action <code>{{ result.resolved_action_event_id }}</code></span>{% endif %}
+          {% if result.resolved_decision_event_id %}<span class="attribution-detail">policy-resolved decision <code>{{ result.resolved_decision_event_id }}</code> ({% if result.resolves_to_this_decision %}the decision on this page{% else %}not the decision on this page{% endif %})</span>{% endif %}
+          {% if result.status == "unresolved" %}<span class="attribution-detail">No action or decision was resolved, so this outcome is not linked to any decision.</span>{% endif %}
+          <span class="attribution-detail">reason <code>{{ result.reason }}</code></span>
+          <span class="attribution-detail">attributed at <time datetime="{{ result.attributed_at }}">{{ result.attributed_at }}</time>, ledger cutoff {{ result.ingest_cutoff }}</span>
+          {% else %}
+          <span class="attribution">Attribution not yet evaluated.</span> <span class="attribution-note">No policy-based link between this outcome and this decision has been established.</span>
+          {% endif %}
+        </td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
-  <p>An outcome whose three observations are all <em>no</em> is a recorded negative outcome for the account. The record states the evaluation window's length; it records nothing about whether that window is open or closed, and this page does not infer it.</p>
+  <p>A window shown only as a length comes from a record that states the window's length and nothing about whether the window is open or closed, and this page does not infer it; for such a record, and for a closed window, an observation of <em>no</em> is a recorded negative observation. In an open window, <em>no</em> means nothing was recorded as of the stated time, not a negative result. <em>Unknown</em> means the observation itself was not recorded. An attribution is a policy-based link to a decision, not proof of what caused the outcome.</p>
   {% else %}
   <p>No outcome recorded for this account. That is missing data, not a negative result and not a failure.</p>
   {% endif %}
@@ -198,7 +228,7 @@
       {% set nothing_selected = artifact_options | selectattr("selected") | list | length == 0 %}
       <select name="current" id="current-artifact" required>
         {% if nothing_selected %}
-        <option value="" disabled selected>No registered artifact is chosen — select one</option>
+        <option value="" disabled selected>No registered artifact is chosen. Select one.</option>
         {% endif %}
         {% for option in artifact_options %}
         <option value="{{ option.artifact_hash }}"{% if option.selected %} selected{% endif %}>{{ option.label }}</option>

@@ -11,7 +11,10 @@ router = APIRouter(prefix="/api/v1", tags=["collector"])
 
 @router.post(
     "/decision-events",
-    summary="Submit one decision-event envelope (schema version 1)",
+    summary=(
+        "Submit one decision-event envelope (schema version 1; outcome.evaluated also "
+        "accepts schema version 2)"
+    ),
     status_code=201,
     responses={
         200: {"description": "Duplicate: identical canonical content already stored"},
