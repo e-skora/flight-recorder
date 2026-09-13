@@ -12,6 +12,8 @@
    outcome and cross-policy links, and a second replacement of one outcome
    version. A ledger corrupted around the collector makes selection raise
    rather than pick.
+4. The no-inheritance guarantee holds alongside the rule that a replacement
+   must be computed at a strictly newer cutoff.
 """
 
 import pytest
@@ -355,3 +357,60 @@ def test_selection_raises_on_a_ledger_holding_two_effective_results(harness):
     assert failure.value.reason == "ambiguous_effective_selection"
     original = attribution_rows(harness)[0]
     assert set(failure.value.candidates) == {original.attribution_event_id, corrupt}
+
+
+# --- 4. No inherited credit, alongside the cutoff rule ------------------------------
+
+
+def test_a_corrected_outcome_never_inherits_credit_under_the_cutoff_rule(harness):
+    seed_and_attribute(harness)
+    (original,) = attribution_rows(harness)
+    post_created(harness, closing_version())
+    with harness.engine.connect() as conn:
+        closing_at = policy.ledger_maximum(conn)
+    append_unrelated(harness)
+
+    # Until one is computed, the correction has no result at any cutoff, and the
+    # predecessor's result is never selected for it.
+    with harness.engine.connect() as conn:
+        for cutoff in range(closing_at, policy.ledger_maximum(conn) + 1):
+            assert (
+                policy.effective_outcome_version(conn, OUTCOME_EVENT_ID, cutoff=cutoff)
+                == CLOSING_ID
+            )
+            assert (
+                policy.effective_attribution(conn, CLOSING_ID, policy.POLICY_VERSION, cutoff=cutoff)
+                is None
+            )
+    # Nor can the predecessor's result be handed to it by a supersession link.
+    assert_rejected(
+        harness,
+        attribution_envelope(harness, CLOSING_ID, supersedes=original.attribution_event_id),
+        "superseded_attribution_is_for_another_outcome",
+    )
+
+    run = attribute_ledger(harness)
+    assert [s.outcome_event_id for s in run.submissions] == [CLOSING_ID]
+    assert [s.http_status for s in run.submissions] == [201]
+    own = attribution_rows(harness)[1]
+    assert own.supersedes_attribution_event_id is None
+    assert own.ingest_cutoff > closing_at
+    _, selected, _ = select_effective(harness, CLOSING_ID)
+    assert selected.attribution_event_id == own.attribution_event_id
+    assert selected.attribution_event_id != original.attribution_event_id
+
+    # The correction's own result cannot be replaced by one computed at an older
+    # snapshot, even a snapshot that already contains the correction.
+    body = assert_rejected(
+        harness,
+        attribution_envelope(
+            harness, CLOSING_ID, cutoff=closing_at, supersedes=own.attribution_event_id
+        ),
+        "replacement_attribution_cutoff_is_not_newer",
+    )
+    assert body["superseded_ingest_cutoff"] == own.ingest_cutoff
+    assert [tuple(r) for r in attribution_rows(harness)] == [tuple(original), tuple(own)]
+    _, selected, _ = select_effective(harness, CLOSING_ID)
+    assert selected.attribution_event_id == own.attribution_event_id
+    _, predecessor, _ = select_effective(harness, OUTCOME_EVENT_ID)
+    assert predecessor.attribution_event_id == original.attribution_event_id

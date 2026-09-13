@@ -403,7 +403,8 @@ def _validate_attribution(conn, normalized: dict) -> None:
     implemented; the cutoff is a recorded sequence no later than the ledger's
     maximum and includes the outcome; the event id is this operation's derived
     identity and the operation is not already recorded; the supersession link
-    is a first result or names the current effective result; the resolved
+    is a first result or names the current effective result, computed at a
+    strictly older cutoff than this one; the resolved
     references are real records of this account; and the submitted result
     equals `policy.attribute` recomputed at the cutoff, field by field. Every
     check reads; none writes.
@@ -486,7 +487,11 @@ def _validate_attribution(conn, normalized: dict) -> None:
 
 
 def _validate_attribution_supersession(conn, payload: dict) -> None:
-    """Exactly one effective result per outcome version and policy (D-013)."""
+    """Exactly one effective result per outcome version and policy (D-013).
+
+    A replacement is a reevaluation against a newer snapshot, so its cutoff must
+    be strictly greater than the cutoff of the result it replaces.
+    """
     outcome_event_id = payload["outcome_event_id"]
     policy_version = payload["policy_version"]
     superseded = payload["supersedes_attribution_event_id"]
@@ -535,6 +540,17 @@ def _validate_attribution_supersession(conn, payload: dict) -> None:
             f"is {current.attribution_event_id if current else None!r}, and only that result "
             "may be replaced",
             supersedes_attribution_event_id=superseded,
+        )
+    cutoff = payload["ingest_cutoff"]
+    if cutoff <= target.ingest_cutoff:
+        raise _rejected(
+            "replacement_attribution_cutoff_is_not_newer",
+            f"attribution {superseded!r} was computed at ingest_cutoff {target.ingest_cutoff}; "
+            f"a replacement is a reevaluation against a newer snapshot, and ingest_cutoff "
+            f"{cutoff} is not later",
+            supersedes_attribution_event_id=superseded,
+            ingest_cutoff=cutoff,
+            superseded_ingest_cutoff=target.ingest_cutoff,
         )
 
 

@@ -12,20 +12,27 @@ runs: an exact submission retry (duplicate, one domain effect, stored time
 unchanged); a fresh ordinary invocation (nothing submitted, nothing written);
 and a fresh reevaluation, unchanged (nothing written) or changed (exactly one
 linked replacement).
+
+A replacement is a reevaluation against a newer snapshot: one computed at an
+older cutoff is refused atomically and the effective result stands; one at the
+predecessor's own cutoff cannot become a second operation; a forward
+reevaluation still appends, and the superseded result stays reproducible at
+its recorded cutoff.
 """
 
 import asyncio
 import copy
 import json
+from dataclasses import asdict
 
 import httpx
 import pytest
-from sqlalchemy import delete, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 
 from flight_recorder.attribution import policy, service
 from flight_recorder.collector.schema import format_utc
-from flight_recorder.ledger.schema import outcome_attributions
+from flight_recorder.ledger.schema import events, outcome_attributions
 from tests.conftest import (
     ACTION_EVENT_ID,
     DECISION_EVENT_ID,
@@ -464,3 +471,160 @@ def test_reevaluation_leaves_unattributed_outcomes_to_the_ordinary_run(harness, 
     run = attribute_ledger(harness, reevaluate=True)
     assert run.not_yet_attributed == [WATCHED]
     assert attribution_rows(harness) == []
+
+
+# --- A replacement's cutoff --------------------------------------------------------------
+
+
+def ledger_state(harness: Harness) -> tuple:
+    """`harness.snapshot()` plus every stored event row, so a refusal is shown to
+    leave existing content unchanged, not merely the row counts."""
+    with harness.engine.connect() as conn:
+        stored = conn.execute(select(events).order_by(events.c.ingest_sequence)).all()
+    return harness.snapshot(), [tuple(row) for row in stored]
+
+
+def assert_refused(harness: Harness, envelope: dict, reason: str, status: int = 422) -> dict:
+    before = ledger_state(harness)
+    response = harness.post(envelope)
+    assert response.status_code == status, response.json()
+    body = response.json()
+    assert body["reason"] == reason, body
+    assert ledger_state(harness) == before
+    return body
+
+
+def _late_action_ledger(harness: Harness) -> tuple[int, int]:
+    """An observation, then an eligible action that occurred before it but
+    arrived later. Returns the cutoff that excludes the action and the one
+    that includes it."""
+    seed_through_decision(harness)
+    post_created(harness, observation(WATCHED))
+    excludes = max_sequence(harness)
+    post_created(
+        harness,
+        action_envelope(
+            FIRST_ACTION, occurred_at="2026-04-18T09:00:00Z", recorded_at="2026-09-01T00:00:00Z"
+        ),
+    )
+    return excludes, max_sequence(harness)
+
+
+def test_a_replacement_computed_at_an_older_cutoff_is_rejected_and_the_result_stands(harness):
+    excludes, includes = _late_action_ledger(harness)
+    post_created(harness, attribution_envelope(harness, WATCHED, cutoff=includes))
+    (original,) = attribution_rows(harness)
+    assert (original.status, original.resolved_action_event_id, original.ingest_cutoff) == (
+        policy.STATUS_INFERRED,
+        FIRST_ACTION,
+        includes,
+    )
+
+    backward = attribution_envelope(
+        harness, WATCHED, cutoff=excludes, supersedes=original.attribution_event_id
+    )
+    # Valid in every other respect: policy-correct at its own cutoff, under the
+    # derived identity of an operation not yet recorded, naming the effective result.
+    assert backward["payload"]["status"] == policy.STATUS_UNRESOLVED
+    assert policy.policy_result(backward["payload"]) == policy.policy_result(
+        attribute_at(harness, WATCHED, excludes)
+    )
+    assert backward["event_id"] == policy.attribution_event_id(
+        WATCHED, policy.POLICY_VERSION, excludes
+    )
+    assert excludes not in {row.ingest_cutoff for row in attribution_rows(harness)}
+    assert effective(harness, WATCHED).attribution_event_id == original.attribution_event_id
+
+    body = assert_refused(harness, backward, "replacement_attribution_cutoff_is_not_newer")
+    assert body["supersedes_attribution_event_id"] == original.attribution_event_id
+    assert (body["ingest_cutoff"], body["superseded_ingest_cutoff"]) == (excludes, includes)
+
+    stored = effective(harness, WATCHED)
+    assert asdict(stored) == {name: getattr(original, name) for name in asdict(stored)}
+    assert stored.status == policy.STATUS_INFERRED
+    assert policy.policy_result(stored) == policy.policy_result(
+        attribute_at(harness, WATCHED, includes)
+    )
+
+    # The same construction at a newer cutoff is accepted: only the cutoff was wrong.
+    append_unrelated(harness)
+    forward = attribution_envelope(harness, WATCHED, supersedes=original.attribution_event_id)
+    assert forward["payload"]["ingest_cutoff"] > includes
+    post_created(harness, forward)
+
+
+def test_a_replacement_at_the_predecessors_own_cutoff_cannot_create_a_second_operation(harness):
+    _, includes = _late_action_ledger(harness)
+    held = attribution_envelope(harness, WATCHED, cutoff=includes)
+    post_created(harness, held)
+    (original,) = attribution_rows(harness)
+
+    # Under the derived identity, that event id is already stored with other content.
+    same_cutoff = attribution_envelope(
+        harness, WATCHED, cutoff=includes, supersedes=original.attribution_event_id
+    )
+    assert same_cutoff["event_id"] == original.attribution_event_id
+    assert_refused(harness, same_cutoff, "event_id_reused_with_different_content", status=409)
+    # Under any other event id, the operation itself is already recorded.
+    renamed = dict(same_cutoff, event_id="evt-attribution-at-the-same-cutoff")
+    body = assert_refused(harness, renamed, "attribution_operation_already_recorded")
+    assert body["stored_event_id"] == original.attribution_event_id
+
+    before = ledger_state(harness)
+    response = harness.post(held)
+    assert (response.status_code, response.json()["status"]) == (200, "duplicate")
+    assert ledger_state(harness) == before
+    assert [tuple(row) for row in attribution_rows(harness)] == [tuple(original)]
+
+    conflicting = copy.deepcopy(held)
+    conflicting["recorded_at"] = "2026-09-12T00:00:00.000000Z"
+    assert_refused(harness, conflicting, "event_id_reused_with_different_content", status=409)
+
+
+def _forward_reevaluation(harness: Harness):
+    """An unresolved first result, then a late eligible action and a reevaluation."""
+    seed_through_decision(harness)
+    post_created(harness, observation(WATCHED))
+    clock = FixedClock()
+    assert [s.http_status for s in attribute_ledger(harness, clock=clock).submissions] == [201]
+    (first,) = attribution_rows(harness)
+    assert first.status == policy.STATUS_UNRESOLVED
+
+    post_created(
+        harness,
+        action_envelope(
+            FIRST_ACTION, occurred_at="2026-04-18T09:00:00Z", recorded_at="2026-09-01T00:00:00Z"
+        ),
+    )
+    clock.advance(days=1)
+    run = attribute_ledger(harness, reevaluate=True, clock=clock)
+    assert [s.http_status for s in run.submissions] == [201]
+    return first, run
+
+
+def test_a_forward_reevaluation_appends_one_replacement_at_a_strictly_newer_cutoff(harness):
+    first, run = _forward_reevaluation(harness)
+
+    rows = attribution_rows(harness)
+    assert len(rows) == 2
+    assert tuple(rows[0]) == tuple(first)
+    replacement = rows[1]
+    assert replacement.supersedes_attribution_event_id == first.attribution_event_id
+    assert (replacement.status, replacement.resolved_action_event_id) == (
+        policy.STATUS_INFERRED,
+        FIRST_ACTION,
+    )
+    assert replacement.ingest_cutoff == run.cutoff
+    assert replacement.ingest_cutoff > first.ingest_cutoff
+    assert effective(harness, WATCHED).attribution_event_id == replacement.attribution_event_id
+
+
+def test_a_superseded_result_is_reproduced_at_its_own_recorded_cutoff(harness):
+    first, _ = _forward_reevaluation(harness)
+
+    recomputed = attribute_at(harness, WATCHED, first.ingest_cutoff)
+    assert recomputed.cutoff == first.ingest_cutoff
+    for name in policy.POLICY_RESULT_FIELDS:
+        assert getattr(recomputed, name) == getattr(first, name), name
+    assert recomputed.reason == first.reason
+    assert recomputed.status == policy.STATUS_UNRESOLVED
