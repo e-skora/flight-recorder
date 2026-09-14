@@ -824,3 +824,80 @@ def seed_through_decision(harness: Harness) -> None:
     register_artifacts(harness)
     for index in range(4):
         assert harness.post_raw(canonical_raw(index)).status_code == 201
+
+
+# --- Phase 5A: the seeded dataset and the analytics engine ------------------------
+#
+# Shared by `test_dataset_manifest.py`, `test_ac_13_determinism.py`,
+# `test_ac_14_planted_effects.py`, `test_insights_engine.py` and
+# `test_inv_03_aggregate_states.py`.
+
+
+def small_dataset_config():
+    """A reduced dataset config (16 accounts) for the retry, interruption and
+    isolation proofs. It still produces every attribution standing, every
+    observation state, one correction history and one other-period observation;
+    it claims nothing about `PRODUCT.md` §8."""
+    from flight_recorder.dataset.generator import DatasetConfig
+    from flight_recorder.fixtures import dataset_config_mapping
+
+    mapping = copy.deepcopy(dataset_config_mapping())
+    mapping["account_count"] = 16
+    mapping["decisions"]["prioritize_intent_share"] = 1.0
+    mapping["evidence"]["funding_mix"] = {
+        "recent": 0.5,
+        "stale": 0.25,
+        "absent": 0.125,
+        "unavailable": 0.125,
+    }
+    mapping["actions"]["status_mix"] = {"none": 0.15, "failed": 0.3, "sent": 0.3, "completed": 0.25}
+    mapping["stage_2"] = {
+        "correction": {"account_index": 13, "outcome_n": 2, "period_days": 30, "opportunity": True},
+        "new_observation": {
+            "account_index": 12,
+            "decision_n": 1,
+            "period_days": 90,
+            "opportunity": False,
+        },
+    }
+    return DatasetConfig.from_mapping(mapping)
+
+
+def seed_dataset(harness: Harness, *, config=None, stop_after: int | None = None):
+    """Build the dataset schedule (the shipped config unless `config` is given) and
+    perform it on the harness's application through the collector.
+
+    Returns `(schedule, report)`. The digest's descriptive inputs are the
+    manifest's, loaded here and passed in explicitly.
+    """
+    from flight_recorder.dataset.generator import generate
+    from flight_recorder.dataset.schedule import run_schedule
+    from flight_recorder.fixtures import (
+        canonical_artifacts,
+        dataset_comparison_workflow_version,
+        dataset_config,
+        dataset_signals,
+    )
+
+    schedule = generate(
+        config if config is not None else dataset_config(), artifacts=canonical_artifacts()
+    )
+    report = run_schedule(
+        harness.app,
+        schedule,
+        signals=dataset_signals(),
+        comparison_workflow_version=dataset_comparison_workflow_version(),
+        stop_after=stop_after,
+    )
+    return schedule, report
+
+
+def submit_attribution(
+    harness: Harness, outcome_event_id: str, *, cutoff: int | None = None, clock=None
+) -> dict:
+    """Attribute exactly one outcome version through the collector, as the command
+    builds it, without running the general command (which would also attribute
+    every other unattributed version, the dataset's stage-2 outcomes included)."""
+    envelope = attribution_envelope(harness, outcome_event_id, cutoff=cutoff, clock=clock)
+    post_created(harness, envelope)
+    return envelope
