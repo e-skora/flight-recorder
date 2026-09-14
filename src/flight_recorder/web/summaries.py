@@ -26,6 +26,10 @@ class TraceRow:
     occurred_at: str
     recorded_at: str
     summary: str
+    #: Set only for `outcome.attributed`, from its payload: the credited
+    #: decision (None when unresolved) and the outcome version it evaluates.
+    resolved_decision_event_id: str | None = None
+    outcome_event_id: str | None = None
 
 
 def _yes_no(flag: bool, word: str) -> str:
@@ -95,6 +99,7 @@ def summarize(event_type: str, payload: dict, schema_version: str = "1") -> str:
 
 def trace_row(row) -> TraceRow:
     payload = json.loads(row.payload)
+    attributed = row.event_type == "outcome.attributed"
     return TraceRow(
         ingest_sequence=row.ingest_sequence,
         event_id=row.event_id,
@@ -104,4 +109,8 @@ def trace_row(row) -> TraceRow:
         occurred_at=row.occurred_at,
         recorded_at=row.recorded_at,
         summary=summarize(row.event_type, payload, row.schema_version),
+        resolved_decision_event_id=payload.get("resolved_decision_event_id")
+        if attributed
+        else None,
+        outcome_event_id=payload["outcome_event_id"] if attributed else None,
     )

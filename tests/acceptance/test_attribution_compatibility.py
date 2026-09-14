@@ -12,6 +12,7 @@ from sqlalchemy import inspect
 
 from flight_recorder.attribution import policy
 from flight_recorder.web.summaries import KIND_LABELS
+from tests.acceptance.test_attribution_presentation import fields
 from tests.acceptance.test_decision_detail_page import decision_url, element, page, rows
 from tests.acceptance.test_trace_ordering import KIND_ORDER, _kinds
 from tests.conftest import (
@@ -114,12 +115,13 @@ def test_the_decision_page_renders_v2_and_attributed_outcomes_truthfully(harness
     # The canonical v1 outcome: direct, no heuristic label, the decision on this page.
     assert canonical[5].startswith(policy.STATUS_DIRECT)
     assert "heuristic" not in canonical[5]
-    assert f"policy-resolved action {ACTION_EVENT_ID}" in canonical[5]
+    canonical_block = fields(html, f"outcome-{OUTCOME_EVENT_ID}")
+    assert f"action {ACTION_EVENT_ID}" in canonical_block["Policy-resolved references"]
     resolved_here = f"policy-resolved decision {DECISION_EVENT_ID} (the decision on this page)"
     assert resolved_here in canonical[5]
-    assert f"policy {policy.POLICY_VERSION}" in canonical[5]
-    assert f"method {policy.METHOD_EXPLICIT_REFERENCE}" in canonical[5]
-    assert "attribution window 90 days" in canonical[5]
+    assert canonical_block["Policy"] == [policy.POLICY_VERSION]
+    assert canonical_block["Method"] == [policy.METHOD_EXPLICIT_REFERENCE]
+    assert canonical_block["Attribution window"] == ["90 days"]
     evaluated_note = (
         "(recorded reference; the attribution column shows how the policy evaluated it)"
     )
