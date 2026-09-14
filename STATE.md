@@ -12,7 +12,7 @@ Completion language in force: 4A "attribution engine and persistence complete"; 
 
 ## Present Objective
 
-Phase 5A: the seeded 200-account dataset as a bounded operation schedule through the collector, the `analytics/` metric functions implementing D-014's contract, and the proofs (AC-13, AC-14, AC-16's last clause, AC-11, INV-03, INV-10 and the reviewer's required-evidence boundaries). Task file `.handoffs/phase-5-task-5a.md` goes to the ChatGPT project reviewer for pre-dispatch review before dispatch. Hosting for flight-recorder.app stays parked by D-014 (no deployment work in Phase 5; the `.app` TLD is HSTS-preloaded). What exists on `main` now: the collector, the ledger, evaluator-v1 with exact reconstruction, counterfactual replay, the decision screen with its replay panel, outcome attribution with its persisted results and their full presentation.
+Phase 5A: the seeded 200-account dataset as a bounded operation schedule through the collector, the `analytics/` metric functions implementing D-014's contract, and the proofs (AC-13, AC-14, AC-16's last clause, AC-11, INV-03, INV-10 and the reviewer's required-evidence boundaries). Task file `.handoffs/phase-5-task-5a.md` revision 2 accepted for dispatch by the ChatGPT project reviewer on 2026-09-14 at `a8766a5` (`.handoffs/review-disposition-p5a-predispatch-r2.md`; task SHA-256 `b2c52e00…`; revision 1 had five findings, all coordinator errors, closed in revision 2). Dispatched to Claude Code on branch `phase-5/dataset-analytics` from the commit recording this acceptance (a STATE-only change from `a8766a5`; the task's base line names it). Hosting for flight-recorder.app stays parked by D-014 (no deployment work in Phase 5; the `.app` TLD is HSTS-preloaded). What exists on `main` now: the collector, the ledger, evaluator-v1 with exact reconstruction, counterfactual replay, the decision screen with its replay panel, outcome attribution with its persisted results and their full presentation.
 
 ## Open Items and Retained Findings
 
@@ -54,4 +54,4 @@ None.
 
 ## Next Action (exactly one)
 
-Write the Phase 5A task file (`.handoffs/phase-5-task-5a.md`) from D-014 and send it to the ChatGPT project reviewer for pre-dispatch review; dispatch to Claude Code only after acceptance, on a new branch `phase-5/dataset-analytics` from `main`. The stale-outcome proposal above stays open until the user rules on it. No deployment is authorized.
+Build 5A on `phase-5/dataset-analytics` per the accepted task; on the build report, the coordinator verifies against the repository (suite, CI-profile invariants, ruff, the four-command seed recipe, the nine pinned hashes read from SQLite, the fresh-seed digest recomputed) and sends the review packet to the ChatGPT project reviewer; merge only on the user's word after acceptance. The stale-outcome proposal above stays open until the user rules on it. No deployment is authorized.
