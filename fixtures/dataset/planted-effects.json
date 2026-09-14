@@ -1,0 +1,55 @@
+{
+  "description": "Planted demonstration effects of the synthetic dataset (PRODUCT.md section 8, D-008, D-014). Bounds and directions only: they check the calculations on demonstration data and are not market findings or causal claims.",
+  "account_minimum": 200,
+  "comparison_workflow_version": "v4.1",
+  "effects": [
+    {
+      "id": "recently_funded",
+      "cohort": {
+        "kind": "rule",
+        "input_key": "funding_event",
+        "rule": "funding_event observed within 90 days before the decision boundary"
+      },
+      "minimum_decisions": 50,
+      "direction": "within",
+      "max_difference_points": 2
+    },
+    {
+      "id": "verified_integration_pressure_high",
+      "cohort": {
+        "kind": "context_value",
+        "input_key": "verified_integration_pressure",
+        "equals": "HIGH"
+      },
+      "minimum_decisions": 40,
+      "direction": "higher",
+      "min_difference_points": 10
+    },
+    {
+      "id": "workflow_v4_2_underperforms",
+      "cohort": {
+        "kind": "workflow",
+        "workflow_version": "v4.2"
+      },
+      "minimum_decisions": 40,
+      "direction": "lower",
+      "min_difference_points": 8
+    }
+  ],
+  "demo_states": {
+    "attribution_standings": {
+      "direct": 1,
+      "inferred": 1,
+      "unresolved": 1,
+      "awaiting attribution": 1
+    },
+    "observation_states": {
+      "open": 1,
+      "closed known": 1,
+      "closed unknown": 1
+    },
+    "correction_histories": 1,
+    "other_period_observations": 1,
+    "outcomes_without_action": 1
+  }
+}

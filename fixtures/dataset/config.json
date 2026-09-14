@@ -1,0 +1,81 @@
+{
+  "seed": 20260914,
+  "account_count": 240,
+  "horizon": "2026-09-01T00:00:00Z",
+  "attribution_instant": "2026-09-01T06:00:00Z",
+  "comparison_workflow_version": "v4.1",
+  "decisions": {
+    "second_decision_share": 0.2,
+    "current_logic_share": 0.1,
+    "compared_workflow_share": 0.45,
+    "prioritize_intent_share": 0.6,
+    "boundary_margin_hours": 72,
+    "explanation_share": 0.3,
+    "explanations": [
+      "Explanation: synthetic decision recorded by the scoring workflow from the preserved inputs listed in its context.",
+      "Explanation: score and output recorded from the consumed inputs; unavailable inputs were not substituted."
+    ]
+  },
+  "evidence": {
+    "employee_count": [
+      {"share": 0.8, "range": [50, 500]},
+      {"share": 0.12, "range": [8, 49]},
+      {"share": 0.08, "range": [501, 4200]}
+    ],
+    "industry": [
+      {"share": 0.65, "values": ["B2B AI Software"]},
+      {"share": 0.35, "values": ["Fintech Infrastructure", "Developer Tools", "Healthcare SaaS", "Logistics Software", "Security Software"]}
+    ],
+    "headquarters_country": [
+      {"share": 0.7, "values": ["United States"]},
+      {"share": 0.3, "values": ["Canada", "United Kingdom", "Germany", "Singapore", "Australia"]}
+    ],
+    "open_platform_engineering_roles_share": 0.85,
+    "open_platform_engineering_roles": [
+      {"share": 0.75, "range": [3, 14]},
+      {"share": 0.25, "range": [0, 2]}
+    ],
+    "head_of_platform_share": 0.5,
+    "funding_mix": {"recent": 0.4, "stale": 0.35, "absent": 0.15, "unavailable": 0.1},
+    "funding_rounds": ["Seed", "Series A", "Series B", "Series C"],
+    "funding_recent_days": [2, 80],
+    "funding_stale_days": [100, 420],
+    "pressure_mix": {"HIGH": 0.25, "MEDIUM": 0.3, "LOW": 0.3, "absent": 0.1, "unavailable": 0.05},
+    "pressure_basis": [
+      "two documented production integrations",
+      "public API reference",
+      "agent-tool directory listing",
+      "integration partner page",
+      "no public API",
+      "one documented production integration",
+      "connector requests in a public forum"
+    ],
+    "website_intent_unavailable_share": 0.3
+  },
+  "actions": {
+    "status_mix": {"none": 0.08, "failed": 0.08, "sent": 0.5, "completed": 0.34},
+    "plays": [3, 7, 14, 21, 28],
+    "personas": ["Head of Platform", "VP Engineering", "Director of Partnerships", "CTO"],
+    "cost_cents": [45, 380]
+  },
+  "outcomes": {
+    "action_observation_mix": {"own_claim": 0.3, "no_claim": 0.65, "none": 0.05},
+    "failed_action_observation_mix": {"claim": 0.5, "no_claim": 0.5},
+    "no_action_observation_mix": {"decision_reference": 0.8, "reference_free": 0.08, "none": 0.12},
+    "period_mix": {"30": 0.08, "90": 0.86, "120": 0.06},
+    "closed_unknown_share": 0.05,
+    "open_age_days": [10, 70],
+    "open_unknown_share": 0.4,
+    "reply_share": 0.35,
+    "meeting_share": 0.4,
+    "recorded_delay_minutes": [2, 240],
+    "opportunity_rates": {
+      "v4.2": {"HIGH": 0.48, "other": 0.2},
+      "v4.1": {"HIGH": 0.7, "other": 0.38}
+    }
+  },
+  "stage_2": {
+    "correction": {"account_index": 14, "outcome_n": 1, "period_days": 30, "opportunity": true},
+    "new_observation": {"account_index": 57, "decision_n": 1, "period_days": 90, "opportunity": false}
+  }
+}
