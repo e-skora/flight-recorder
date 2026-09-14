@@ -49,3 +49,25 @@ select:focus-visible, button:focus-visible { outline: 3px solid var(--focus); ou
 .failure-name, .list-label { font-weight: 700; }
 .failure-origin { font-weight: 700; }
 .counterfactual-computed { color: var(--muted); }
+
+/* --- Outcome attribution presentation. Appended; no rule above is changed. -- */
+.attribution-status, .detail-status { font-family: ui-monospace, monospace; font-weight: 700; }
+.attribution-failure, .attribution-detail { display: block; }
+.attribution-failure, .detail-failure { font-weight: 700; }
+.heuristic-label, .detail-heuristic { display: inline-block; border: 1px solid var(--ink); border-radius: 3px; padding: 0 .3rem; font-size: .9em; }
+.outcome-detail { margin: 1.5rem 0 0; padding-top: .75rem; border-top: 2px solid var(--line); }
+.outcome-detail h3 { margin: 0 0 .35rem; font-size: 1.05rem; }
+.outcome-detail h3 code { font-family: ui-monospace, monospace; word-break: break-all; }
+.outcome-detail > dl.fields > dt { grid-column: 1; }
+.outcome-detail > dl.fields > dd { grid-column: 2; }
+.outcome-detail > dl.fields > dt.detail-history-label, .outcome-detail > dl.fields > dd.detail-history { grid-column: 1 / -1; }
+.outcome-detail > dl.fields > dt.detail-history-label { margin-top: .5rem; font-weight: 700; }
+.outcome-detail > dl.fields > dd.detail-history { overflow-x: auto; }
+.detail-note { color: var(--muted); font-size: .9em; }
+.detail-window-state { font-family: ui-monospace, monospace; }
+.detail-standing-effective { font-weight: 700; }
+.detail-standing-superseded { font-style: italic; }
+table.history-table code { word-break: break-all; }
+.history-more summary { cursor: pointer; white-space: nowrap; }
+.history-more dl.fields { grid-template-columns: max-content 1fr; }
+summary:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }

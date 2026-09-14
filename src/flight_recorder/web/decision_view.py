@@ -38,7 +38,9 @@ operations -- the effective outcome version first, then the effective result
 of that exact version -- and never computes, approximates or inherits one
 (D-013). An outcome with no persisted result is shown as not yet evaluated,
 which is neither `unresolved` nor a failure, and an unresolved outcome is
-listed like any other.
+listed like any other. The attribution history lists persisted results as
+recorded and marks the effective one by the policy module's selection; the
+page never chooses between results itself.
 """
 
 import json
@@ -48,6 +50,7 @@ from pydantic import ValidationError
 from sqlalchemy import select
 
 from flight_recorder.attribution.policy import (
+    HEURISTIC_METHODS,
     POLICY_VERSION,
     AttributionError,
     effective_attribution,
@@ -63,6 +66,7 @@ from flight_recorder.ledger.schema import (
     events,
     evidence_versions,
     logic_artifacts,
+    outcome_attributions,
     outcomes,
 )
 from flight_recorder.logic.evaluator import (
@@ -95,12 +99,16 @@ __all__ = [
     "ORIGIN_RECORDED_LOGIC",
     "ORIGIN_SELECTED_ARTIFACT",
     "UNAVAILABLE",
+    "OBSERVATION_CONTEXT_CLOSED",
+    "OBSERVATION_CONTEXT_LENGTH_ONLY",
+    "OBSERVATION_CONTEXT_OPEN",
     "OBSERVATION_UNKNOWN",
     "OBSERVED_NO",
     "OBSERVED_YES",
     "ActionRow",
     "ArtifactOption",
     "AttributionFailureView",
+    "AttributionHistoryRow",
     "AttributionView",
     "ContextRow",
     "DecisionPage",
@@ -221,6 +229,14 @@ OBSERVED_YES = "yes"
 OBSERVED_NO = "no"
 OBSERVATION_UNKNOWN = "unknown"
 
+#: What a recorded `no` can mean for one outcome version, as the words the
+#: detail block qualifies its observations with. A v1 record states a window
+#: length only; a v2 record states its evaluation state explicitly. Only an
+#: open window turns `no` into "nothing recorded as of the stated time".
+OBSERVATION_CONTEXT_LENGTH_ONLY = "length only"
+OBSERVATION_CONTEXT_OPEN = "open"
+OBSERVATION_CONTEXT_CLOSED = "closed"
+
 
 @dataclass(frozen=True)
 class AttributionView:
@@ -249,6 +265,34 @@ class AttributionFailureView:
 
     reason: str
     message: str
+
+
+@dataclass(frozen=True)
+class AttributionHistoryRow:
+    """One persisted attribution result of one exact outcome version, as recorded.
+
+    Every value is this row's own stored value, never the effective result's,
+    so a replacement that changed only the resolved action or only the reason
+    is visible as a change. `effective` is the policy module's selection, not
+    the page's: it is false for every row when that selection failed.
+    """
+
+    attribution_event_id: str
+    status: str
+    policy_version: str
+    method: str
+    heuristic: bool
+    window_days: int
+    resolved_action_event_id: str | None
+    resolved_decision_event_id: str | None
+    resolves_to_this_decision: bool
+    reason: str
+    attributed_at: str
+    #: The result's own stored snapshot boundary, not the page's display cutoff.
+    ingest_cutoff: int
+    supersedes_attribution_event_id: str | None
+    superseded_by_attribution_event_id: str | None
+    effective: bool
 
 
 @dataclass(frozen=True)
@@ -293,6 +337,13 @@ class OutcomeRow:
     #: None when this exact version has no persisted result.
     attribution: AttributionView | None
     attribution_failure: AttributionFailureView | None
+    #: The version whose supersession link names this row, or None.
+    superseded_by_outcome_event_id: str | None
+    #: Every persisted result for this exact version under `POLICY_VERSION`,
+    #: in ingest order, superseded results included.
+    attribution_history: tuple[AttributionHistoryRow, ...]
+    #: `length only`, `open` or `closed`: what a recorded `no` means here.
+    observation_context: str
 
     @property
     def superseded(self) -> bool:
@@ -556,29 +607,110 @@ def _attribution_view(stored, decision_event_id: str) -> AttributionView | None:
     )
 
 
-def _outcome_rows(conn, account_ref: str, decision_event_id: str) -> tuple[OutcomeRow, ...]:
+def _observation_context(schema_version: str, evaluation_state: str | None) -> str:
+    if schema_version == "1":
+        return OBSERVATION_CONTEXT_LENGTH_ONLY
+    return OBSERVATION_CONTEXT_OPEN if evaluation_state == "open" else OBSERVATION_CONTEXT_CLOSED
+
+
+def _superseding_outcome(conn, outcome_event_id: str, *, cutoff: int) -> str | None:
+    """The version whose supersession link names this one, recorded by the cutoff.
+
+    The ledger's unique constraint on the link allows at most one.
+    """
+    return conn.execute(
+        select(outcomes.c.outcome_event_id)
+        .join(events, events.c.event_id == outcomes.c.outcome_event_id)
+        .where(outcomes.c.supersedes_outcome_event_id == outcome_event_id)
+        .where(events.c.ingest_sequence <= cutoff)
+    ).scalar_one_or_none()
+
+
+def _attribution_history(
+    conn,
+    outcome_event_id: str,
+    decision_event_id: str,
+    *,
+    cutoff: int,
+    effective_attribution_event_id: str | None,
+) -> tuple[AttributionHistoryRow, ...]:
+    """Every persisted result for this exact outcome version, as recorded.
+
+    Read straight from `outcome_attributions` rather than through
+    `effective_attribution`, so it still renders when selection fails. Rows are
+    bounded by the page's display cutoff through their events and kept in
+    ingest order; each row's successor is derived from those same rows only.
+    """
+    stored = conn.execute(
+        select(outcome_attributions)
+        .join(events, events.c.event_id == outcome_attributions.c.attribution_event_id)
+        .where(outcome_attributions.c.outcome_event_id == outcome_event_id)
+        .where(outcome_attributions.c.policy_version == POLICY_VERSION)
+        .where(events.c.ingest_sequence <= cutoff)
+        .order_by(events.c.ingest_sequence)
+    ).all()
+    successors = {
+        row.supersedes_attribution_event_id: row.attribution_event_id
+        for row in stored
+        if row.supersedes_attribution_event_id is not None
+    }
+    return tuple(
+        AttributionHistoryRow(
+            attribution_event_id=row.attribution_event_id,
+            status=row.status,
+            policy_version=row.policy_version,
+            method=row.method,
+            heuristic=row.method in HEURISTIC_METHODS,
+            window_days=row.window_days,
+            resolved_action_event_id=row.resolved_action_event_id,
+            resolved_decision_event_id=row.resolved_decision_event_id,
+            resolves_to_this_decision=row.resolved_decision_event_id == decision_event_id,
+            reason=row.reason,
+            attributed_at=row.attributed_at,
+            ingest_cutoff=row.ingest_cutoff,
+            supersedes_attribution_event_id=row.supersedes_attribution_event_id,
+            superseded_by_attribution_event_id=successors.get(row.attribution_event_id),
+            effective=row.attribution_event_id == effective_attribution_event_id,
+        )
+        for row in stored
+    )
+
+
+def _outcome_rows(
+    conn, account_ref: str, decision_event_id: str, *, cutoff: int | None = None
+) -> tuple[OutcomeRow, ...]:
     """Every recorded outcome version for the *account*, which is their recorded scope.
 
     Left joined to `actions` so an outcome carrying no action reference still
     produces a row; the join recovers only what the record says. Superseded
     versions stay listed and inspectable. Each row's attribution is selected
-    for that exact version through the policy module's selection operations at
-    the ledger's current maximum sequence, so unresolved and unattributed
-    outcomes are listed exactly like resolved ones, and a corrected version
-    never shows its predecessor's result.
+    for that exact version through the policy module's selection operations,
+    so unresolved and unattributed outcomes are listed exactly like resolved
+    ones, and a corrected version never shows its predecessor's result.
+
+    One display cutoff bounds the whole section: it is resolved first (the
+    ledger's current maximum sequence unless `cutoff` is given), and the
+    outcome list, both selections, the attribution history and the successor
+    links are all read at it. A version or result appended after it is absent
+    from this read rather than shown as a failure. `cutoff` exists for tests;
+    the route never passes it.
     """
+    if cutoff is None:
+        cutoff = ledger_maximum(conn)
     rows = conn.execute(
         select(
             outcomes,
             actions.c.decision_event_id.label("referenced_decision_event_id"),
         )
         .select_from(
-            outcomes.outerjoin(actions, outcomes.c.action_event_id == actions.c.action_event_id)
+            outcomes.join(events, events.c.event_id == outcomes.c.outcome_event_id).outerjoin(
+                actions, outcomes.c.action_event_id == actions.c.action_event_id
+            )
         )
         .where(outcomes.c.account_ref == account_ref)
+        .where(events.c.ingest_sequence <= cutoff)
         .order_by(outcomes.c.occurred_at, outcomes.c.outcome_event_id)
     ).all()
-    cutoff = ledger_maximum(conn)
 
     result = []
     for row in rows:
@@ -591,6 +723,15 @@ def _outcome_rows(conn, account_ref: str, decision_event_id: str) -> tuple[Outco
             )
         except AttributionError as error:
             failure = AttributionFailureView(reason=error.reason, message=str(error))
+        history = _attribution_history(
+            conn,
+            row.outcome_event_id,
+            decision_event_id,
+            cutoff=cutoff,
+            effective_attribution_event_id=(
+                attribution.attribution_event_id if attribution is not None else None
+            ),
+        )
         states = {
             word: _observation_state(getattr(row, word))
             for word in ("reply", "meeting", "opportunity")
@@ -622,6 +763,11 @@ def _outcome_rows(conn, account_ref: str, decision_event_id: str) -> tuple[Outco
                 effective_outcome_event_id=effective,
                 attribution=attribution,
                 attribution_failure=failure,
+                superseded_by_outcome_event_id=_superseding_outcome(
+                    conn, row.outcome_event_id, cutoff=cutoff
+                ),
+                attribution_history=history,
+                observation_context=_observation_context(row.schema_version, row.evaluation_state),
             )
         )
     return tuple(result)

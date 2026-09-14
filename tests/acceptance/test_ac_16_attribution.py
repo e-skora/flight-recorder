@@ -27,6 +27,7 @@ from flight_recorder.collector.canonical import canonical_hash
 from flight_recorder.collector.schema import ATTRIBUTION_SOURCE
 from flight_recorder.ledger.database import make_engine
 from flight_recorder.ledger.schema import actions, events, outcome_attributions, outcomes
+from tests.acceptance.test_attribution_presentation import fields
 from tests.acceptance.test_decision_detail_page import decision_url, element, rows
 from tests.conftest import (
     ACCOUNT_REF,
@@ -699,7 +700,9 @@ def test_replay_under_current_logic_changes_no_attribution_and_persists_nothing(
     assert element(flipped.text, "outcomes") == element(unflipped.text, "outcomes")
     cell = rows(flipped.text, "outcomes-table")[0][5]
     assert cell.startswith(policy.STATUS_DIRECT)
-    assert ACTION_EVENT_ID in cell and DECISION_EVENT_ID in cell
+    assert DECISION_EVENT_ID in cell
+    flipped_block = fields(flipped.text, f"outcome-{OUTCOME_EVENT_ID}")
+    assert f"action {ACTION_EVENT_ID}" in flipped_block["Policy-resolved references"]
     assert "the decision on this page" in cell
 
     (after,) = attribution_rows(harness)
