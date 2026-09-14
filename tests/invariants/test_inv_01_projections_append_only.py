@@ -13,7 +13,7 @@ from sqlalchemy import delete, update
 from sqlalchemy.exc import IntegrityError
 
 from flight_recorder.ledger.schema import PROJECTION_TABLES
-from tests.conftest import Harness, canonical_envelope_paths, seed_all
+from tests.conftest import Harness, canonical_envelope_paths, seed_all, seed_and_attribute
 
 pytestmark = pytest.mark.invariant
 
@@ -42,7 +42,7 @@ def _first_writable_column(table):
 
 @pytest.mark.parametrize("table", PROJECTION_TABLES, ids=TABLE_IDS)
 def test_update_on_a_projection_table_is_refused(harness, table):
-    seed_all(harness)
+    seed_and_attribute(harness)
     before = harness.projection_rows()
     assert before[table.name], f"{table.name} must have rows for this test to mean anything"
     column = _first_writable_column(table)
@@ -53,7 +53,7 @@ def test_update_on_a_projection_table_is_refused(harness, table):
 
 @pytest.mark.parametrize("table", PROJECTION_TABLES, ids=TABLE_IDS)
 def test_delete_on_a_projection_table_is_refused(harness, table):
-    seed_all(harness)
+    seed_and_attribute(harness)
     before = harness.projection_rows()
     assert before[table.name]
     with pytest.raises(IntegrityError, match="INV-01"), harness.engine.begin() as conn:

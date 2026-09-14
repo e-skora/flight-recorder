@@ -1,4 +1,13 @@
-"""Collector envelope schema, version "1".
+"""Collector envelope schema: version "1" for every event type, plus version "2"
+of `outcome.evaluated`.
+
+**Versions (D-013).** Every event type is schema version "1" (`_EnvelopeBase`),
+with one exception: `outcome.evaluated` also accepts version "2". The envelope
+union is discriminated on `event_type`, so that one member is itself a union
+discriminated on `schema_version` (`OutcomeEvaluatedEnvelopes`). Version "1"'s
+model, validation and canonical serialization are untouched, so every stored v1
+hash is unchanged; a new version, rather than new defaulted fields on v1, is
+what keeps them unchanged, because identity is the validated model dump.
 
 Every model forbids unknown fields. Acceptance is decided by validating the raw
 JSON request body in strict JSON mode (`validate_envelope_json`), so `"184"`
@@ -37,6 +46,9 @@ from flight_recorder.ledger.schema import SYSTEM_ACCOUNT_REF
 
 SCHEMA_VERSION = "1"
 
+#: The schema versions `outcome.evaluated` accepts; every other type is "1" only.
+OUTCOME_SCHEMA_VERSIONS = ("1", "2")
+
 EVENT_TYPES = (
     "logic_artifact.registered",
     "account.discovered",
@@ -45,7 +57,12 @@ EVENT_TYPES = (
     "persona.selected",
     "action.recorded",
     "outcome.evaluated",
+    "outcome.attributed",
 )
+
+#: The `source` of every `outcome.attributed` envelope: the internal attribution
+#: component, named explicitly rather than borrowed from a vendor-like source.
+ATTRIBUTION_SOURCE = "flight-recorder-attribution"
 
 
 def format_utc(value: datetime) -> str:
@@ -313,6 +330,103 @@ class OutcomeEvaluatedPayload(StrictModel):
     action_event_id: NonEmptyStr
 
 
+class OutcomeEvaluatedV2Payload(StrictModel):
+    """An outcome observation, schema version "2" (D-013).
+
+    - `window_opened_at` / `window_closes_at` bound the outcome's *evaluation
+      period*. That period is not the attribution policy's lookback.
+    - `evaluation_state` is recorded explicitly and never inferred from a clock.
+    - `observed_at` is the as-of instant the observations describe; the
+      envelope requires it to be the same instant as `occurred_at`.
+    - `reply`, `meeting`, `opportunity`: `true`, `false`, or unknown. Omitted
+      and explicit `null` both mean unknown and dump identically (the key is
+      present with value `null`), so they share one canonical hash.
+    - `source_action_event_id` / `source_decision_event_id` are the
+      submitter's *claims*, either, both or neither. A well-formed claim that
+      does not resolve is still accepted; whether it earns credit is the
+      attribution policy's question, not this model's.
+    - `supersedes_outcome_event_id` names the outcome version this one
+      replaces; the collector checks the target (see `collector.projections`).
+    """
+
+    window_opened_at: Timestamp
+    window_closes_at: Timestamp
+    evaluation_state: Literal["open", "closed"]
+    observed_at: Timestamp
+    reply: bool | None = None
+    meeting: bool | None = None
+    opportunity: bool | None = None
+    source_action_event_id: NonEmptyStr | None = None
+    source_decision_event_id: NonEmptyStr | None = None
+    supersedes_outcome_event_id: NonEmptyStr | None = None
+
+    @model_validator(mode="after")
+    def _period_is_ordered(self) -> "OutcomeEvaluatedV2Payload":
+        if not self.window_opened_at < self.window_closes_at:
+            raise ValueError(
+                f"window_opened_at {format_utc(self.window_opened_at)} must be strictly "
+                f"before window_closes_at {format_utc(self.window_closes_at)}"
+            )
+        if self.observed_at < self.window_opened_at:
+            raise ValueError(
+                f"observed_at {format_utc(self.observed_at)} must not be earlier than "
+                f"window_opened_at {format_utc(self.window_opened_at)}"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _state_agrees_with_the_as_of_instant(self) -> "OutcomeEvaluatedV2Payload":
+        closes = format_utc(self.window_closes_at)
+        observed = format_utc(self.observed_at)
+        if self.evaluation_state == "closed" and self.observed_at < self.window_closes_at:
+            raise ValueError(
+                f"evaluation_state 'closed' requires observed_at {observed} not earlier than "
+                f"window_closes_at {closes}"
+            )
+        if self.evaluation_state == "open" and self.observed_at >= self.window_closes_at:
+            raise ValueError(
+                f"evaluation_state 'open' requires observed_at {observed} earlier than "
+                f"window_closes_at {closes}"
+            )
+        return self
+
+
+class OutcomeAttributedPayload(StrictModel):
+    """One attribution result (D-013, `PRODUCT.md` §6 Outcome Attribution).
+
+    The collector accepts it only when the named policy, recomputed for this
+    outcome version at `ingest_cutoff`, agrees field by field; this model
+    checks only that the result is internally coherent.
+    """
+
+    outcome_event_id: NonEmptyStr
+    policy_version: NonEmptyStr
+    method: NonEmptyStr
+    window_days: int
+    resolved_action_event_id: NonEmptyStr | None = None
+    resolved_decision_event_id: NonEmptyStr | None = None
+    status: Literal["direct", "inferred", "unresolved"]
+    reason: NonEmptyStr
+    attributed_at: Timestamp
+    ingest_cutoff: int
+    supersedes_attribution_event_id: NonEmptyStr | None = None
+
+    @model_validator(mode="after")
+    def _resolved_references_agree_with_status(self) -> "OutcomeAttributedPayload":
+        action = self.resolved_action_event_id is not None
+        decision = self.resolved_decision_event_id is not None
+        if self.status == "direct" and not decision:
+            raise ValueError("status 'direct' requires resolved_decision_event_id")
+        if self.status == "inferred" and not (action and decision):
+            raise ValueError(
+                "status 'inferred' requires both resolved_action_event_id and "
+                "resolved_decision_event_id"
+            )
+        if self.status == "unresolved" and (action or decision):
+            raise ValueError("status 'unresolved' must not carry a resolved reference")
+        return self
+
+
 # --- Logic artifacts (INV-05) ----------------------------------------------
 #
 # The artifact is the logic's identity, not the `v3.2` label. Every field below
@@ -447,6 +561,57 @@ class OutcomeEvaluatedEnvelope(_EnvelopeBase):
     payload: OutcomeEvaluatedPayload
 
 
+class OutcomeEvaluatedV2Envelope(_EnvelopeBase):
+    """`outcome.evaluated`, schema version "2". The only envelope not on "1"."""
+
+    schema_version: Literal["2"]
+    event_type: Literal["outcome.evaluated"]
+    payload: OutcomeEvaluatedV2Payload
+
+    @model_validator(mode="after")
+    def _observed_at_is_the_occurrence_instant(self) -> "OutcomeEvaluatedV2Envelope":
+        """The as-of instant is the occurrence instant, in one representation.
+
+        With `recorded_at` not before `occurred_at`, an observation can never
+        describe an as-of time later than when it was recorded.
+        """
+        if self.payload.observed_at != self.occurred_at:
+            raise ValueError(
+                f"payload.observed_at {format_utc(self.payload.observed_at)} must be the same "
+                f"instant as occurred_at {format_utc(self.occurred_at)}"
+            )
+        return self
+
+
+#: Version-aware dispatch for the one event type with two schema versions.
+OutcomeEvaluatedEnvelopes = Annotated[
+    OutcomeEvaluatedEnvelope | OutcomeEvaluatedV2Envelope,
+    Field(discriminator="schema_version"),
+]
+
+
+class OutcomeAttributedEnvelope(_EnvelopeBase):
+    """A persisted attribution result.
+
+    `account_ref` is the attributed outcome's own account (never `_system`,
+    which the base validator reserves), and `source` is always the internal
+    attribution component.
+    """
+
+    event_type: Literal["outcome.attributed"]
+    source: Literal[ATTRIBUTION_SOURCE]
+    payload: OutcomeAttributedPayload
+
+    @model_validator(mode="after")
+    def _attributed_at_is_the_occurrence_instant(self) -> "OutcomeAttributedEnvelope":
+        if self.payload.attributed_at != self.occurred_at:
+            raise ValueError(
+                f"payload.attributed_at {format_utc(self.payload.attributed_at)} must be the "
+                f"same instant as occurred_at {format_utc(self.occurred_at)}"
+            )
+        return self
+
+
 Envelope = Annotated[
     LogicArtifactRegisteredEnvelope
     | AccountDiscoveredEnvelope
@@ -454,7 +619,8 @@ Envelope = Annotated[
     | DecisionRecordedEnvelope
     | PersonaSelectedEnvelope
     | ActionRecordedEnvelope
-    | OutcomeEvaluatedEnvelope,
+    | OutcomeEvaluatedEnvelopes
+    | OutcomeAttributedEnvelope,
     Field(discriminator="event_type"),
 ]
 
@@ -468,6 +634,8 @@ AnyEnvelope = (
     | PersonaSelectedEnvelope
     | ActionRecordedEnvelope
     | OutcomeEvaluatedEnvelope
+    | OutcomeEvaluatedV2Envelope
+    | OutcomeAttributedEnvelope
 )
 
 

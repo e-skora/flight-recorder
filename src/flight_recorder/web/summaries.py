@@ -3,6 +3,8 @@
 import json
 from dataclasses import dataclass
 
+from flight_recorder.attribution.policy import HEURISTIC_METHODS
+
 KIND_LABELS = {
     "account.discovered": "EVENT",
     "evidence.recorded": "EVIDENCE",
@@ -10,6 +12,7 @@ KIND_LABELS = {
     "persona.selected": "EVENT",
     "action.recorded": "ACTION",
     "outcome.evaluated": "OUTCOME",
+    "outcome.attributed": "ATTRIBUTION",
 }
 
 
@@ -29,7 +32,17 @@ def _yes_no(flag: bool, word: str) -> str:
     return word if flag else f"no {word}"
 
 
-def summarize(event_type: str, payload: dict) -> str:
+def _observation(flag: bool | None, word: str, state: str) -> str:
+    """A v2 observation: unknown is never a negative, and an open window's
+    `false` means nothing recorded yet, not a final result."""
+    if flag is None:
+        return f"{word} unknown"
+    if flag:
+        return word
+    return f"no {word} recorded yet" if state == "open" else f"no {word}"
+
+
+def summarize(event_type: str, payload: dict, schema_version: str = "1") -> str:
     match event_type:
         case "account.discovered":
             return f"Account discovered: {payload['name']} ({payload['domain']})"
@@ -54,12 +67,28 @@ def summarize(event_type: str, payload: dict) -> str:
                 f"Outbound play #{payload['play_id']} to {payload['target_persona']}, "
                 f"cost ${payload['cost']}, {payload['status']}"
             )
-        case "outcome.evaluated":
+        case "outcome.evaluated" if schema_version == "1":
             return (
                 f"Outcome after {payload['window_days']} days: "
                 f"{_yes_no(payload['reply'], 'reply')}, "
                 f"{_yes_no(payload['meeting'], 'meeting')}, "
                 f"{_yes_no(payload['opportunity'], 'opportunity')}"
+            )
+        case "outcome.evaluated":
+            state = payload["evaluation_state"]
+            return (
+                f"Outcome observation, window {state} "
+                f"({payload['window_opened_at']} to {payload['window_closes_at']}), "
+                f"as of {payload['observed_at']}: "
+                f"{_observation(payload['reply'], 'reply', state)}, "
+                f"{_observation(payload['meeting'], 'meeting', state)}, "
+                f"{_observation(payload['opportunity'], 'opportunity', state)}"
+            )
+        case "outcome.attributed":
+            heuristic = " (heuristic)" if payload["method"] in HEURISTIC_METHODS else ""
+            return (
+                f"Outcome attribution: {payload['status']}{heuristic} "
+                f"under {payload['policy_version']}"
             )
     return event_type
 
@@ -74,5 +103,5 @@ def trace_row(row) -> TraceRow:
         source=row.source,
         occurred_at=row.occurred_at,
         recorded_at=row.recorded_at,
-        summary=summarize(row.event_type, payload),
+        summary=summarize(row.event_type, payload, row.schema_version),
     )

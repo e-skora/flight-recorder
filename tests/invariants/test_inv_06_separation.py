@@ -61,7 +61,7 @@ from tests.invariants.test_inv_09_visible_failure_states import (
 
 pytestmark = pytest.mark.invariant
 
-#: The eight projection tables that exist on `main`; nothing holds a counterfactual.
+#: The nine projection tables that exist on `main`; nothing holds a counterfactual.
 PROJECTION_TABLE_NAMES = {
     "evidence_versions",
     "logic_artifacts",
@@ -71,6 +71,7 @@ PROJECTION_TABLE_NAMES = {
     "persona_selections",
     "actions",
     "outcomes",
+    "outcome_attributions",
 }
 #: The only tables the counterfactual path may read.
 READABLE = {

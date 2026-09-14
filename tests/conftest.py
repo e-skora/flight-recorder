@@ -6,13 +6,20 @@ import os
 import uuid
 import warnings
 from contextlib import contextmanager
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pytest
 from hypothesis import HealthCheck, settings
 from sqlalchemy import event, func, select
 
+from flight_recorder.attribution.policy import (
+    POLICY_VERSION,
+    attribute,
+    ledger_maximum,
+    load_outcome,
+)
+from flight_recorder.attribution.service import build_envelope, run_attribution
 from flight_recorder.collector.canonical import canonical_hash
 from flight_recorder.collector.schema import LogicArtifact, format_utc
 from flight_recorder.fixtures import canonical_envelope_paths, load_json, logic_artifact_path
@@ -26,6 +33,8 @@ from flight_recorder.ledger.schema import (
     decisions,
     events,
     evidence_versions,
+    outcome_attributions,
+    outcomes,
 )
 from flight_recorder.logic.evaluator import ContextInput, InputState
 from flight_recorder.logic.rules import parse_boundary
@@ -537,3 +546,281 @@ def assert_same_comparison(after, before) -> None:
         assert after_change.evidence_version_id == before_change.evidence_version_id
     assert after.missing_inputs == before.missing_inputs
     assert after == before
+
+
+# --- Phase 4A: outcome schema v2 and attribution ----------------------------
+#
+# Shared by `test_ac_16_attribution.py`, `test_attribution_ingest.py`,
+# `test_outcome_window_states.py`, `test_attribution_compatibility.py`,
+# `test_inv_08_attribution_boundaries.py`, `test_inv_08_supersession.py`,
+# `test_outcome_schema_versions.py`, and the setup of the parametrized tests
+# in `test_inv_01_projections_append_only.py`.
+
+#: Canonical identities, read from the fixtures rather than retyped.
+ACCOUNT_REF = canonical_by_type("account.discovered")["account_ref"]
+ACTION_EVENT_ID = canonical_by_type("action.recorded")["event_id"]
+OUTCOME_EVENT_ID = canonical_by_type("outcome.evaluated")["event_id"]
+
+
+class FixedClock:
+    """An injectable clock that moves only when a test advances it."""
+
+    def __init__(self, start: datetime | None = None):
+        self.now = start if start is not None else datetime.fromisoformat("2026-09-11T12:00:00Z")
+
+    def __call__(self) -> datetime:
+        return self.now
+
+    def advance(self, **delta) -> datetime:
+        self.now = self.now + timedelta(**delta)
+        return self.now
+
+
+def attribute_ledger(harness: Harness, *, reevaluate: bool = False, clock=None):
+    """One run of the attribution command against the harness's application,
+    submitted over the same in-process HTTP collector boundary as `seed`."""
+    return run_attribution(
+        harness.app, reevaluate=reevaluate, clock=clock if clock is not None else FixedClock()
+    )
+
+
+def seed_and_attribute(harness: Harness, clock=None):
+    """The canonical nine through the collector, then one attribution run."""
+    for response in seed_all(harness):
+        assert response.status_code == 201, response.json()
+    run = attribute_ledger(harness, clock=clock)
+    assert [s.http_status for s in run.submissions] == [201], [s.body for s in run.submissions]
+    return run
+
+
+def max_sequence(harness: Harness) -> int:
+    with harness.engine.connect() as conn:
+        return ledger_maximum(conn)
+
+
+def attribution_rows(harness: Harness) -> list:
+    """Every `outcome_attributions` row, in ingest order."""
+    with harness.engine.connect() as conn:
+        return conn.execute(
+            select(outcome_attributions)
+            .join(events, events.c.event_id == outcome_attributions.c.attribution_event_id)
+            .order_by(events.c.ingest_sequence)
+        ).all()
+
+
+def outcome_row(harness: Harness, outcome_event_id: str):
+    with harness.engine.connect() as conn:
+        return conn.execute(
+            select(outcomes).where(outcomes.c.outcome_event_id == outcome_event_id)
+        ).first()
+
+
+def event_hash(harness: Harness, event_id: str) -> str:
+    with harness.engine.connect() as conn:
+        return conn.execute(
+            select(events.c.canonical_hash).where(events.c.event_id == event_id)
+        ).scalar_one()
+
+
+def attribute_at(harness: Harness, outcome_event_id: str, cutoff: int | None = None):
+    """`outcome-attribution-v1` computed directly, at `cutoff` or the ledger maximum."""
+    with harness.engine.connect() as conn:
+        return attribute(
+            conn,
+            outcome_event_id,
+            cutoff=cutoff if cutoff is not None else ledger_maximum(conn),
+        )
+
+
+def discovery_envelope(account_ref: str, *, name: str | None = None) -> dict:
+    """A second account's `account.discovered`, derived from the canonical one."""
+    envelope = copy.deepcopy(canonical_by_type("account.discovered"))
+    envelope.update(
+        event_id=f"evt-{account_ref}-discovered",
+        account_ref=account_ref,
+        payload={"name": name or account_ref, "domain": f"{account_ref}.example"},
+    )
+    return envelope
+
+
+def action_envelope(
+    event_id: str,
+    *,
+    occurred_at: str,
+    status: str = "sent",
+    decision_event_id: str = DECISION_EVENT_ID,
+    account_ref: str = ACCOUNT_REF,
+    recorded_at: str | None = None,
+) -> dict:
+    """The canonical `action.recorded` with its identity, time and status replaced."""
+    envelope = copy.deepcopy(canonical_by_type("action.recorded"))
+    envelope.update(
+        event_id=event_id,
+        account_ref=account_ref,
+        occurred_at=occurred_at,
+        recorded_at=recorded_at if recorded_at is not None else occurred_at,
+    )
+    envelope["payload"].update(status=status, decision_event_id=decision_event_id)
+    return envelope
+
+
+def decision_copy_envelope(event_id: str, *, boundary: str, account_ref: str = ACCOUNT_REF) -> dict:
+    """The canonical decision re-recorded under a new id at a later boundary.
+
+    Its preserved evidence was available at the canonical boundary, so any
+    later boundary still satisfies the collector's availability rule.
+    """
+    envelope = copy.deepcopy(canonical_by_type("decision.recorded"))
+    envelope.update(
+        event_id=event_id,
+        account_ref=account_ref,
+        occurred_at=boundary,
+        recorded_at=boundary,
+    )
+    envelope["payload"]["decision_boundary"] = boundary
+    return envelope
+
+
+def outcome_v2_envelope(
+    event_id: str,
+    *,
+    observed_at: str,
+    window_opened_at: str,
+    window_closes_at: str,
+    evaluation_state: str,
+    account_ref: str = ACCOUNT_REF,
+    recorded_at: str | None = None,
+    source: str = "crm-sim",
+    **payload,
+) -> dict:
+    """A schema-v2 `outcome.evaluated`. Keyword `payload` entries are added as
+    given (observations, source claims, a supersession link); anything not
+    given is omitted, which v2 reads as unknown or absent."""
+    return {
+        "schema_version": "2",
+        "event_id": event_id,
+        "event_type": "outcome.evaluated",
+        "source": source,
+        "account_ref": account_ref,
+        "occurred_at": observed_at,
+        "recorded_at": recorded_at if recorded_at is not None else observed_at,
+        "payload": {
+            "window_opened_at": window_opened_at,
+            "window_closes_at": window_closes_at,
+            "evaluation_state": evaluation_state,
+            "observed_at": observed_at,
+            **payload,
+        },
+    }
+
+
+def outcome_v1_envelope(
+    event_id: str,
+    *,
+    action_event_id: str,
+    occurred_at: str,
+    account_ref: str = ACCOUNT_REF,
+) -> dict:
+    """The canonical v1 outcome under a new id, naming `action_event_id`."""
+    envelope = copy.deepcopy(canonical_by_type("outcome.evaluated"))
+    envelope.update(
+        event_id=event_id,
+        account_ref=account_ref,
+        occurred_at=occurred_at,
+        recorded_at=occurred_at,
+    )
+    envelope["payload"]["action_event_id"] = action_event_id
+    return envelope
+
+
+def post_created(harness: Harness, *envelopes: dict) -> None:
+    for envelope in envelopes:
+        response = harness.post(envelope)
+        assert response.status_code == 201, (envelope["event_id"], response.json())
+
+
+def attribution_envelope(
+    harness: Harness,
+    outcome_event_id: str,
+    *,
+    cutoff: int | None = None,
+    supersedes: str | None = None,
+    clock=None,
+    policy_version: str | None = None,
+) -> dict:
+    """A policy-correct `outcome.attributed` envelope, built as the command
+    builds it but not submitted, so a test can submit or mutate it by hand."""
+    with harness.engine.connect() as conn:
+        at = cutoff if cutoff is not None else ledger_maximum(conn)
+        result = attribute(
+            conn,
+            outcome_event_id,
+            cutoff=at,
+            **({"policy_version": policy_version} if policy_version else {}),
+        )
+        account_ref = load_outcome(conn, outcome_event_id, cutoff=at).account_ref
+    now = (clock if clock is not None else FixedClock())()
+    return build_envelope(
+        result,
+        account_ref=account_ref,
+        attributed_at=now,
+        recorded_at=now,
+        supersedes_attribution_event_id=supersedes,
+    )
+
+
+def append_unrelated(harness: Harness, count: int = 1) -> None:
+    """Raise the ledger maximum with events no attribution depends on."""
+    for _ in range(count):
+        post_created(harness, discovery_envelope(f"filler-{uuid.uuid4().hex[:12]}"))
+
+
+def insert_ambiguous_attribution(harness: Harness, other_attribution_event_id: str) -> str:
+    """Corrupt the ledger *around* the collector: a second effective result for
+    the canonical outcome, inserted directly (the append-only triggers refuse
+    UPDATE and DELETE, not INSERT). Its supersession link names another
+    outcome's result, so both it and the genuine result are unsuperseded.
+    Used only to prove that selection raises instead of picking."""
+    corrupt_id = "evt-test-corrupt-attribution"
+    stamp = "2026-09-11T12:00:00.000000Z"
+    with harness.engine.begin() as conn:
+        conn.execute(
+            events.insert().values(
+                event_id=corrupt_id,
+                schema_version="1",
+                event_type="outcome.attributed",
+                source="test-corruption",
+                account_ref=ACCOUNT_REF,
+                occurred_at=stamp,
+                recorded_at=stamp,
+                canonical_hash="0" * 64,
+                payload="{}",
+            )
+        )
+        conn.execute(
+            outcome_attributions.insert().values(
+                attribution_event_id=corrupt_id,
+                account_ref=ACCOUNT_REF,
+                source_event_id=corrupt_id,
+                outcome_event_id=OUTCOME_EVENT_ID,
+                policy_version=POLICY_VERSION,
+                method="explicit_source_reference",
+                window_days=90,
+                resolved_action_event_id=ACTION_EVENT_ID,
+                resolved_decision_event_id=DECISION_EVENT_ID,
+                status="direct",
+                reason="valid_source_action_reference",
+                attributed_at=stamp,
+                ingest_cutoff=10**6,
+                supersedes_attribution_event_id=other_attribution_event_id,
+            )
+        )
+    return corrupt_id
+
+
+def seed_through_decision(harness: Harness) -> None:
+    """Both registrations plus the account envelopes up to and including the
+    canonical decision: no persona, action or outcome."""
+    register_artifacts(harness)
+    for index in range(4):
+        assert harness.post_raw(canonical_raw(index)).status_code == 201

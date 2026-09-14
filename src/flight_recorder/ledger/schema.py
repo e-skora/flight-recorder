@@ -19,6 +19,22 @@ metadata and MUST NOT appear on any account-facing surface: select accounts
 through `accounts_query()`, which excludes it, rather than from `accounts`
 directly.
 
+**Outcome versions (D-013).** `outcomes` holds both `outcome.evaluated` schema
+versions, distinguished by its `schema_version` column. The columns that exist
+only for schema v2 are `window_opened_at`, `window_closes_at`,
+`evaluation_state`, `observed_at`, `source_action_event_id`,
+`source_action_unusable_reason`, `source_decision_event_id`,
+`source_decision_unusable_reason` and `supersedes_outcome_event_id`; a v1 row
+leaves all of them NULL and writes exactly what it wrote before them. A v2 row
+leaves the v1-only `action_event_id` and `window_days` NULL. `reply`, `meeting`
+and `opportunity` are shared and are NULL only for a v2 observation recorded as
+unknown.
+
+**Attribution results.** `outcome_attributions` holds one row per accepted
+`outcome.attributed` event. Every row, like every other projected row, is tied
+to its producing event, so `events.ingest_sequence` is the snapshot boundary
+the attribution policy filters every read on.
+
 SQLAlchemy Core is used (a reversible in-task choice; see DECISIONS.md Open).
 The schema is created from this metadata by `flight-recorder reset`.
 """
@@ -28,6 +44,7 @@ from sqlalchemy import (
     Column,
     ForeignKey,
     ForeignKeyConstraint,
+    Index,
     Integer,
     MetaData,
     String,
@@ -216,16 +233,106 @@ outcomes = Table(
     metadata,
     Column("outcome_event_id", String, ForeignKey("events.event_id"), primary_key=True),
     Column("account_ref", String, ForeignKey("accounts.account_ref"), nullable=False),
-    # Nullable in the schema for the unresolved cases later phases record;
-    # schema v1's `outcome.evaluated` always supplies it.
+    # --- Schema v1 columns (v2 rows leave `action_event_id` and `window_days` NULL).
+    # v1's stored action reference; a validated foreign key, because v1 ingest
+    # rejects a reference that does not resolve. v2 claims live in their own
+    # columns below and carry no foreign key.
     Column("action_event_id", String, nullable=True),
-    Column("window_days", Integer, nullable=False),
-    Column("reply", Boolean, nullable=False),
-    Column("meeting", Boolean, nullable=False),
-    Column("opportunity", Boolean, nullable=False),
+    # v1's window length. NULL for v2, which records period bounds instead; no
+    # duration is ever derived from those bounds.
+    Column("window_days", Integer, nullable=True),
+    # Shared by both versions. NULL only for a v2 observation recorded as
+    # unknown; v1 always writes true or false.
+    Column("reply", Boolean, nullable=True),
+    Column("meeting", Boolean, nullable=True),
+    Column("opportunity", Boolean, nullable=True),
     Column("occurred_at", String, nullable=False),
     Column("recorded_at", String, nullable=False),
+    # The envelope's schema version ("1" or "2"), so a reader never guesses a shape.
+    Column("schema_version", String, nullable=False),
+    # --- Schema v2-only columns: always NULL on a v1 row.
+    Column("window_opened_at", String, nullable=True),
+    Column("window_closes_at", String, nullable=True),
+    Column("evaluation_state", String, nullable=True),
+    Column("observed_at", String, nullable=True),
+    # The submitter's source claims, stored unmodified and deliberately without
+    # foreign keys: an unusable claim is retained, not rejected (D-013). Each
+    # `*_unusable_reason` records why the claim was unusable as of this
+    # outcome's own ingestion, or NULL when it was usable then. The attribution
+    # policy never reads these reasons; it recomputes its own at its cutoff.
+    Column("source_action_event_id", String, nullable=True),
+    Column("source_action_unusable_reason", String, nullable=True),
+    Column("source_decision_event_id", String, nullable=True),
+    Column("source_decision_unusable_reason", String, nullable=True),
+    # INV-08: a closing or correcting observation appends and links back. At
+    # most one version may supersede a given version (the collector names the
+    # rejection first; the constraint is the backstop).
+    Column(
+        "supersedes_outcome_event_id",
+        String,
+        ForeignKey("outcomes.outcome_event_id"),
+        nullable=True,
+        unique=True,
+    ),
     ForeignKeyConstraint(["action_event_id"], ["actions.action_event_id"]),
+)
+
+outcome_attributions = Table(
+    "outcome_attributions",
+    metadata,
+    # The attribution's own identity: the `outcome.attributed` event id, derived
+    # from (outcome_event_id, policy_version, ingest_cutoff).
+    Column("attribution_event_id", String, ForeignKey("events.event_id"), primary_key=True),
+    Column("account_ref", String, ForeignKey("accounts.account_ref"), nullable=False),
+    Column("source_event_id", String, ForeignKey("events.event_id"), nullable=False),
+    # The exact outcome version evaluated.
+    Column("outcome_event_id", String, ForeignKey("outcomes.outcome_event_id"), nullable=False),
+    Column("policy_version", String, nullable=False),
+    Column("method", String, nullable=False),
+    # The policy's attribution lookback, not the outcome's evaluation period.
+    Column("window_days", Integer, nullable=False),
+    # Policy-resolved references are validated references, unlike source claims.
+    Column(
+        "resolved_action_event_id",
+        String,
+        ForeignKey("actions.action_event_id"),
+        nullable=True,
+    ),
+    Column(
+        "resolved_decision_event_id",
+        String,
+        ForeignKey("decisions.decision_event_id"),
+        nullable=True,
+    ),
+    Column("status", String, nullable=False),
+    Column("reason", String, nullable=False),
+    # The real instant the evaluation happened.
+    Column("attributed_at", String, nullable=False),
+    # The collector-owned snapshot boundary: an `events.ingest_sequence`.
+    Column("ingest_cutoff", Integer, nullable=False),
+    Column(
+        "supersedes_attribution_event_id",
+        String,
+        ForeignKey("outcome_attributions.attribution_event_id"),
+        nullable=True,
+        unique=True,
+    ),
+    # One operation, one row; the collector names the rejection first.
+    UniqueConstraint(
+        "outcome_event_id",
+        "policy_version",
+        "ingest_cutoff",
+        name="uq_outcome_attributions_operation",
+    ),
+)
+
+# At most one first result (no supersession link) per outcome version and policy.
+Index(
+    "uq_outcome_attributions_root",
+    outcome_attributions.c.outcome_event_id,
+    outcome_attributions.c.policy_version,
+    unique=True,
+    sqlite_where=outcome_attributions.c.supersedes_attribution_event_id.is_(None),
 )
 
 #: Every projected historical table, in dependency order (parents first).
@@ -238,6 +345,7 @@ PROJECTION_TABLES = (
     persona_selections,
     actions,
     outcomes,
+    outcome_attributions,
 )
 
 #: `events` plus the projections: everything INV-01 protects at the database.

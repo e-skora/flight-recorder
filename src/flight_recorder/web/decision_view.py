@@ -32,8 +32,13 @@ anywhere; every page load recomputes it from the ledger (D-011, INV-06).
 **Attribution is not evaluated by this code.** Outcomes are rendered at their
 recorded scope -- observations recorded for the account -- with any recorded
 action or decision reference shown as a recorded reference. Whether an outcome
-should be credited to this decision is a policy question this module does not
-answer and does not approximate (D-012).
+is linked to a decision is `outcome-attribution-v1`'s question: this module
+reads the persisted result through the policy module's two selection
+operations -- the effective outcome version first, then the effective result
+of that exact version -- and never computes, approximates or inherits one
+(D-013). An outcome with no persisted result is shown as not yet evaluated,
+which is neither `unresolved` nor a failure, and an unresolved outcome is
+listed like any other.
 """
 
 import json
@@ -42,6 +47,13 @@ from dataclasses import dataclass
 from pydantic import ValidationError
 from sqlalchemy import select
 
+from flight_recorder.attribution.policy import (
+    POLICY_VERSION,
+    AttributionError,
+    effective_attribution,
+    effective_outcome_version,
+    ledger_maximum,
+)
 from flight_recorder.collector.schema import LogicArtifact, format_utc
 from flight_recorder.ledger.schema import (
     actions,
@@ -83,8 +95,13 @@ __all__ = [
     "ORIGIN_RECORDED_LOGIC",
     "ORIGIN_SELECTED_ARTIFACT",
     "UNAVAILABLE",
+    "OBSERVATION_UNKNOWN",
+    "OBSERVED_NO",
+    "OBSERVED_YES",
     "ActionRow",
     "ArtifactOption",
+    "AttributionFailureView",
+    "AttributionView",
     "ContextRow",
     "DecisionPage",
     "DecisionView",
@@ -198,18 +215,66 @@ class ActionRow:
     occurred_at: str
 
 
+#: The three states of one recorded observation (INV-09). `unknown` is a v2
+#: observation recorded as unknown; it is never rendered as `no`.
+OBSERVED_YES = "yes"
+OBSERVED_NO = "no"
+OBSERVATION_UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True)
+class AttributionView:
+    """The effective persisted attribution of one exact outcome version."""
+
+    attribution_event_id: str
+    status: str
+    policy_version: str
+    method: str
+    window_days: int
+    resolved_action_event_id: str | None
+    resolved_decision_event_id: str | None
+    reason: str
+    attributed_at: str
+    ingest_cutoff: int
+    heuristic: bool
+    resolves_to_this_decision: bool
+
+
+@dataclass(frozen=True)
+class AttributionFailureView:
+    """A named failure selecting the effective version or result.
+
+    Distinct from `unresolved` (a result) and from no result at all.
+    """
+
+    reason: str
+    message: str
+
+
 @dataclass(frozen=True)
 class OutcomeRow:
-    """One recorded outcome observation for the decision's account.
+    """One recorded outcome version for the decision's account.
 
-    The three observations are words, never bare booleans and never blanks: a
-    recorded `false` is a recorded negative observation, not missing data.
-    `references_this_decision` reports what the recorded chain says and makes
-    no attribution claim (D-012, INV-08).
+    The three observations are carried as three states -- `yes`, `no`,
+    `unknown` -- and rendered as words, never bare booleans and never blanks.
+    A v1 row records a window length and no window state; a v2 row records its
+    period bounds, an explicit evaluation state and an as-of instant, and in an
+    open window `no` means nothing recorded as of that instant.
+    `references_this_decision` and `source_decision_is_this_decision` report
+    what the recorded reference or claim says and make no attribution claim;
+    only `attribution`, the persisted policy result, does (D-013, INV-08).
     """
 
     outcome_event_id: str
-    window_days: int
+    schema_version: str
+    window_days: int | None
+    window_opened_at: str | None
+    window_closes_at: str | None
+    evaluation_state: str | None
+    observed_at: str | None
+    reply_state: str
+    meeting_state: str
+    opportunity_state: str
     reply_display: str
     meeting_display: str
     opportunity_display: str
@@ -218,6 +283,23 @@ class OutcomeRow:
     action_event_id: str | None
     referenced_decision_event_id: str | None
     references_this_decision: bool
+    source_action_event_id: str | None
+    source_decision_event_id: str | None
+    source_decision_is_this_decision: bool
+    supersedes_outcome_event_id: str | None
+    #: The version of this row's chain that nothing supersedes; this row's own
+    #: id when the row is effective. None only when selection failed.
+    effective_outcome_event_id: str | None
+    #: None when this exact version has no persisted result.
+    attribution: AttributionView | None
+    attribution_failure: AttributionFailureView | None
+
+    @property
+    def superseded(self) -> bool:
+        return (
+            self.effective_outcome_event_id is not None
+            and self.effective_outcome_event_id != self.outcome_event_id
+        )
 
 
 @dataclass(frozen=True)
@@ -295,8 +377,10 @@ def _value_display(value_text: str | None) -> str:
     return str(decoded)
 
 
-def _observation(flag: bool, word: str) -> str:
-    return f"{word}: {'yes' if flag else 'no'}"
+def _observation_state(flag: bool | None) -> str:
+    if flag is None:
+        return OBSERVATION_UNKNOWN
+    return OBSERVED_YES if flag else OBSERVED_NO
 
 
 def artifact_label(logic_version: str, artifact_hash: str, evaluator_version: str) -> str:
@@ -453,23 +537,39 @@ def _action_rows(conn, decision_event_id: str) -> tuple[ActionRow, ...]:
     )
 
 
+def _attribution_view(stored, decision_event_id: str) -> AttributionView | None:
+    if stored is None:
+        return None
+    return AttributionView(
+        attribution_event_id=stored.attribution_event_id,
+        status=stored.status,
+        policy_version=stored.policy_version,
+        method=stored.method,
+        window_days=stored.window_days,
+        resolved_action_event_id=stored.resolved_action_event_id,
+        resolved_decision_event_id=stored.resolved_decision_event_id,
+        reason=stored.reason,
+        attributed_at=stored.attributed_at,
+        ingest_cutoff=stored.ingest_cutoff,
+        heuristic=stored.heuristic,
+        resolves_to_this_decision=stored.resolved_decision_event_id == decision_event_id,
+    )
+
+
 def _outcome_rows(conn, account_ref: str, decision_event_id: str) -> tuple[OutcomeRow, ...]:
-    """Every recorded outcome for the *account*, which is their recorded scope.
+    """Every recorded outcome version for the *account*, which is their recorded scope.
 
     Left joined to `actions` so an outcome carrying no action reference still
-    produces a row. The join recovers only what the record says; it establishes
-    no link between an outcome and this decision (D-012).
+    produces a row; the join recovers only what the record says. Superseded
+    versions stay listed and inspectable. Each row's attribution is selected
+    for that exact version through the policy module's selection operations at
+    the ledger's current maximum sequence, so unresolved and unattributed
+    outcomes are listed exactly like resolved ones, and a corrected version
+    never shows its predecessor's result.
     """
     rows = conn.execute(
         select(
-            outcomes.c.outcome_event_id,
-            outcomes.c.action_event_id,
-            outcomes.c.window_days,
-            outcomes.c.reply,
-            outcomes.c.meeting,
-            outcomes.c.opportunity,
-            outcomes.c.occurred_at,
-            outcomes.c.recorded_at,
+            outcomes,
             actions.c.decision_event_id.label("referenced_decision_event_id"),
         )
         .select_from(
@@ -478,21 +578,53 @@ def _outcome_rows(conn, account_ref: str, decision_event_id: str) -> tuple[Outco
         .where(outcomes.c.account_ref == account_ref)
         .order_by(outcomes.c.occurred_at, outcomes.c.outcome_event_id)
     ).all()
-    return tuple(
-        OutcomeRow(
-            outcome_event_id=row.outcome_event_id,
-            window_days=row.window_days,
-            reply_display=_observation(row.reply, "reply"),
-            meeting_display=_observation(row.meeting, "meeting"),
-            opportunity_display=_observation(row.opportunity, "opportunity"),
-            occurred_at=row.occurred_at,
-            recorded_at=row.recorded_at,
-            action_event_id=row.action_event_id,
-            referenced_decision_event_id=row.referenced_decision_event_id,
-            references_this_decision=row.referenced_decision_event_id == decision_event_id,
+    cutoff = ledger_maximum(conn)
+
+    result = []
+    for row in rows:
+        effective = attribution = failure = None
+        try:
+            effective = effective_outcome_version(conn, row.outcome_event_id, cutoff=cutoff)
+            attribution = _attribution_view(
+                effective_attribution(conn, row.outcome_event_id, POLICY_VERSION, cutoff=cutoff),
+                decision_event_id,
+            )
+        except AttributionError as error:
+            failure = AttributionFailureView(reason=error.reason, message=str(error))
+        states = {
+            word: _observation_state(getattr(row, word))
+            for word in ("reply", "meeting", "opportunity")
+        }
+        result.append(
+            OutcomeRow(
+                outcome_event_id=row.outcome_event_id,
+                schema_version=row.schema_version,
+                window_days=row.window_days,
+                window_opened_at=row.window_opened_at,
+                window_closes_at=row.window_closes_at,
+                evaluation_state=row.evaluation_state,
+                observed_at=row.observed_at,
+                reply_state=states["reply"],
+                meeting_state=states["meeting"],
+                opportunity_state=states["opportunity"],
+                reply_display=f"reply: {states['reply']}",
+                meeting_display=f"meeting: {states['meeting']}",
+                opportunity_display=f"opportunity: {states['opportunity']}",
+                occurred_at=row.occurred_at,
+                recorded_at=row.recorded_at,
+                action_event_id=row.action_event_id,
+                referenced_decision_event_id=row.referenced_decision_event_id,
+                references_this_decision=row.referenced_decision_event_id == decision_event_id,
+                source_action_event_id=row.source_action_event_id,
+                source_decision_event_id=row.source_decision_event_id,
+                source_decision_is_this_decision=row.source_decision_event_id == decision_event_id,
+                supersedes_outcome_event_id=row.supersedes_outcome_event_id,
+                effective_outcome_event_id=effective,
+                attribution=attribution,
+                attribution_failure=failure,
+            )
         )
-        for row in rows
-    )
+    return tuple(result)
 
 
 def artifact_options(
