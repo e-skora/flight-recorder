@@ -1,4 +1,7 @@
-"""Console entry point: `flight-recorder reset | seed | attribute [--reevaluate] | serve`."""
+"""Console entry point.
+
+`flight-recorder reset | seed | seed-dataset | attribute [--reevaluate] | serve`
+"""
 
 import argparse
 import sys
@@ -87,6 +90,60 @@ def cmd_attribute(db_path: Path, reevaluate: bool = False) -> int:
     return 1 if run.failed else 0
 
 
+def cmd_seed_dataset(db_path: Path) -> int:
+    """Submit the synthetic dataset's seed schedule through the collector (D-014 Q4).
+
+    The canonical nine, the generated stage-1 envelopes, one attribution
+    operation per stage-1 outcome version at the scheduled cutoff, and the two
+    stage-2 envelopes, which stay awaiting attribution. The digest's aggregates
+    use the manifest's signal definitions and comparison workflow version,
+    passed in explicitly.
+    """
+    from flight_recorder.app import create_app
+    from flight_recorder.dataset.generator import generate
+    from flight_recorder.dataset.schedule import ScheduleDiverged, SeedRefused, run_schedule
+    from flight_recorder.fixtures import (
+        canonical_artifacts,
+        dataset_comparison_workflow_version,
+        dataset_config,
+        dataset_signals,
+    )
+
+    schedule = generate(dataset_config(), artifacts=canonical_artifacts())
+    try:
+        report = run_schedule(
+            create_app(db_path),
+            schedule,
+            signals=dataset_signals(),
+            comparison_workflow_version=dataset_comparison_workflow_version(),
+        )
+    except ScheduleDiverged as error:
+        print(f"seed-dataset: {error}; nothing further was submitted", file=sys.stderr)
+        return 1
+    except SeedRefused as error:
+        for result in error.accepted:
+            print(f"{result.http_status} {result.status:<9} {result.item.event_id}")
+        print(
+            f"seed-dataset: stopped at item {error.item.sequence} ({error.item.event_id}): "
+            f"{error.status} {error.body}",
+            file=sys.stderr,
+        )
+        return 1
+    for result in report.results:
+        print(f"{result.http_status} {result.status:<9} {result.item.event_id}")
+    print(
+        f"seed-dataset: {report.created} created, {report.duplicate} duplicate "
+        f"({len(report.results)} items); events {report.events_total} of "
+        f"{report.scheduled_total} scheduled; digest {report.digest}"
+    )
+    if not report.fresh:
+        print(
+            "not a fresh seed: the ledger holds events outside the schedule (for example an "
+            "independent attribute run); digest not claimed as the fresh-seed digest"
+        )
+    return 0
+
+
 def cmd_serve(db_path: Path) -> int:
     import uvicorn
 
@@ -107,6 +164,10 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("reset", help="delete the SQLite file and recreate the schema")
     sub.add_parser("seed", help="submit fixtures/canonical/ through the collector")
+    sub.add_parser(
+        "seed-dataset",
+        help="submit the synthetic dataset's seed schedule through the collector",
+    )
     sub.add_parser("serve", help="run uvicorn on 127.0.0.1:8000")
     attribute = sub.add_parser(
         "attribute",
@@ -122,7 +183,12 @@ def main(argv: list[str] | None = None) -> int:
     db_path = args.db if args.db is not None else db_path_from_env()
     if args.command == "attribute":
         return cmd_attribute(db_path, reevaluate=args.reevaluate)
-    handlers = {"reset": cmd_reset, "seed": cmd_seed, "serve": cmd_serve}
+    handlers = {
+        "reset": cmd_reset,
+        "seed": cmd_seed,
+        "seed-dataset": cmd_seed_dataset,
+        "serve": cmd_serve,
+    }
     return handlers[args.command](db_path)
 
 
