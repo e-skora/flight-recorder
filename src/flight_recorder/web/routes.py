@@ -1,4 +1,4 @@
-"""Server-rendered pages: account list, account trace, and one decision in detail."""
+"""Server-rendered pages: account list, account trace, one decision in detail, and Insights."""
 
 import re
 from pathlib import Path
@@ -6,8 +6,28 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select
+from sqlalchemy import func, select
 
+from flight_recorder.analytics.insights import (
+    ABSENT,
+    AWAITING_ATTRIBUTION,
+    KNOWN_FALSE,
+    KNOWN_TRUE,
+    NOT_APPLICABLE,
+    NOT_AVAILABLE_NOTE,
+    QUALIFYING_PERIOD_DAYS,
+    RECONSTRUCTION_FAILED,
+    STANDING_EVALUATED,
+    STANDING_OPEN,
+    STANDING_UNATTRIBUTED,
+    STANDING_UNKNOWN,
+    STATE_CLOSED_KNOWN,
+    STATE_CLOSED_UNKNOWN,
+    STATE_OPEN,
+    UNAVAILABLE,
+)
+from flight_recorder.attribution.policy import STATUS_DIRECT, STATUS_INFERRED, STATUS_UNRESOLVED
+from flight_recorder.fixtures import canonical_account
 from flight_recorder.ledger.schema import accounts, accounts_query, events, logic_artifacts
 from flight_recorder.logic.evaluator import EvaluationError
 from flight_recorder.logic.rules import RuleError
@@ -25,6 +45,12 @@ from flight_recorder.web.decision_view import (
     artifact_options,
     failure_view,
     load_decision_page,
+)
+from flight_recorder.web.insights_view import (
+    load_insights_page,
+    no_comparison,
+    points,
+    rate_line,
 )
 from flight_recorder.web.summaries import trace_row
 
@@ -96,17 +122,43 @@ def trace_query(account_ref: str):
     )
 
 
+def _count(conn, query) -> int:
+    return conn.execute(select(func.count()).select_from(query.subquery())).scalar_one()
+
+
 @router.get("/", response_class=HTMLResponse)
-def account_list(request: Request):
+def account_list(request: Request, q: str | None = None):
+    """Every account by name, optionally filtered by a literal, case-insensitive
+    name substring. `autoescape=True` makes `%` and `_` characters rather than
+    LIKE wildcards; the value is always a bound parameter."""
+    query_text = (q or "").strip()
+    listed = accounts_query()
+    if query_text:
+        listed = listed.where(
+            func.lower(accounts.c.name).contains(query_text.lower(), autoescape=True)
+        )
+    canonical_ref, _ = canonical_account()
     engine = request.app.state.engine
     with engine.connect() as conn:
         # `accounts_query()` excludes the reserved `_system` principal, which is
         # infrastructure metadata rather than an account.
-        rows = conn.execute(accounts_query().order_by(accounts.c.name)).all()
+        rows = conn.execute(listed.order_by(accounts.c.name)).all()
+        shown = _count(conn, listed)
+        total = _count(conn, accounts_query())
+        canonical = conn.execute(
+            accounts_query().where(accounts.c.account_ref == canonical_ref)
+        ).first()
     return templates.TemplateResponse(
         request,
         "accounts.html",
-        {"accounts": rows, "operating_company": OPERATING_COMPANY},
+        {
+            "accounts": rows,
+            "operating_company": OPERATING_COMPANY,
+            "query": query_text,
+            "shown": shown,
+            "total": total,
+            "canonical": canonical,
+        },
     )
 
 
@@ -243,5 +295,51 @@ def decision_detail(
             "failure": failure,
             "original_label": ORIGINAL_LABEL,
             "counterfactual_label": COUNTERFACTUAL_LABEL,
+        },
+    )
+
+
+@router.get("/insights", response_class=HTMLResponse)
+def insights_page(request: Request):
+    """The decision metrics at the ledger maximum captured once for this request.
+
+    All three states (empty, selection failure, ready) return 200: a selection
+    failure is a data condition rendered as a named state, like a replay failure
+    on the decision page. Every number is an engine field; every state word is
+    the engine's constant, passed in here and never retyped in the template.
+    """
+    engine = request.app.state.engine
+    with engine.connect() as conn:
+        page = load_insights_page(conn)
+    return templates.TemplateResponse(
+        request,
+        "insights.html",
+        {
+            "page": page,
+            "operating_company": OPERATING_COMPANY,
+            "rate_line": rate_line,
+            "points": points,
+            "no_comparison": no_comparison,
+            "qualifying_period_days": QUALIFYING_PERIOD_DAYS,
+            "not_available_note": NOT_AVAILABLE_NOTE,
+            "words": {
+                "awaiting_attribution": AWAITING_ATTRIBUTION,
+                "unresolved": STATUS_UNRESOLVED,
+                "direct": STATUS_DIRECT,
+                "inferred": STATUS_INFERRED,
+                "open": STATE_OPEN,
+                "closed_known": STATE_CLOSED_KNOWN,
+                "closed_unknown": STATE_CLOSED_UNKNOWN,
+                "evaluated": STANDING_EVALUATED,
+                "unknown": STANDING_UNKNOWN,
+                "standing_open": STANDING_OPEN,
+                "unattributed": STANDING_UNATTRIBUTED,
+                "known_true": KNOWN_TRUE,
+                "known_false": KNOWN_FALSE,
+                "unavailable": UNAVAILABLE,
+                "absent": ABSENT,
+                "not_applicable": NOT_APPLICABLE,
+                "reconstruction_failed": RECONSTRUCTION_FAILED,
+            },
         },
     )

@@ -1,0 +1,261 @@
+{% extends "base.html" %}
+{% block title %}Insights · GTM Flight Recorder{% endblock %}
+{% macro word(text) %}<span class="state-word">{{ text }}</span>{% endmacro %}
+{% macro difference(comparison, present_name, absent_name, as_state_words) -%}
+{%- set missing = no_comparison(comparison, present_name, absent_name) -%}
+{%- if missing is none -%}
+{{ points(comparison.difference_points) }}
+{%- else -%}
+no comparison: {% for name in missing.names %}{% if not loop.first %} and {% endif %}{% if as_state_words %}{{ word(name) }}{% else %}<code>{{ name }}</code>{% endif %}{% endfor %} {{ missing.verb }} 0 eligible decisions
+{%- endif -%}
+{%- endmacro %}
+{% block content %}
+<h1>Insights</h1>
+
+<section id="insights-language">
+  <h2>How to read this page</h2>
+  <ul>
+    <li>The data is synthetic: every account, vendor-like event, decision and outcome on this site is simulated.</li>
+    <li>Every rate is an observed rate over the decisions recorded by the ledger cutoff this page reads. The comparisons are descriptive, not causal: no cause and no effect is claimed.</li>
+    <li>Counterfactual replay results are never recorded and are in no number on this page; there is no simulation view.</li>
+    <li>The signals and the workflow comparison are demonstration checks named by the synthetic dataset's manifest, not findings. This page shows observed numbers only and states no expectation about them.</li>
+  </ul>
+</section>
+
+{% if page.state == "empty" %}
+<section id="insights-empty">
+  <h2>No decisions</h2>
+  <p>No decisions have been recorded yet. Run <code>flight-recorder seed-dataset</code>.</p>
+</section>
+{% elif page.state == "selection_failure" %}
+<section id="insights-failure">
+  <h2>Selection failure</h2>
+  <p class="failure-line">Insights could not be computed at ledger cutoff {{ page.cutoff }}: <code class="diagnostic">{{ page.failure }}</code>.</p>
+  <p>No partial result is shown, because an ambiguous effective selection would make every count unreliable.</p>
+</section>
+{% elif page.state == "ready" %}
+{% set result = page.result %}
+<section id="insights-summary">
+  <h2>Population</h2>
+  <p class="lede">The population is every account-prioritization decision recorded by the cutoff for the accounts listed on this site. Every count below comes from the effective outcome versions and their effective attribution results at that cutoff, never from raw row counts.</p>
+  <dl class="fields">
+    <dt>Ledger cutoff</dt><dd id="insights-cutoff">{{ result.cutoff }}</dd>
+    <dt>Decisions in population</dt><dd id="insights-population">{{ result.population }}</dd>
+    <dt>Reconstructed exactly</dt><dd id="insights-reconstructed">{{ result.reconstructed }}</dd>
+    <dt>Reconstruction failures</dt><dd id="insights-reconstruction-failures-count">{{ result.reconstruction_failures | length }}</dd>
+    <dt>Outcome window</dt><dd id="insights-window">{{ qualifying_period_days }} days</dd>
+    <dt>Comparison workflow cohort</dt><dd id="insights-comparison-workflow"><code>{{ result.workflow_comparison.comparison_workflow_version }}</code></dd>
+  </dl>
+</section>
+
+<section id="overall-rate">
+  <h2>Observed {{ qualifying_period_days }}-day opportunity rate, all decisions</h2>
+  <dl class="fields">
+    <dt>Observed rate</dt><dd id="overall-rate-value">{{ rate_line(result.overall) }}</dd>
+    <dt>Cohort total</dt><dd id="overall-cohort-total">{{ result.overall.cohort_total }}</dd>
+    <dt>Eligible decisions</dt><dd id="overall-eligible">{{ result.overall.eligible }}</dd>
+    <dt>Positive decisions</dt><dd id="overall-positives">{{ result.overall.positives }}</dd>
+    <dt>Excluded: other evaluation period only</dt><dd id="overall-excluded-other-period">{{ result.overall.excluded_other_period_only }}</dd>
+    <dt>Excluded: reconstruction failed</dt><dd id="overall-excluded-reconstruction-failed">{{ result.overall.excluded_reconstruction_failed }}</dd>
+    <dt>Excluded: not evaluated</dt><dd id="overall-excluded-not-evaluated">{{ result.overall.excluded_not_evaluated }}</dd>
+  </dl>
+  <p class="lede">A decision counts as positive when it holds at least one recorded positive observation in a completed {{ qualifying_period_days }}-day evaluation window, counted once per decision. The rate is not a conversion probability. The three exclusion counts are reasons that may overlap, so they do not add up to the cohort total.</p>
+</section>
+
+<section id="coverage">
+  <h2>Coverage</h2>
+  <div id="observation-coverage">
+    <h3>Effective outcome observations</h3>
+    <p class="lede">Observations that are {{ word(words.unresolved) }} or {{ word(words.awaiting_attribution) }} are counted here and enter no decision-level count or rate on this page. An {{ word(words.open) }} observation is never a completed outcome, whatever its recorded values. A closed observation with an {{ word(words.unknown) }} opportunity value is never a negative.</p>
+    <dl class="fields">
+      <dt>{{ word(words.awaiting_attribution) }}</dt><dd id="coverage-awaiting-attribution">{{ result.observations.awaiting_attribution }}</dd>
+      <dt>{{ word(words.unresolved) }}</dt><dd id="coverage-unresolved">{{ result.observations.unresolved }}</dd>
+      <dt>{{ word(words.direct) }}</dt><dd id="coverage-direct">{{ result.observations.direct }}</dd>
+      <dt>{{ word(words.inferred) }} (heuristic)</dt><dd id="coverage-inferred">{{ result.observations.inferred }}</dd>
+      <dt>{{ word(words.open) }} window</dt><dd id="coverage-open">{{ result.observations.open }}</dd>
+      <dt>{{ word(words.closed_known) }}</dt><dd id="coverage-closed-known">{{ result.observations.closed_known }}</dd>
+      <dt>{{ word(words.closed_unknown) }}</dt><dd id="coverage-closed-unknown">{{ result.observations.closed_unknown }}</dd>
+      <dt>Other evaluation period</dt><dd id="coverage-other-period">{{ result.observations.other_period }}</dd>
+      <dt>Qualifying {{ qualifying_period_days }}-day observations</dt><dd id="coverage-qualifying">{{ result.observations.qualifying_90_day }}</dd>
+      <dt>Total effective observations</dt><dd id="coverage-total">{{ result.observations.total }}</dd>
+    </dl>
+  </div>
+  <div id="decision-standings">
+    <h3>Decisions by observation standing</h3>
+    <dl class="fields">
+      <dt>{{ word(words.evaluated) }}</dt><dd id="standings-evaluated">{{ result.standings.evaluated }}</dd>
+      <dt>{{ word(words.unknown) }}</dt><dd id="standings-unknown">{{ result.standings.unknown }}</dd>
+      <dt>{{ word(words.standing_open) }}</dt><dd id="standings-open">{{ result.standings.open }}</dd>
+      <dt>{{ word(words.unattributed) }}</dt><dd id="standings-unattributed">{{ result.standings.unattributed }}</dd>
+      <dt>Total</dt><dd id="standings-total">{{ result.standings.total }}</dd>
+      <dt>Eligible for the {{ qualifying_period_days }}-day rate</dt><dd id="standings-eligible">{{ result.overall.eligible }}</dd>
+    </dl>
+    <p class="lede">Decisions counted as {{ word(words.evaluated) }} and decisions eligible for the rate differ by design: an evaluated decision may hold only observations of another evaluation period, or may have failed reconstruction. A decision with no attributed observation is {{ word(words.unattributed) }}, including a decision with no action recorded for this decision.</p>
+  </div>
+</section>
+
+<section id="reconstruction-failures">
+  <h2>Reconstruction failures</h2>
+  {% if page.failure_links %}
+  <table id="reconstruction-failures-table" class="grid">
+    <caption>These decisions stay in the population and in every coverage and standing count above, and are excluded from every matched count and every rate below.</caption>
+    <thead><tr><th scope="col">Decision</th><th scope="col">Error</th><th scope="col">Detail</th></tr></thead>
+    <tbody>
+      {% for link in page.failure_links %}
+      <tr>
+        <td><a href="/accounts/{{ link.account_ref }}/decisions/{{ link.failure.decision_event_id }}"><code>{{ link.failure.decision_event_id }}</code></a></td>
+        <td><code class="diagnostic">{{ link.failure.error }}</code></td>
+        <td><code class="diagnostic">{{ link.failure.detail }}</code></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p id="reconstruction-failures-none">No decision failed exact reconstruction at this cutoff.</p>
+  {% endif %}
+</section>
+
+<section id="signals">
+  <h2>Signals (demonstration checks)</h2>
+  <table id="signals-table" class="grid">
+    <caption>The six states are exclusive and add up to the population; only {{ word(words.known_true) }} and {{ word(words.known_false) }} form the comparison arms. Input available counts decisions whose sealed context held the key, input consumed counts those whose recorded decision consumed it, and an available-but-ignored input is never counted as consumed.</caption>
+    <thead>
+      <tr>
+        <th scope="col">Signal</th>
+        <th scope="col">Predicate</th>
+        <th scope="col">Comparison signal present ({{ word(words.known_true) }})</th>
+        <th scope="col">{{ word(words.known_false) }}</th>
+        <th scope="col">{{ word(words.unavailable) }}</th>
+        <th scope="col">{{ word(words.absent) }}</th>
+        <th scope="col">{{ word(words.not_applicable) }}</th>
+        <th scope="col">{{ word(words.reconstruction_failed) }}</th>
+        <th scope="col">Input available</th>
+        <th scope="col">Input consumed</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in result.signals %}
+      <tr id="signal-row-{{ row.id }}">
+        <td><code>{{ row.id }}</code></td>
+        <td><code>{{ row.predicate }}</code></td>
+        <td>{{ row.known_true }}</td>
+        <td>{{ row.known_false }}</td>
+        <td>{{ row.unavailable }}</td>
+        <td>{{ row.absent }}</td>
+        <td>{{ row.not_applicable }}</td>
+        <td>{{ row.reconstruction_failed }}</td>
+        <td>{{ row.input_available }}</td>
+        <td>{{ row.input_consumed }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% for row in result.signals %}
+  <div id="signal-{{ row.id }}" class="signal-detail">
+    <h3>Signal <code>{{ row.id }}</code></h3>
+    <table id="signal-{{ row.id }}-rules" class="grid">
+      <caption>Historical rule matched, by the decision's own logic artifact</caption>
+      <thead><tr><th scope="col">Logic version</th><th scope="col">Artifact hash</th><th scope="col">Rule</th><th scope="col">Decisions</th><th scope="col">Matched</th></tr></thead>
+      <tbody>
+        {% for match in row.historical_rule_matched %}
+        <tr>
+          <td><code>{{ match.logic_version }}</code></td>
+          <td><code class="hash">{{ match.artifact_hash }}</code></td>
+          <td>{% if match.rule is none %}{{ word(words.not_applicable) }}{% else %}<code>{{ match.rule }}</code>{% endif %}</td>
+          <td>{{ match.decisions }}</td>
+          <td>{{ match.matched }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <table id="signal-{{ row.id }}-comparison" class="grid">
+      <caption>Observed {{ qualifying_period_days }}-day opportunity rate by signal state; the three exclusion counts are reasons that may overlap</caption>
+      <thead>
+        <tr>
+          <th scope="col">Arm</th>
+          <th scope="col">Cohort total</th>
+          <th scope="col">Eligible</th>
+          <th scope="col">Positives</th>
+          <th scope="col">Observed rate</th>
+          <th scope="col">Excluded: other period only</th>
+          <th scope="col">Excluded: reconstruction failed</th>
+          <th scope="col">Excluded: not evaluated</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for arm_id, arm_word, arm in (("present", words.known_true, row.comparison.present), ("absent", words.known_false, row.comparison.absent)) %}
+        <tr id="signal-{{ row.id }}-{{ arm_id }}">
+          <td>{{ word(arm_word) }}</td>
+          <td>{{ arm.cohort_total }}</td>
+          <td>{{ arm.eligible }}</td>
+          <td>{{ arm.positives }}</td>
+          <td>{{ rate_line(arm) }}</td>
+          <td>{{ arm.excluded_other_period_only }}</td>
+          <td>{{ arm.excluded_reconstruction_failed }}</td>
+          <td>{{ arm.excluded_not_evaluated }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <dl class="fields">
+      <dt>Difference</dt><dd id="signal-{{ row.id }}-difference">{{ difference(row.comparison, words.known_true, words.known_false, true) }}</dd>
+    </dl>
+  </div>
+  {% endfor %}
+</section>
+
+<section id="workflows">
+  <h2>Workflow versions</h2>
+  <table id="workflows-table" class="grid">
+    <caption>Decisions and the observed {{ qualifying_period_days }}-day opportunity rate by workflow version; the three exclusion counts are reasons that may overlap</caption>
+    <thead>
+      <tr>
+        <th scope="col">Workflow version</th>
+        <th scope="col">Decisions</th>
+        <th scope="col">{{ word(words.evaluated) }}</th>
+        <th scope="col">{{ word(words.unknown) }}</th>
+        <th scope="col">{{ word(words.standing_open) }}</th>
+        <th scope="col">{{ word(words.unattributed) }}</th>
+        <th scope="col">Eligible</th>
+        <th scope="col">Positives</th>
+        <th scope="col">Observed rate</th>
+        <th scope="col">Excluded: other period only</th>
+        <th scope="col">Excluded: reconstruction failed</th>
+        <th scope="col">Excluded: not evaluated</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in result.workflows %}
+      <tr id="workflow-row-{{ row.workflow_version }}">
+        <td><code>{{ row.workflow_version }}</code></td>
+        <td>{{ row.decisions }}</td>
+        <td>{{ row.standings.evaluated }}</td>
+        <td>{{ row.standings.unknown }}</td>
+        <td>{{ row.standings.open }}</td>
+        <td>{{ row.standings.unattributed }}</td>
+        <td>{{ row.rate.eligible }}</td>
+        <td>{{ row.rate.positives }}</td>
+        <td>{{ rate_line(row.rate) }}</td>
+        <td>{{ row.rate.excluded_other_period_only }}</td>
+        <td>{{ row.rate.excluded_reconstruction_failed }}</td>
+        <td>{{ row.rate.excluded_not_evaluated }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% set compared = result.workflow_comparison %}
+  <div id="workflow-comparison">
+    <h3>Workflow comparison</h3>
+    <dl class="fields">
+      <dt>Compared</dt><dd id="workflow-comparison-version"><code>{{ compared.workflow_version }}</code></dd>
+      <dt>Against</dt><dd id="workflow-comparison-against"><code>{{ compared.comparison_workflow_version }}</code></dd>
+      {% for arm_id, version, arm in (("present", compared.workflow_version, compared.comparison.present), ("absent", compared.comparison_workflow_version, compared.comparison.absent)) %}
+      <dt>Observed rate, <code>{{ version }}</code></dt><dd id="workflow-comparison-{{ arm_id }}-rate">{{ rate_line(arm) }}{% if arm.cohort_total == 0 %} (no decisions recorded under this workflow version){% endif %}</dd>
+      {% endfor %}
+      <dt>Difference</dt><dd id="workflow-comparison-difference">{{ difference(compared.comparison, compared.workflow_version, compared.comparison_workflow_version, false) }}</dd>
+    </dl>
+    <p class="lede">Each arm's cohort total, eligible count, positives and exclusion counts are in the workflow table row of that version.</p>
+  </div>
+</section>
+{% endif %}
+{% endblock %}

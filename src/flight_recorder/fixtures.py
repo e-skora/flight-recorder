@@ -26,6 +26,16 @@ def load_json(path: Path) -> dict:
         return json.load(handle)
 
 
+def canonical_account() -> tuple[str, str]:
+    """`(account_ref, name)` of the canonical account, from its `account.discovered` envelope."""
+    envelope = next(
+        envelope
+        for envelope in map(load_json, canonical_envelope_paths())
+        if envelope["event_type"] == "account.discovered"
+    )
+    return envelope["account_ref"], envelope["payload"]["name"]
+
+
 # --- The seeded dataset (D-014 Q4) --------------------------------------------------
 #
 # `fixtures/dataset/` holds the generator config and the planted-effects
