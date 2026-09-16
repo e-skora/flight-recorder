@@ -6,8 +6,9 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select
+from sqlalchemy import func, select
 
+from flight_recorder.fixtures import canonical_account
 from flight_recorder.ledger.schema import accounts, accounts_query, events, logic_artifacts
 from flight_recorder.logic.evaluator import EvaluationError
 from flight_recorder.logic.rules import RuleError
@@ -96,17 +97,43 @@ def trace_query(account_ref: str):
     )
 
 
+def _count(conn, query) -> int:
+    return conn.execute(select(func.count()).select_from(query.subquery())).scalar_one()
+
+
 @router.get("/", response_class=HTMLResponse)
-def account_list(request: Request):
+def account_list(request: Request, q: str | None = None):
+    """Every account by name, optionally filtered by a literal, case-insensitive
+    name substring. `autoescape=True` makes `%` and `_` characters rather than
+    LIKE wildcards; the value is always a bound parameter."""
+    query_text = (q or "").strip()
+    listed = accounts_query()
+    if query_text:
+        listed = listed.where(
+            func.lower(accounts.c.name).contains(query_text.lower(), autoescape=True)
+        )
+    canonical_ref, _ = canonical_account()
     engine = request.app.state.engine
     with engine.connect() as conn:
         # `accounts_query()` excludes the reserved `_system` principal, which is
         # infrastructure metadata rather than an account.
-        rows = conn.execute(accounts_query().order_by(accounts.c.name)).all()
+        rows = conn.execute(listed.order_by(accounts.c.name)).all()
+        shown = _count(conn, listed)
+        total = _count(conn, accounts_query())
+        canonical = conn.execute(
+            accounts_query().where(accounts.c.account_ref == canonical_ref)
+        ).first()
     return templates.TemplateResponse(
         request,
         "accounts.html",
-        {"accounts": rows, "operating_company": OPERATING_COMPANY},
+        {
+            "accounts": rows,
+            "operating_company": OPERATING_COMPANY,
+            "query": query_text,
+            "shown": shown,
+            "total": total,
+            "canonical": canonical,
+        },
     )
 
 
