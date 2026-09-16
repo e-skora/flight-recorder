@@ -71,3 +71,15 @@ table.history-table code { word-break: break-all; }
 .history-more summary { cursor: pointer; white-space: nowrap; }
 .history-more dl.fields { grid-template-columns: max-content 1fr; }
 summary:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+
+/* --- Insights and account findability. Appended; no rule above is changed. -- */
+.site-nav { display: flex; gap: 1.25rem; padding: .5rem 1.5rem; border-bottom: 1px solid var(--line); }
+.site-nav a { font-weight: 700; }
+.site-nav a:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+#account-filter { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: .75rem 0 .25rem; }
+#account-filter label { font-weight: 700; }
+input[type="search"] { font: inherit; padding: .3rem .5rem; }
+input[type="search"]:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.signal-detail { border: 1px solid var(--line); padding: .5rem .9rem; margin: 1rem 0; }
+.signal-detail h3 { margin: .25rem 0; }
+.diagnostic { font-family: ui-monospace, monospace; word-break: break-word; }
