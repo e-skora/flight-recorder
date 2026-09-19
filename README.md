@@ -51,8 +51,7 @@ The application says the same thing on every page, in a disclosure banner above 
 
 ## Reference archetype
 
-**Merge** is cited only as public evidence that the operating archetype — a unified-API and
-agent-connectivity company running signal-based account prioritization — exists, and this
+**Merge** is cited only as public evidence that the operating archetype exists, and this
 establishes neither a customer relationship nor an unmet need.
 
 ## Architecture
@@ -373,13 +372,13 @@ optional and lives outside this repository.
 | Step | What you say | Destination | Expected visible cue |
 | --- | --- | --- | --- |
 | 1 | The account list: 241 synthetic accounts, with the canonical demo prospect pinned at the top. | `/` | `Canonical demo account: NovaSignal AI` |
-| 2 | Its whole trace: discovery, evidence, the prioritization decision, persona, outbound action, outcome, and that outcome's attribution. | `/accounts/novasignal-ai` | `Account trace for NovaSignal AI (8 events)` |
-| 3 | The decision scored 86 against a threshold of 75 and output `PRIORITIZE`, under logic `v3.2` — identified by artifact hash, not by the label. | `/accounts/novasignal-ai/decisions/evt-novasignal-04-decision-recorded` | `score 86 / threshold 75` |
-| 4 | The context preserved at the boundary, with provenance and state per input. Five consumed. Integration pressure available and ignored. One explicitly unavailable. | `/accounts/novasignal-ai/decisions/evt-novasignal-04-decision-recorded#evidence-context` | `available but ignored` |
-| 5 | Downstream: play `#14` to the Head of Platform, cost `$1.42`, and a negative 90-day outcome, attributed `direct` under a named policy. | `/accounts/novasignal-ai/decisions/evt-novasignal-04-decision-recorded#outcome-evt-novasignal-07-outcome-evaluated` | `opportunity: no (recorded negative observation)` |
+| 2 | Its whole trace: discovery, evidence, the decision, persona, outbound action, outcome, and its attribution. | `/accounts/novasignal-ai` | `Account trace for NovaSignal AI (8 events)` |
+| 3 | The decision scored 86 against threshold 75 and output `PRIORITIZE` under logic `v3.2`, identified by artifact hash, not by label. | `/accounts/novasignal-ai/decisions/evt-novasignal-04-decision-recorded` | `score 86 / threshold 75` |
+| 4 | The context preserved at the boundary, with provenance per input. Five consumed. Integration pressure available and ignored. One unavailable. | `/accounts/novasignal-ai/decisions/evt-novasignal-04-decision-recorded#evidence-context` | `available but ignored` |
+| 5 | Downstream: play `#14` to the Head of Platform, cost `$1.42`, a negative 90-day outcome, attributed `direct` under a named policy. | `/accounts/novasignal-ai/decisions/evt-novasignal-04-decision-recorded#outcome-evt-novasignal-07-outcome-evaluated` | `opportunity: no (recorded negative observation)` |
 | 6 | Across the dataset: funding barely moves the observed rate, integration pressure moves it a lot, `v4.2` sits below its cohort. Descriptive, not causal. | `/insights` | `38.9% observed (58 of 149 eligible decisions; n = 149)` |
-| 7 | Back on the decision: current logic `v5.1` is in effect, resolved by label to one registered artifact, then used by hash. | `/accounts/novasignal-ai/decisions/evt-novasignal-04-decision-recorded#current-logic-selector` | `In effect: logic version v5.1` |
-| 8 | The same preserved context under `v5.1`: 86 becomes 51, and the output flips to `DO_NOT_PRIORITIZE`. No present-day evidence entered; nothing was stored. | `/accounts/novasignal-ai/decisions/evt-novasignal-04-decision-recorded#replay-comparison` | `output changed: yes` |
+| 7 | Current logic `v5.1` is in effect, resolved by label to one registered artifact, then used by hash. | `/accounts/novasignal-ai/decisions/evt-novasignal-04-decision-recorded#current-logic-selector` | `In effect: logic version v5.1` |
+| 8 | The same preserved context under `v5.1`: 86 becomes 51, output flips to `DO_NOT_PRIORITIZE`. No present-day evidence entered; nothing stored. | `/accounts/novasignal-ai/decisions/evt-novasignal-04-decision-recorded#replay-comparison` | `output changed: yes` |
 
 ### What Insights shows at that cutoff
 
