@@ -20,7 +20,7 @@ from flight_recorder.attribution.policy import (
     load_outcome,
 )
 from flight_recorder.attribution.service import build_envelope, run_attribution
-from flight_recorder.collector.canonical import canonical_hash
+from flight_recorder.collector.canonical import canonical_hash, canonical_text
 from flight_recorder.collector.schema import LogicArtifact, format_utc
 from flight_recorder.fixtures import canonical_envelope_paths, load_json, logic_artifact_path
 from flight_recorder.ledger.database import reset_database
@@ -816,6 +816,111 @@ def insert_ambiguous_attribution(harness: Harness, other_attribution_event_id: s
             )
         )
     return corrupt_id
+
+
+def insert_legacy_attribution(harness: Harness, envelope: dict) -> None:
+    """Insert a policy-correct `outcome.attributed` envelope's event and
+    projection rows directly, exactly as `Collector.ingest` and
+    `_project_attribution` would have written them, but bypassing every
+    check -- including D-016's.
+
+    Legacy-row setup only (D-016): this reproduces, coherently, the one shape
+    the collector no longer accepts through `POST /api/v1/decision-events` --
+    a fresh result for an outcome version that has since been superseded --
+    so a test can still prove that a *stored* stale result is excluded from
+    every selection, without submitting a write the collector now refuses.
+    It is not a valid collector submission and no test may treat it as one.
+    """
+    normalized = copy.deepcopy(envelope)
+    payload = normalized["payload"]
+    digest = canonical_hash(normalized)
+    with harness.engine.begin() as conn:
+        conn.execute(
+            events.insert().values(
+                event_id=normalized["event_id"],
+                schema_version=normalized["schema_version"],
+                event_type=normalized["event_type"],
+                source=normalized["source"],
+                account_ref=normalized["account_ref"],
+                occurred_at=normalized["occurred_at"],
+                recorded_at=normalized["recorded_at"],
+                canonical_hash=digest,
+                payload=canonical_text(payload),
+            )
+        )
+        conn.execute(
+            outcome_attributions.insert().values(
+                attribution_event_id=normalized["event_id"],
+                account_ref=normalized["account_ref"],
+                source_event_id=normalized["event_id"],
+                outcome_event_id=payload["outcome_event_id"],
+                policy_version=payload["policy_version"],
+                method=payload["method"],
+                window_days=payload["window_days"],
+                resolved_action_event_id=payload["resolved_action_event_id"],
+                resolved_decision_event_id=payload["resolved_decision_event_id"],
+                status=payload["status"],
+                reason=payload["reason"],
+                attributed_at=payload["attributed_at"],
+                ingest_cutoff=payload["ingest_cutoff"],
+                supersedes_attribution_event_id=payload["supersedes_attribution_event_id"],
+            )
+        )
+
+
+def insert_self_superseding_outcome(harness: Harness, event_id: str) -> str:
+    """Corrupt the ledger *around* the collector (D-016 test 8): an outcome
+    version whose own supersession link names itself, so
+    `effective_outcome_version` finds a cycle rather than a chain and raises
+    `AmbiguousSelection` instead of picking a winner.
+
+    `outcomes.supersedes_outcome_event_id` is unique, so two stored versions
+    can never both supersede the same target -- the branching shape
+    `insert_ambiguous_attribution` uses for the *attribution* chain has no
+    analogue here. A self-referencing row is the only shape that reaches the
+    outcome chain's own ambiguity, and only by inserting directly: the
+    collector never accepts a supersession link naming a version that is not
+    yet a recorded outcome. Used only to prove that D-016's admission check
+    raises instead of silently selecting a version."""
+    stamp = "2026-09-11T12:00:00.000000Z"
+    with harness.engine.begin() as conn:
+        conn.execute(
+            events.insert().values(
+                event_id=event_id,
+                schema_version="2",
+                event_type="outcome.evaluated",
+                source="test-corruption",
+                account_ref=ACCOUNT_REF,
+                occurred_at=stamp,
+                recorded_at=stamp,
+                canonical_hash="3" * 64,
+                payload="{}",
+            )
+        )
+        conn.execute(
+            outcomes.insert().values(
+                outcome_event_id=event_id,
+                account_ref=ACCOUNT_REF,
+                action_event_id=None,
+                window_days=None,
+                reply=None,
+                meeting=None,
+                opportunity=None,
+                occurred_at=stamp,
+                recorded_at=stamp,
+                schema_version="2",
+                window_opened_at=stamp,
+                window_closes_at=stamp,
+                evaluation_state="open",
+                observed_at=stamp,
+                source_action_event_id=None,
+                source_action_unusable_reason=None,
+                source_decision_event_id=None,
+                source_decision_unusable_reason=None,
+                supersedes_outcome_event_id=event_id,
+            )
+        )
+    return event_id
 
 
 def seed_through_decision(harness: Harness) -> None:

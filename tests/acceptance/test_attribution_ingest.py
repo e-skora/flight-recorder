@@ -18,6 +18,13 @@ older cutoff is refused atomically and the effective result stands; one at the
 predecessor's own cutoff cannot become a second operation; a forward
 reevaluation still appends, and the superseded result stays reproducible at
 its recorded cutoff.
+
+D-016 (INV-01, INV-08, INV-10, INV-11; AC-15, AC-16): a new `outcome.attributed`
+write must name the outcome version effective at the ledger's current maximum,
+not at the payload's own `ingest_cutoff`; refused atomically, by name, with
+nothing written. Exact retries and conflicting retries are unchanged, and a
+replacement attribution valid in every other respect is unaffected once its
+named outcome version is the one that is currently effective.
 """
 
 import asyncio
@@ -52,6 +59,7 @@ from tests.conftest import (
     seed_all,
     seed_and_attribute,
     seed_through_decision,
+    submit_attribution,
 )
 
 OBSERVED = "2026-05-01T00:00:00Z"
@@ -628,3 +636,134 @@ def test_a_superseded_result_is_reproduced_at_its_own_recorded_cutoff(harness):
         assert getattr(recomputed, name) == getattr(first, name), name
     assert recomputed.reason == first.reason
     assert recomputed.status == policy.STATUS_UNRESOLVED
+
+
+def test_a_stored_attribution_is_still_reproduced_after_its_outcome_is_superseded(harness):
+    """D-016, test 7: historical reproduction is untouched by the admission
+    rule. A stored attribution's own recorded cutoff still recomputes it
+    field by field even after the outcome version it evaluated has itself
+    been superseded by a later observation."""
+    first, _ = _forward_reevaluation(harness)
+    post_created(harness, _superseding_observation("evt-test-o-d016-legacy-supersede", WATCHED))
+
+    recomputed = attribute_at(harness, WATCHED, first.ingest_cutoff)
+    assert recomputed.cutoff == first.ingest_cutoff
+    for name in policy.POLICY_RESULT_FIELDS:
+        assert getattr(recomputed, name) == getattr(first, name), name
+    assert recomputed.reason == first.reason
+    assert recomputed.status == policy.STATUS_UNRESOLVED
+
+
+# --- D-016: a new write must name the outcome version effective right now -----------
+#
+# The admission rule sits in `_validate_attribution`, behind the duplicate and
+# conflict short-circuit and ahead of every other attribution check. AC-15,
+# AC-16; INV-01 (nothing already stored is rewritten), INV-08 (outcomes stay
+# later, separate observations; credit never survives past the version it was
+# computed for), INV-10 (a superseded write is refused, not silently
+# redirected), INV-11 (the collector is the only door, and this is enforced
+# there, atomically, inside its one transaction).
+
+
+def _superseding_observation(event_id: str, supersedes: str) -> dict:
+    """A closed v2 observation superseding `supersedes`. `_validate_outcome_
+    supersession` checks existence, ownership and effectiveness only -- never
+    time order -- so one fixed, arbitrary closing instant serves any outcome
+    version under test."""
+    return outcome_v2_envelope(
+        event_id,
+        observed_at="2026-07-16T10:07:00Z",
+        window_opened_at="2026-04-17T10:07:00Z",
+        window_closes_at="2026-07-16T10:07:00Z",
+        evaluation_state="closed",
+        reply=False,
+        meeting=False,
+        opportunity=False,
+        source_action_event_id=ACTION_EVENT_ID,
+        supersedes_outcome_event_id=supersedes,
+    )
+
+
+def test_a_stale_attribution_write_is_refused_at_the_ledger_maximum_not_the_payload_cutoff(seeded):
+    """D-016, tests 1, 2 and 9. Compute a policy-correct envelope for the
+    canonical outcome, then supersede that outcome, then submit the envelope
+    unchanged: the payload's own `ingest_cutoff` still precedes the
+    superseding event, but the ledger maximum at submission time follows it,
+    so the check must read the maximum to catch this -- and it must write
+    nothing on refusal."""
+    envelope = attribution_envelope(seeded, OUTCOME_EVENT_ID)
+    post_created(seeded, _superseding_observation("evt-test-o-d016-closing-1", OUTCOME_EVENT_ID))
+
+    before = ledger_state(seeded)
+    response = seeded.post(envelope)
+    assert response.status_code == 422, response.json()
+    body = response.json()
+    assert body["reason"] == "attributed_outcome_version_is_superseded"
+    assert body["outcome_event_id"] == OUTCOME_EVENT_ID
+    assert body["effective_outcome_event_id"] == "evt-test-o-d016-closing-1"
+    assert ledger_state(seeded) == before
+
+
+def test_an_exact_retry_still_answers_duplicate_after_its_outcome_is_superseded(seeded):
+    """D-016, test 3: the duplicate short-circuit still runs before the new
+    check, so a previously accepted attribution's exact retry is unaffected
+    by its outcome being superseded afterwards."""
+    envelope = attribution_envelope(seeded, OUTCOME_EVENT_ID)
+    post_created(seeded, envelope)
+    (stored,) = attribution_rows(seeded)
+    post_created(seeded, _superseding_observation("evt-test-o-d016-closing-2", OUTCOME_EVENT_ID))
+
+    before = ledger_state(seeded)
+    response = seeded.post(envelope)
+    assert (response.status_code, response.json()["status"]) == (200, "duplicate")
+    assert ledger_state(seeded) == before
+    assert [tuple(r) for r in attribution_rows(seeded)] == [tuple(stored)]
+
+
+def test_a_conflicting_retry_keeps_its_409_before_and_after_the_outcome_is_superseded(seeded):
+    """D-016, test 4: the conflict rule is not widened by the new check. A
+    conflicting retry means the same `event_id` carrying different content,
+    both before and after the outcome the attribution names is superseded."""
+    envelope = attribution_envelope(seeded, OUTCOME_EVENT_ID)
+    post_created(seeded, envelope)
+    changed = copy.deepcopy(envelope)
+    changed["recorded_at"] = "2026-09-12T00:00:00.000000Z"
+
+    before = ledger_state(seeded)
+    response = seeded.post(changed)
+    assert response.status_code == 409, response.json()
+    body = response.json()
+    assert body["reason"] == "event_id_reused_with_different_content"
+    assert body["stored_hash"] != body["submitted_hash"]
+    assert ledger_state(seeded) == before
+
+    post_created(seeded, _superseding_observation("evt-test-o-d016-closing-3", OUTCOME_EVENT_ID))
+
+    before = ledger_state(seeded)
+    response = seeded.post(changed)
+    assert response.status_code == 409, response.json()
+    body = response.json()
+    assert body["reason"] == "event_id_reused_with_different_content"
+    assert ledger_state(seeded) == before
+
+
+def test_attributing_the_effective_version_after_supersession_is_accepted_and_not_inherited(seeded):
+    """D-016, test 6: the rule constrains which outcome *version* a new write
+    may name, not whether the currently effective version may be attributed.
+    A fresh attribution naming the version that superseded another is
+    accepted normally; the superseded version's own stored result is
+    unchanged and receives no inherited credit."""
+    envelope = attribution_envelope(seeded, OUTCOME_EVENT_ID)
+    post_created(seeded, envelope)
+    (original,) = attribution_rows(seeded)
+
+    closing_id = "evt-test-o-d016-closing-4"
+    post_created(seeded, _superseding_observation(closing_id, OUTCOME_EVENT_ID))
+
+    submit_attribution(seeded, closing_id)
+    rows = attribution_rows(seeded)
+    assert len(rows) == 2
+    assert tuple(rows[0]) == tuple(original)
+    replacement = rows[1]
+    assert replacement.outcome_event_id == closing_id
+    assert replacement.supersedes_attribution_event_id is None
