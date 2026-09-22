@@ -402,13 +402,13 @@ optional and lives outside this repository.
 
 | Step | What you say | Destination | Expected visible cue |
 | --- | --- | --- | --- |
-| 1 | The account list: 241 synthetic accounts, with the canonical demo prospect pinned at the top. | `/` | `Canonical demo account: NovaSignal AI` |
-| 2 | Its whole trace: discovery, evidence, decision, persona, action, outcome, attribution. | `/accounts/novasignal-ai` | `Account trace for NovaSignal AI (8 events)` |
-| 3 | The decision scored 86 against threshold 75 and output `PRIORITIZE` under `v3.2`, identified by artifact hash, not by label. | `/accounts/novasignal-ai/decisions/evt-novasignal-04-decision-recorded` | `score 86 / threshold 75` |
-| 4 | The context preserved at the boundary, with provenance per input: five consumed, integration pressure available and ignored, one unavailable. | `/accounts/novasignal-ai/decisions/evt-novasignal-04-decision-recorded#evidence-context` | `available but ignored` |
+| 1 | The account list: 241 synthetic accounts, the canonical demo prospect pinned at the top. | `/` | `Canonical demo account: NovaSignal AI` |
+| 2 | Its trace: discovery, evidence, decision, persona, action, outcome, attribution. | `/accounts/novasignal-ai` | `Account trace for NovaSignal AI (8 events)` |
+| 3 | The decision scored 86 against threshold 75, output `PRIORITIZE` under `v3.2`, identified by artifact hash, not by label. | `/accounts/novasignal-ai/decisions/evt-novasignal-04-decision-recorded` | `score 86 / threshold 75` |
+| 4 | Context preserved at the boundary, provenance per input: five consumed, integration pressure available and ignored, one unavailable. | `/accounts/novasignal-ai/decisions/evt-novasignal-04-decision-recorded#evidence-context` | `available but ignored` |
 | 5 | Downstream: play `#14` to the Head of Platform, cost `$1.42`, a negative 90-day outcome, attributed `direct` under a named policy. | `/accounts/novasignal-ai/decisions/evt-novasignal-04-decision-recorded#outcome-evt-novasignal-07-outcome-evaluated` | `opportunity: no (recorded negative observation)` |
 | 6 | Across the dataset: funding barely moves the observed rate, integration pressure moves it a lot, `v4.2` sits below its cohort. Descriptive, not causal. | `/insights` | `38.9% observed (58 of 149 eligible decisions; n = 149)` |
-| 7 | Current logic `v5.2` is in effect, resolved by label then used by hash. The preserved `v5.1` is still selectable, and the page says its weights cannot reach its threshold. | `/accounts/novasignal-ai/decisions/evt-novasignal-04-decision-recorded#current-logic-selector` | `In effect: logic version v5.2` |
+| 7 | Current logic `v5.2` is in effect, resolved by label then used by hash. Preserved `v5.1` stays selectable; the page says its weights cannot reach its threshold. | `/accounts/novasignal-ai/decisions/evt-novasignal-04-decision-recorded#current-logic-selector` | `In effect: logic version v5.2` |
 | 8 | The same preserved context under `v5.2`: 86 becomes 72, output flips to `DO_NOT_PRIORITIZE`. No present-day evidence entered; nothing stored. | `/accounts/novasignal-ai/decisions/evt-novasignal-04-decision-recorded#replay-comparison` | `output changed: yes` |
 
 ### What Insights shows at that cutoff
@@ -427,8 +427,16 @@ recorded synthetic decisions, with sample size shown, and no cause or effect is 
 
 ### Screenshots
 
-Captured from the running application at commit `3e5123b3692fcd24cc7c62c359916a74ebac0f15`
-over a fresh `seed-dataset` ledger. Everything in them is synthetic.
+Everything in them is synthetic. They were not all captured at the same commit, and each is
+attributed to the code and the ledger that produced it.
+
+The trace and Insights images come from the running application at commit
+`3e5123b3692fcd24cc7c62c359916a74ebac0f15`, over a fresh `seed-dataset` ledger.
+
+The replay image was recaptured later and comes from the running application at commit
+`a7de7e7a7fe4bd98d56d6ec2038ac7b536d02815`, over a `seed-dataset` ledger with
+`register-current-logic` applied — the setup its `v5.2` comparison needs, and which the
+earlier commit could not have produced.
 
 ![The NovaSignal AI account trace: the synthetic-data disclosure banner above an eight-event trace, from discovery through the outcome attribution. Synthetic data.](docs/screenshots/trace.png)
 
