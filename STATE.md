@@ -50,8 +50,9 @@ Phase 5 is complete and the MVP is delivered. No phase is in progress. One bound
 ## Run
 
 ```bash
-uv sync && uv run flight-recorder reset && uv run flight-recorder seed && uv run flight-recorder serve
+uv sync && uv run flight-recorder reset && uv run flight-recorder seed-dataset && uv run flight-recorder register-current-logic && uv run flight-recorder serve
 ```
+Run those four in that order. `register-current-logic` registers the `v5.2` overlay the replay panel defaults to (D-017) and must come after `seed-dataset`: the schedule prefix check refuses a dataset load into a ledger that already holds the overlay event. A canonical-only database may use `seed` in place of `seed-dataset`, and then cannot be extended by `seed-dataset` afterwards.
 Open `http://127.0.0.1:8000/accounts/novasignal-ai`. Tests: `uv run pytest`; invariants only: `uv run pytest -m invariant`.
 
 ## Blockers

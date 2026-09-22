@@ -1,6 +1,7 @@
 """Console entry point.
 
-`flight-recorder reset | seed | seed-dataset | attribute [--reevaluate] | serve`
+`flight-recorder reset | seed | seed-dataset | register-current-logic |
+attribute [--reevaluate] | serve`
 """
 
 import argparse
@@ -50,6 +51,61 @@ def cmd_seed(db_path: Path) -> int:
         print(
             f"seed: {counts['created']} created, {counts['duplicate']} duplicate"
             f" ({sum(counts.values())} envelopes)"
+        )
+        return 0
+
+    return asyncio.run(run())
+
+
+def cmd_register_current_logic(db_path: Path) -> int:
+    """Submit the selected demo overlay's registration envelope (D-017).
+
+    The same collector boundary `seed` uses, one envelope. It registers the
+    successor artifact `v5.2` without touching the canonical nine: no existing
+    artifact is edited, relabeled, deactivated or re-registered, and `v3.2` and
+    `v5.1` keep their exact content and hashes.
+
+    Idempotent by canonical-JSON event identity (INV-11): a second run creates
+    nothing and appends no event.
+
+    This command has no prerequisite of its own and registers happily on an
+    empty database. What is *not* a supported setup order is registering the
+    overlay before `seed-dataset`: the dataset's schedule requires the ledger
+    to be a prefix of it, and an overlay event inside that prefix makes the
+    next `seed-dataset` refuse with `ScheduleDiverged`. Run the dataset first.
+    """
+    import asyncio
+
+    import httpx
+
+    from flight_recorder.app import create_app
+    from flight_recorder.fixtures import current_logic_registration_path
+
+    app = create_app(db_path)
+    counts: Counter[str] = Counter()
+    path = current_logic_registration_path()
+
+    async def run() -> int:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://register") as client:
+            response = await client.post(
+                "/api/v1/decision-events",
+                content=path.read_bytes(),
+                headers={"content-type": "application/json"},
+            )
+            body = response.json()
+            status = body.get("status", "error")
+            counts[status] += 1
+            print(f"{response.status_code} {status:<9} {path.name}")
+            if response.status_code >= 400:
+                print(
+                    f"register-current-logic: stopped at {path.name}: {body}",
+                    file=sys.stderr,
+                )
+                return 1
+        print(
+            f"register-current-logic: {counts['created']} created, "
+            f"{counts['duplicate']} duplicate ({sum(counts.values())} envelopes)"
         )
         return 0
 
@@ -168,6 +224,10 @@ def main(argv: list[str] | None = None) -> int:
         "seed-dataset",
         help="submit the synthetic dataset's seed schedule through the collector",
     )
+    sub.add_parser(
+        "register-current-logic",
+        help="submit fixtures/current/ through the collector; run after seed-dataset",
+    )
     sub.add_parser("serve", help="run uvicorn on 127.0.0.1:8000")
     attribute = sub.add_parser(
         "attribute",
@@ -187,6 +247,7 @@ def main(argv: list[str] | None = None) -> int:
         "reset": cmd_reset,
         "seed": cmd_seed,
         "seed-dataset": cmd_seed_dataset,
+        "register-current-logic": cmd_register_current_logic,
         "serve": cmd_serve,
     }
     return handlers[args.command](db_path)

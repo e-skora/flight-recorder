@@ -101,3 +101,32 @@ def dataset_signals() -> tuple:
 def dataset_comparison_workflow_version() -> str:
     """The manifest's comparison workflow cohort, for `insights`."""
     return planted_effects()["comparison_workflow_version"]
+
+
+# --- The selected demo overlay (D-017) ----------------------------------------------
+#
+# `fixtures/current/` holds the successor artifact the demo replays under and
+# its registration envelope. It is deliberately outside `fixtures/canonical/`:
+# `canonical_envelope_paths()` and `canonical_artifacts()` both glob that
+# directory, and the canonical nine and the generator's two-artifact pair must
+# not change. The directory name carries no activation authority; the demo
+# default is resolved by logic version against the registry, as it always was.
+
+CURRENT_DIR = REPO_ROOT / "fixtures" / "current"
+
+
+def current_logic_artifact_path() -> Path:
+    return CURRENT_DIR / "logic-v5.2.json"
+
+
+def current_logic_registration_path() -> Path:
+    return CURRENT_DIR / "logic-artifact-v5.2-registration.json"
+
+
+def current_logic_artifact():
+    """The selected demo overlay artifact, through the strict model."""
+    from flight_recorder.collector.schema import LogicArtifact
+
+    return LogicArtifact.model_validate_json(
+        current_logic_artifact_path().read_bytes(), strict=True
+    )

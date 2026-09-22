@@ -70,9 +70,12 @@ from flight_recorder.ledger.schema import (
     outcomes,
 )
 from flight_recorder.logic.evaluator import (
+    EVALUATOR_VERSION,
     DuplicateContextKey,
     EvaluationError,
     UnsupportedMissingValueBehavior,
+    positive_weight_score_bound,
+    threshold_exceeds_positive_weight_bound,
 )
 from flight_recorder.logic.rules import (
     RuleError,
@@ -115,10 +118,12 @@ __all__ = [
     "DecisionView",
     "FailureField",
     "OutcomeRow",
+    "PositiveWeightBound",
     "ReplayFailure",
     "RulesetFactorRow",
     "RulesetView",
     "artifact_options",
+    "positive_weight_bound_view",
     "failure_view",
     "load_decision_page",
 ]
@@ -182,6 +187,54 @@ class RulesetFactorRow:
 
 
 @dataclass(frozen=True)
+class PositiveWeightBound:
+    """An artifact whose threshold sits above its positive-weight bound (D-017).
+
+    A statement about the artifact, never about the account and never a
+    failure: the artifact is valid, registered and replayable, and a replay
+    under it succeeds. It simply cannot reach its own threshold.
+
+    The bound is an **upper bound** under `evaluator-v1`, not a proven maximum
+    (`positive_weight_score_bound`). A view of this type is built only when the
+    threshold is above that bound, so its absence is never evidence that a
+    threshold is reachable.
+    """
+
+    #: The sum of the artifact's strictly positive factor weights.
+    positive_weight_score_bound: int
+    threshold: int
+    #: The artifact's own `output_mapping.below_threshold` label, never a
+    #: hardcoded `DO_NOT_PRIORITIZE`: the schema admits any label.
+    below_threshold_output: str
+
+    @property
+    def text(self) -> str:
+        """The one sentence pair every presentation of this artifact renders."""
+        return (
+            f"Positive weights total {self.positive_weight_score_bound}, below threshold "
+            f"{self.threshold}; the score cannot reach this threshold under "
+            f"{EVALUATOR_VERSION}. A successful evaluation under this artifact can "
+            f"therefore only output {self.below_threshold_output}."
+        )
+
+
+def positive_weight_bound_view(artifact: LogicArtifact | None) -> PositiveWeightBound | None:
+    """The bound note for `artifact`, or None when there is nothing to report.
+
+    None for an unreadable artifact and for one whose threshold its positive
+    weights can reach. Computed from the artifact itself on every call, never
+    from a cached flag or a version label.
+    """
+    if artifact is None or not threshold_exceeds_positive_weight_bound(artifact):
+        return None
+    return PositiveWeightBound(
+        positive_weight_score_bound=positive_weight_score_bound(artifact),
+        threshold=artifact.threshold,
+        below_threshold_output=artifact.output_mapping.below_threshold,
+    )
+
+
+@dataclass(frozen=True)
 class RulesetView:
     """The declarative ruleset exactly as it was recorded, or an explicit gap."""
 
@@ -195,6 +248,9 @@ class RulesetView:
     activated_at: str | None = None
     deactivated_at: str | None = None
     activation_status: str | None = None
+    #: Present only when this recorded artifact's threshold is above its
+    #: positive-weight bound (D-017); None otherwise.
+    positive_weight_bound: PositiveWeightBound | None = None
 
 
 @dataclass(frozen=True)
@@ -362,6 +418,13 @@ class ArtifactOption:
     evaluator_version: str
     label: str
     selected: bool
+    #: This option's own threshold, or None when its stored content is
+    #: unreadable. Carried so the selector and the in-effect panel can report
+    #: the bound per artifact rather than for the page as a whole.
+    threshold: int | None = None
+    #: Present only when this artifact's threshold is above its positive-weight
+    #: bound (D-017); None otherwise, including when it is unreadable.
+    positive_weight_bound: PositiveWeightBound | None = None
 
 
 @dataclass(frozen=True)
@@ -481,6 +544,7 @@ def _ruleset_view(artifact: LogicArtifact | None) -> RulesetView:
             format_utc(activation.deactivated_at) if activation.deactivated_at is not None else None
         ),
         activation_status=activation.status,
+        positive_weight_bound=positive_weight_bound_view(artifact),
     )
 
 
@@ -781,26 +845,40 @@ def artifact_options(
     Ordered by (`logic_version`, `artifact_hash`): a deterministic display
     order, explicitly *not* a recency order. The current artifact is always an
     explicitly selected hash, never "the latest" (D-011).
+
+    `artifact_json` is read so each option can carry its own threshold and, if
+    the threshold is above the artifact's positive-weight bound, its own bound
+    note (D-017). Every option is decoded through the same tolerant path the
+    recorded ruleset uses: an option whose stored content is unreadable simply
+    carries no threshold and no note, and still renders and stays selectable.
+    Reading the option content never turns a failure into a success and never
+    raises here.
     """
     rows = conn.execute(
         select(
             logic_artifacts.c.artifact_hash,
             logic_artifacts.c.logic_version,
             logic_artifacts.c.evaluator_version,
+            logic_artifacts.c.artifact_json,
         )
         .where(logic_artifacts.c.decision_class == decision_class)
         .order_by(logic_artifacts.c.logic_version, logic_artifacts.c.artifact_hash)
     ).all()
-    return tuple(
-        ArtifactOption(
-            artifact_hash=row.artifact_hash,
-            logic_version=row.logic_version,
-            evaluator_version=row.evaluator_version,
-            label=artifact_label(row.logic_version, row.artifact_hash, row.evaluator_version),
-            selected=row.artifact_hash == selected_hash,
+    options = []
+    for row in rows:
+        artifact = _decoded_artifact(row)
+        options.append(
+            ArtifactOption(
+                artifact_hash=row.artifact_hash,
+                logic_version=row.logic_version,
+                evaluator_version=row.evaluator_version,
+                label=artifact_label(row.logic_version, row.artifact_hash, row.evaluator_version),
+                selected=row.artifact_hash == selected_hash,
+                threshold=artifact.threshold if artifact is not None else None,
+                positive_weight_bound=positive_weight_bound_view(artifact),
+            )
         )
-        for row in rows
-    )
+    return tuple(options)
 
 
 def load_decision_page(conn, decision_event_id: str) -> DecisionPage | None:

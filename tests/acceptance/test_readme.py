@@ -30,6 +30,7 @@ from tests.conftest import (
     canonical_by_type,
     canonical_raw,
     register_artifacts,
+    register_current_logic,
     seed_dataset,
 )
 
@@ -257,10 +258,16 @@ def page_text(html: str) -> str:
 
 @pytest.fixture(scope="module")
 def seeded(tmp_path_factory) -> Harness:
-    """One fully seeded dataset ledger, as the README's setup builds it."""
+    """One fully seeded dataset ledger, as the README's setup builds it.
+
+    The README's order exactly: the dataset first, then the `v5.2` overlay the
+    replay panel defaults to. Registering the overlay before the dataset is not
+    a supported setup order and would make the seed refuse.
+    """
     harness = Harness(tmp_path_factory.mktemp("readme-seed"))
     _, report = seed_dataset(harness)
     assert report.fresh
+    register_current_logic(harness)
     return harness
 
 

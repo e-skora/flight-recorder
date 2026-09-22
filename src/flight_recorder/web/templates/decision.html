@@ -54,6 +54,9 @@
     <dt>Deactivated at</dt><dd>{% if ruleset.deactivated_at %}<time datetime="{{ ruleset.deactivated_at }}">{{ ruleset.deactivated_at }}</time>{% else %}none{% endif %}</dd>
     <dt>Activation status</dt><dd>{{ ruleset.activation_status }}</dd>
   </dl>
+  {% if ruleset.positive_weight_bound %}
+  <p class="positive-weight-bound" id="recorded-positive-weight-bound">{{ ruleset.positive_weight_bound.text }} This is a property of the recorded artifact, not of this account and not a failure: the decision replays exactly as it was recorded.</p>
+  {% endif %}
   {% else %}
   <p class="unavailable-state">{{ ruleset.unavailable_note }}</p>
   {% endif %}
@@ -363,16 +366,32 @@
         <option value="" disabled selected>No registered artifact is chosen. Select one.</option>
         {% endif %}
         {% for option in artifact_options %}
-        <option value="{{ option.artifact_hash }}"{% if option.selected %} selected{% endif %}>{{ option.label }}</option>
+        <option value="{{ option.artifact_hash }}"{% if option.selected %} selected{% endif %}>{{ option.label }}{% if option.positive_weight_bound %} (positive weights total {{ option.positive_weight_bound.positive_weight_score_bound }}, below threshold {{ option.positive_weight_bound.threshold }}){% endif %}</option>
         {% endfor %}
       </select>
       <button type="submit">Replay under this artifact</button>
     </form>
+    {# One line per registered artifact whose threshold sits above its own
+    positive-weight bound, named by that artifact and by no other. An artifact
+    without a line here is not thereby shown to reach its threshold. #}
+    {% set bounded_options = artifact_options | selectattr("positive_weight_bound") | list %}
+    {% if bounded_options %}
+    <ul id="artifact-positive-weight-bounds" class="positive-weight-bound">
+      {% for option in bounded_options %}
+      <li data-artifact-hash="{{ option.artifact_hash }}">{{ option.label }}: {{ option.positive_weight_bound.text }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
     {% if current_hash %}
     {% if comparison %}
     <p class="in-effect">In effect: logic version {{ comparison.current_logic.logic_version }}, evaluator {{ comparison.current_logic.evaluator_version }}, full artifact hash <code class="hash">{{ comparison.current_logic.artifact_hash }}</code>.</p>
     {% else %}
     <p class="in-effect">Selected: {% if selected_option %}logic version {{ selected_option.logic_version }}, evaluator {{ selected_option.evaluator_version }}, {% else %}an artifact that is not registered for this decision class, {% endif %}full artifact hash <code class="hash">{{ current_hash }}</code>. No comparison used it.</p>
+    {% endif %}
+    {# The note belongs to the artifact in effect and to no other, so it is
+    read from that artifact's own registered content, never from the page. #}
+    {% if selected_option and selected_option.positive_weight_bound %}
+    <p class="positive-weight-bound" id="in-effect-positive-weight-bound">{{ selected_option.positive_weight_bound.text }} The artifact is registered and replayable; this describes what its own weights and threshold allow.</p>
     {% endif %}
     {% if default_resolved %}
     <p class="in-effect-default">No artifact was selected in the request, so the default was resolved by logic version {{ default_logic_version }}, which names exactly one registered artifact: <code class="hash">{{ current_hash }}</code>.</p>
