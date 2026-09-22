@@ -6,6 +6,15 @@ Evidence executed: rate eligibility by recorded period and effective version
 signal states (item 8, INV-03, AC-11); cutoff isolation; the AC-16 exclusion at
 the engine (INV-08, INV-10); a late attribution to a superseded version; and
 read-only analytics beside replay (INV-01, INV-06).
+
+D-016 note: the collector now refuses a fresh `outcome.attributed` write that
+names an outcome version already superseded by the time it arrives.
+`test_a_late_attribution_to_a_superseded_outcome_is_excluded` below is the one
+test in the suite that used to make exactly that write through the public
+endpoint; its read-side proof (a stale result *stored* in the ledger stays
+excluded from every selection) is preserved by planting that stored row
+directly as a labelled legacy row, beside a new assertion that the collector
+now refuses the write itself.
 """
 
 import copy
@@ -70,6 +79,7 @@ from tests.conftest import (
     discovery_envelope,
     evidence_envelope,
     insert_ambiguous_attribution,
+    insert_legacy_attribution,
     logic_artifact,
     outcome_v2_envelope,
     post_created,
@@ -1134,8 +1144,27 @@ def test_a_late_attribution_to_a_superseded_outcome_is_excluded(harness):
         supersedes=root.attribution_event_id,
         clock=FixedClock(),
     )
+
+    # D-016: this exact write is now refused through the public collector,
+    # because OUTCOME_EVENT_ID has already been superseded by
+    # evt-test-o-canonical-closed. Proven first, as a fresh submission under
+    # this operation's own identity, before anything is stored under it.
+    before = ledger_state(harness)
     response = harness.post(replacement)
-    assert response.status_code == 201, response.json()
+    assert response.status_code == 422, response.json()
+    body = response.json()
+    assert body["reason"] == "attributed_outcome_version_is_superseded"
+    assert body["outcome_event_id"] == OUTCOME_EVENT_ID
+    assert body["effective_outcome_event_id"] == "evt-test-o-canonical-closed"
+    assert ledger_state(harness) == before
+
+    # The read-side proof this test exists for: a stale result *stored* in the
+    # ledger (as it could be from before D-016, or by a direct correction)
+    # stays excluded from every selection and changes no rendered value.
+    # Planted as a coherent legacy row, labelled as such, because the
+    # collector no longer accepts this write; this is legacy-row setup, not a
+    # submission the collector would ever produce today.
+    insert_legacy_attribution(harness, replacement)
 
     second = read(harness)
     without_cutoff = [

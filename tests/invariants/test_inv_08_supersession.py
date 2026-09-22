@@ -14,11 +14,19 @@
    rather than pick.
 4. The no-inheritance guarantee holds alongside the rule that a replacement
    must be computed at a strictly newer cutoff.
+
+D-016 (test 8; AC-15, AC-16; INV-01, INV-08, INV-10, INV-11): the same
+"selection raises rather than picks" property, at the collector boundary --
+an outcome chain a ledger corruption makes ambiguous is refused by name
+(`ambiguous_effective_selection`) rather than silently resolved, and nothing
+is written.
 """
 
 import pytest
+from sqlalchemy import select
 
 from flight_recorder.attribution import policy
+from flight_recorder.ledger.schema import events
 from flight_recorder.replay.reconstruct import reconstruct
 from tests.conftest import (
     ACCOUNT_REF,
@@ -36,6 +44,7 @@ from tests.conftest import (
     decision_rows,
     discovery_envelope,
     insert_ambiguous_attribution,
+    insert_self_superseding_outcome,
     outcome_row,
     outcome_v2_envelope,
     post_created,
@@ -357,6 +366,36 @@ def test_selection_raises_on_a_ledger_holding_two_effective_results(harness):
     assert failure.value.reason == "ambiguous_effective_selection"
     original = attribution_rows(harness)[0]
     assert set(failure.value.candidates) == {original.attribution_event_id, corrupt}
+
+
+def ledger_state(harness: Harness) -> tuple:
+    """`harness.snapshot()` plus every stored event row (duplicated from
+    `test_attribution_ingest.py`)."""
+    with harness.engine.connect() as conn:
+        stored = conn.execute(select(events).order_by(events.c.ingest_sequence)).all()
+    return harness.snapshot(), [tuple(row) for row in stored]
+
+
+def test_an_ambiguous_effective_outcome_chain_is_refused_by_name(harness):
+    """D-016, test 8. A planted ambiguous outcome chain is a test condition,
+    never a valid collector submission: the collector never accepts a
+    supersession link naming a version that does not yet exist, so this
+    corruption can only be made directly, around the collector. With it in
+    place, D-016's admission check raises the same named failure selection
+    already raises elsewhere, and writes nothing."""
+    seed_and_attribute(harness)
+    corrupt = insert_self_superseding_outcome(harness, "evt-test-o-d016-corrupt-cycle")
+    with pytest.raises(policy.AmbiguousSelection) as failure:
+        select_effective(harness, corrupt)
+    assert failure.value.reason == "ambiguous_effective_selection"
+
+    envelope = attribution_envelope(harness, corrupt)
+    before = ledger_state(harness)
+    response = harness.post(envelope)
+    assert response.status_code == 422, response.json()
+    body = response.json()
+    assert body["reason"] == "ambiguous_effective_selection"
+    assert ledger_state(harness) == before
 
 
 # --- 4. No inherited credit, alongside the cutoff rule ------------------------------

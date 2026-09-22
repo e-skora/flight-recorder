@@ -399,15 +399,17 @@ def _attribution_failure(error: policy.AttributionError, **extra: Any) -> Reject
 def _validate_attribution(conn, normalized: dict) -> None:
     """D-013: an attribution result is accepted only when the policy agrees.
 
-    In order: the outcome exists and belongs to this account; the policy is
-    implemented; the cutoff is a recorded sequence no later than the ledger's
-    maximum and includes the outcome; the event id is this operation's derived
-    identity and the operation is not already recorded; the supersession link
-    is a first result or names the current effective result, computed at a
-    strictly older cutoff than this one; the resolved
-    references are real records of this account; and the submitted result
-    equals `policy.attribute` recomputed at the cutoff, field by field. Every
-    check reads; none writes.
+    In order: the outcome exists and belongs to this account; the named
+    outcome version is still the effective version of its supersession chain
+    at the ledger's current maximum, not at the payload's own `ingest_cutoff`
+    (D-016); the policy is implemented; the cutoff is a recorded sequence no
+    later than the ledger's maximum and includes the outcome; the event id is
+    this operation's derived identity and the operation is not already
+    recorded; the supersession link is a first result or names the current
+    effective result, computed at a strictly older cutoff than this one; the
+    resolved references are real records of this account; and the submitted
+    result equals `policy.attribute` recomputed at the cutoff, field by field.
+    Every check reads; none writes.
     """
     payload = normalized["payload"]
     account_ref = normalized["account_ref"]
@@ -431,6 +433,30 @@ def _validate_attribution(conn, normalized: dict) -> None:
             f"attribution is recorded under the outcome's own account, not {account_ref!r}",
             outcome_event_id=outcome_event_id,
         )
+
+    # D-016: a new write must name the outcome version that is effective right
+    # now, at the ledger's current maximum inside this same transaction, not
+    # at the payload's own `ingest_cutoff`. This sits behind Collector.ingest's
+    # duplicate/conflict short-circuit and ahead of every other attribution
+    # check, so a stale submission is refused before its cutoff or identity is
+    # ever examined.
+    maximum = policy.ledger_maximum(conn)
+    try:
+        effective_outcome_event_id = policy.effective_outcome_version(
+            conn, outcome_event_id, cutoff=maximum
+        )
+    except policy.AttributionError as error:
+        raise _attribution_failure(error, outcome_event_id=outcome_event_id) from error
+    if effective_outcome_event_id != outcome_event_id:
+        raise _rejected(
+            "attributed_outcome_version_is_superseded",
+            f"outcome {outcome_event_id!r} is already superseded; the current effective "
+            f"version of its chain is {effective_outcome_event_id!r}, and only that version "
+            "should be evaluated now",
+            outcome_event_id=outcome_event_id,
+            effective_outcome_event_id=effective_outcome_event_id,
+        )
+
     if policy_version not in policy.IMPLEMENTED_POLICY_VERSIONS:
         raise _attribution_failure(policy.UnsupportedPolicyVersion(policy_version))
     try:
