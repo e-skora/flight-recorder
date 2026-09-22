@@ -58,6 +58,21 @@ V5_1_NOTE = (
 ALTERNATE_DECISION_ID = "evt-test-decision-high-pressure"
 HIGH_PRESSURE_EVIDENCE_ID = "ev-test-verified-integration-pressure-high"
 UNREACHABLE_DECISION_ID = "evt-test-decision-under-unreachable-artifact"
+MISMATCH_DECISION_ID = "evt-test-decision-unreachable-artifact-mismatch"
+
+#: Wordings the note must never carry: each asserts a replay outcome that the
+#: note itself has not established, and each contradicted a visible failure.
+REPLAY_SUCCESS_CLAIMS = (
+    "registered and replayable",
+    "replays exactly as it was recorded",
+    "a replay under it succeeds",
+)
+
+
+def assert_claims_no_replay_success(note: str) -> None:
+    """The note describes the artifact and never asserts that a replay succeeded."""
+    for phrase in REPLAY_SUCCESS_CLAIMS:
+        assert phrase not in note, phrase
 
 
 @pytest.fixture
@@ -158,7 +173,7 @@ def test_the_in_effect_panel_carries_the_note_when_v5_1_is_selected_by_hash(seed
 
     in_effect = element(html, "in-effect-positive-weight-bound")
     assert V5_1_NOTE in in_effect
-    assert "registered and replayable" in in_effect
+    assert_claims_no_replay_success(in_effect)
     # The comparison still runs and is unaffected by the note.
     assert element(html, "counterfactual-score") == "51"
 
@@ -188,6 +203,7 @@ def test_the_recorded_ruleset_section_reports_the_note_for_the_artifact_that_ran
     recorded = element(html, "recorded-positive-weight-bound")
     assert V5_1_NOTE in recorded
     assert "not a failure" in recorded
+    assert_claims_no_replay_success(recorded)
     assert element(html, "decision-output") == "DO_NOT_PRIORITIZE"
     assert element(html, "decision-score-threshold") == "score 51 / threshold 75"
 
@@ -231,7 +247,40 @@ def test_the_note_never_replaces_a_visible_artifact_failure(seeded):
     assert "UnsupportedRule" in element(html, "replay-integrity-failure")
     assert not has_element(html, "replay-comparison")
     # The note is still the artifact's own property, and claims nothing about the failure.
-    assert V5_1_NOTE in element(html, "in-effect-positive-weight-bound")
+    note = element(html, "in-effect-positive-weight-bound")
+    assert V5_1_NOTE in note
+    assert_claims_no_replay_success(note)
+
+
+def test_the_recorded_note_makes_no_success_claim_when_the_record_does_not_reproduce(seeded):
+    """Finding 2's second half: a failing *recorded* decision, not a failing selection.
+
+    The decision is recorded under an unreachable artifact and its stored score
+    is one point below what that artifact reconstructs, so the page renders
+    `ReconstructionMismatch` and no comparison. The recorded ruleset section
+    still reports the artifact's own bound -- and must not assert, beside a
+    visible reconstruction failure, that the decision replays as recorded.
+    """
+    envelope = unreachable_artifact_envelope(suffix="-mismatch")
+    register_derived_artifact(seeded, envelope)
+    decision = decision_recorded_under(envelope, MISMATCH_DECISION_ID)
+    reconstructed = decision["payload"]["result"]["score"]
+    decision["payload"]["result"] = {
+        **decision["payload"]["result"],
+        "score": reconstructed - 1,
+    }
+    assert seeded.post(decision).status_code == 201
+
+    html = page(seeded, MISMATCH_DECISION_ID)
+
+    region = element(html, "replay-integrity-failure")
+    assert "ReconstructionMismatch" in region
+    assert not has_element(html, "replay-comparison")
+    assert not has_element(html, "counterfactual-score")
+
+    recorded = element(html, "recorded-positive-weight-bound")
+    assert V5_1_NOTE in recorded
+    assert_claims_no_replay_success(recorded)
 
 
 def test_an_unreadable_registered_artifact_renders_no_note_and_no_page_error(seeded):

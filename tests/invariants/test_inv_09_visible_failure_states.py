@@ -63,6 +63,7 @@ from tests.conftest import (
     canonical_evidence_ids,
     derived_artifact_envelope,
     logic_artifact,
+    register_current_logic,
     register_derived_artifact,
     seed_all,
 )
@@ -78,6 +79,7 @@ MISMATCH_KEY = "headquarters_country"
 def seeded(harness):
     for response in seed_all(harness):
         assert response.status_code == 201, response.json()
+    register_current_logic(harness)
     return harness
 
 

@@ -190,9 +190,13 @@ class RulesetFactorRow:
 class PositiveWeightBound:
     """An artifact whose threshold sits above its positive-weight bound (D-017).
 
-    A statement about the artifact, never about the account and never a
-    failure: the artifact is valid, registered and replayable, and a replay
-    under it succeeds. It simply cannot reach its own threshold.
+    A statement about the artifact, never about the account, and not itself a
+    failure: it reports only what this artifact's own weights and threshold
+    allow. It is **not** evidence that a replay under the artifact succeeds.
+    A replay can still fail for an unrelated reason -- an unsupported rule, an
+    integrity mismatch, a record the preserved logic does not reproduce -- and
+    when it does, that failure is reported in the failure region and this note
+    stands beside it without contradicting it.
 
     The bound is an **upper bound** under `evaluator-v1`, not a proven maximum
     (`positive_weight_score_bound`). A view of this type is built only when the

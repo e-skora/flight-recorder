@@ -35,6 +35,7 @@ from tests.conftest import (
     canonical_raw,
     evidence_version_row,
     register_artifacts,
+    register_current_logic,
     seed_all,
 )
 
@@ -144,6 +145,7 @@ def row_for(html: str, table_id: str, key: str) -> list[str]:
 def seeded(harness):
     for response in seed_all(harness):
         assert response.status_code == 201, response.json()
+    register_current_logic(harness)
     return harness
 
 

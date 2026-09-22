@@ -378,8 +378,9 @@ uv run flight-recorder seed
 uv run flight-recorder register-current-logic
 ```
 
-That gives the nine canonical envelopes and the `v5.2` artifact, with no synthetic dataset
-and no Insights population. **That database cannot afterwards be extended with
+That gives the nine canonical envelopes and the `v5.2` artifact, with no generated dataset:
+Insights is then populated by the one canonical recorded decision and nothing else.
+**That database cannot afterwards be extended with
 `seed-dataset`:** the overlay event already sits inside the schedule's prefix, so the load is
 refused. To get the full demo, run `reset` and start again from `seed-dataset`.
 
@@ -402,12 +403,12 @@ optional and lives outside this repository.
 | Step | What you say | Destination | Expected visible cue |
 | --- | --- | --- | --- |
 | 1 | The account list: 241 synthetic accounts, with the canonical demo prospect pinned at the top. | `/` | `Canonical demo account: NovaSignal AI` |
-| 2 | Its whole trace: discovery, evidence, the decision, persona, outbound action, outcome, and its attribution. | `/accounts/novasignal-ai` | `Account trace for NovaSignal AI (8 events)` |
-| 3 | The decision scored 86 against threshold 75 and output `PRIORITIZE` under logic `v3.2`, identified by artifact hash, not by label. | `/accounts/novasignal-ai/decisions/evt-novasignal-04-decision-recorded` | `score 86 / threshold 75` |
-| 4 | The context preserved at the boundary, with provenance per input. Five consumed. Integration pressure available and ignored. One unavailable. | `/accounts/novasignal-ai/decisions/evt-novasignal-04-decision-recorded#evidence-context` | `available but ignored` |
+| 2 | Its whole trace: discovery, evidence, decision, persona, action, outcome, attribution. | `/accounts/novasignal-ai` | `Account trace for NovaSignal AI (8 events)` |
+| 3 | The decision scored 86 against threshold 75 and output `PRIORITIZE` under `v3.2`, identified by artifact hash, not by label. | `/accounts/novasignal-ai/decisions/evt-novasignal-04-decision-recorded` | `score 86 / threshold 75` |
+| 4 | The context preserved at the boundary, with provenance per input: five consumed, integration pressure available and ignored, one unavailable. | `/accounts/novasignal-ai/decisions/evt-novasignal-04-decision-recorded#evidence-context` | `available but ignored` |
 | 5 | Downstream: play `#14` to the Head of Platform, cost `$1.42`, a negative 90-day outcome, attributed `direct` under a named policy. | `/accounts/novasignal-ai/decisions/evt-novasignal-04-decision-recorded#outcome-evt-novasignal-07-outcome-evaluated` | `opportunity: no (recorded negative observation)` |
 | 6 | Across the dataset: funding barely moves the observed rate, integration pressure moves it a lot, `v4.2` sits below its cohort. Descriptive, not causal. | `/insights` | `38.9% observed (58 of 149 eligible decisions; n = 149)` |
-| 7 | Current logic `v5.2` is in effect, resolved by label to one registered artifact, then used by hash. The preserved `v5.1` is still in the list, and the page says its positive weights cannot reach its own threshold. | `/accounts/novasignal-ai/decisions/evt-novasignal-04-decision-recorded#current-logic-selector` | `In effect: logic version v5.2` |
+| 7 | Current logic `v5.2` is in effect, resolved by label then used by hash. The preserved `v5.1` is still selectable, and the page says its weights cannot reach its threshold. | `/accounts/novasignal-ai/decisions/evt-novasignal-04-decision-recorded#current-logic-selector` | `In effect: logic version v5.2` |
 | 8 | The same preserved context under `v5.2`: 86 becomes 72, output flips to `DO_NOT_PRIORITIZE`. No present-day evidence entered; nothing stored. | `/accounts/novasignal-ai/decisions/evt-novasignal-04-decision-recorded#replay-comparison` | `output changed: yes` |
 
 ### What Insights shows at that cutoff

@@ -65,6 +65,21 @@ def artifact_hashes(harness: Harness) -> list[str]:
         ]
 
 
+def ledger_state(harness: Harness) -> tuple:
+    """`harness.snapshot()` plus every stored event row, in ingest order.
+
+    `snapshot()` compares the event *count*, the accounts and the projections.
+    It cannot see an altered stored payload or canonical hash while the count,
+    the ids and the projections stay as they were. Following `ledger_state` in
+    `tests/acceptance/test_ac_13_determinism.py`, equality here covers every
+    column of every event as well, so these tests compare content and not
+    merely shape.
+    """
+    with harness.engine.connect() as conn:
+        stored = conn.execute(select(events).order_by(events.c.ingest_sequence)).all()
+    return harness.snapshot(), [tuple(row) for row in stored]
+
+
 def run_cli(harness: Harness, command: str) -> int:
     return main(["--db", str(harness.db_path), command])
 
@@ -126,14 +141,14 @@ def test_register_current_logic_creates_once_and_is_then_a_no_op(harness, capsys
     assert run_cli(harness, "register-current-logic") == 0
     assert "1 created, 0 duplicate" in capsys.readouterr().out
 
-    after_first = harness.snapshot()
+    after_first = ledger_state(harness)
     assert event_ids(harness) == [REGISTRATION_EVENT_ID]
     assert artifact_hashes(harness) == [PINNED_V5_2_HASH]
 
     assert run_cli(harness, "register-current-logic") == 0
     assert "0 created, 1 duplicate" in capsys.readouterr().out
 
-    assert harness.snapshot() == after_first, "the second run appended an event or a row"
+    assert ledger_state(harness) == after_first, "the second run changed an event or a row"
 
 
 def test_the_command_registers_on_an_empty_database_and_creates_the_system_principal(harness):
@@ -204,12 +219,12 @@ def test_registering_the_overlay_before_the_dataset_makes_the_seed_refuse(harnes
             assert response.status_code == 201, response.json()
 
     register_current_logic(harness)
-    before = harness.snapshot()
+    before = ledger_state(harness)
 
     with pytest.raises(ScheduleDiverged):
         seed_dataset(harness)
 
-    assert harness.snapshot() == before, "the refused seed changed ledger or projection state"
+    assert ledger_state(harness) == before, "the refused seed changed ledger or projection state"
 
 
 # --- 13. Registration into a populated ledger is an append ----------------------
@@ -224,17 +239,22 @@ def test_registering_into_a_populated_ledger_changes_nothing_that_was_there(harn
     """
     seed_dataset(harness)
 
-    before_count, before_accounts, before_projections = harness.snapshot()
+    (before_count, before_accounts, before_projections), before_rows = ledger_state(harness)
     before_events = event_ids(harness)
     assert before_count > 0 and before_accounts and before_projections["decisions"]
     assert before_projections["outcome_attributions"], "the starting ledger has attribution rows"
 
     register_current_logic(harness)
 
-    after_count, after_accounts, after_projections = harness.snapshot()
+    (after_count, after_accounts, after_projections), after_rows = ledger_state(harness)
     assert after_count == before_count + 1
     assert event_ids(harness) == [*before_events, REGISTRATION_EVENT_ID]
     assert after_accounts == before_accounts, "`_system` already existed; no account changed"
+
+    # Every column of every preexisting event, not just its id: an altered
+    # payload or canonical hash under an unchanged id fails here.
+    assert len(after_rows) == len(before_rows) + 1, "exactly one new events row"
+    assert after_rows[: len(before_rows)] == before_rows, "a stored event row changed"
 
     for table, rows in before_projections.items():
         after = after_projections[table]
@@ -246,8 +266,8 @@ def test_registering_into_a_populated_ledger_changes_nothing_that_was_there(harn
         else:
             assert after == rows, f"{table} changed"
 
-    # An exact retry leaves the whole of it identical again.
-    snapshot = harness.snapshot()
+    # An exact retry leaves the whole of it identical again, rows included.
+    state = ledger_state(harness)
     envelope = load_json(current_logic_registration_path())
     assert harness.post(envelope).status_code == 200
-    assert harness.snapshot() == snapshot
+    assert ledger_state(harness) == state
