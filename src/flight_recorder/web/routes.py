@@ -61,11 +61,16 @@ router = APIRouter(tags=["web"])
 
 OPERATING_COMPANY = "RelayBridge"
 
-#: The logic version `PRODUCT.md` §7 names as current for the canonical demo.
+#: The logic version the demo replays under by default. `PRODUCT.md` §7 names
+#: `v5.1`; D-017 selects its successor `v5.2`, registered separately from the
+#: canonical fixture by `flight-recorder register-current-logic`. `v5.1` is not
+#: edited, retired or re-registered by that choice: it stays a preserved
+#: historical artifact and remains selectable by hash.
+#:
 #: The default selection resolves *by this label* to exactly one registered
 #: artifact and then uses that artifact's hash; a label is never identity
 #: (INV-05), and a tie is never broken by recency (D-011).
-DEMO_CURRENT_LOGIC_VERSION = "v5.1"
+DEMO_CURRENT_LOGIC_VERSION = "v5.2"
 
 #: A `current` query parameter is an artifact hash or it is not a request we
 #: can answer; an unregistered but well-formed hash is a different matter and

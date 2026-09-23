@@ -38,6 +38,10 @@ table.grid th { border-bottom: 2px solid var(--line); }
 blockquote { margin: .5rem 0; border-left: 4px solid var(--line); padding: .25rem .75rem; }
 .counterfactual-warning { border: 2px solid var(--focus); padding: .6rem .75rem; }
 .unavailable-state { border: 2px dashed var(--line); padding: .6rem .75rem; }
+/* A property of an artifact, not an error: a plain informational rule, and
+   deliberately not the failure treatment used by #replay-integrity-failure. */
+.positive-weight-bound { border-left: 4px solid var(--line); padding-left: .75rem; }
+ul.positive-weight-bound { list-style: none; margin: .5rem 0; }
 #replay-integrity-failure { border: 2px solid #8a1f11; padding: .6rem .75rem; }
 #replay-integrity-failure h3 { margin-top: .25rem; }
 #replay-no-selection { border: 2px dashed var(--line); padding: .6rem .75rem; }

@@ -41,6 +41,8 @@ __all__ = [
     "InputState",
     "UnsupportedMissingValueBehavior",
     "evaluate",
+    "positive_weight_score_bound",
+    "threshold_exceeds_positive_weight_bound",
 ]
 
 #: This evaluator's code identity (INV-05). Changing evaluation behavior
@@ -227,3 +229,44 @@ def evaluate(
         ),
         context_states=MappingProxyType(context_states),
     )
+
+
+# --- The positive-weight bound (D-017) --------------------------------------
+#
+# Two pure read-only helpers over a validated artifact. They compute nothing
+# the evaluator uses: no score, no output, no reconstruction and no
+# counterfactual reads them, and nothing here is persisted. They exist so a
+# page can report, from preserved content, that an artifact's threshold sits
+# above the most its positive weights could ever add up to.
+
+
+def positive_weight_score_bound(artifact: LogicArtifact) -> int:
+    """The sum of `artifact`'s strictly positive factor weights.
+
+    An **upper bound** on the score `evaluator-v1` can produce for this
+    artifact, not a proven maximum. `evaluate` adds a factor's weight only on a
+    match and never subtracts anything else, so no context can score above this
+    sum. It can fall short of it, and not only because evidence is missing: the
+    closed rule grammar admits rules no value can satisfy (for example a
+    reversed interval, `employee_count between 500 and 50 inclusive`), so a
+    positive weight on an unsatisfiable rule inflates this bound without ever
+    being attainable. Deciding attainability would need a rule solver, which
+    `evaluator-v1` deliberately does not have.
+
+    Zero and negative weights are excluded: neither can raise a score.
+    """
+    return sum(factor.weight for factor in artifact.factors if factor.weight > 0)
+
+
+def threshold_exceeds_positive_weight_bound(artifact: LogicArtifact) -> bool:
+    """Whether `artifact`'s threshold is above its positive-weight bound.
+
+    True means the threshold is unreachable: every context scores below it, so
+    a successful evaluation can only produce the artifact's below-threshold
+    output. This direction is sound, because the bound is an upper bound.
+
+    False means only that this particular check found nothing, and is **never**
+    evidence that the threshold is reachable: the bound may include weight from
+    a rule no value satisfies. Absence of this warning proves nothing.
+    """
+    return positive_weight_score_bound(artifact) < artifact.threshold

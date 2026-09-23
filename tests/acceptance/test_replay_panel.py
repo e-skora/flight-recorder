@@ -36,16 +36,19 @@ from tests.acceptance.test_decision_detail_page import (
 from tests.conftest import (
     canonical_by_type,
     canonical_raw,
+    current_logic_artifact_content,
     derived_artifact_envelope,
     logic_artifact,
+    register_current_logic,
     register_derived_artifact,
     seed_all,
     system_raw,
     v5_1_hash,
+    v5_2_hash,
 )
 
 DID_NOT_OCCUR = "This decision did not occur."
-DUPLICATE_LABEL_ID = "logic-account-prioritization-v5.1-duplicate-label"
+DUPLICATE_LABEL_ID = "logic-account-prioritization-v5.2-duplicate-label"
 
 #: The `<select>` placeholder that holds the control whenever no registered
 #: artifact is selected, so the browser never displays the first registered
@@ -132,8 +135,15 @@ def assert_no_placeholder(html: str) -> None:
 
 @pytest.fixture
 def seeded(harness):
+    """The canonical nine, then the selected demo overlay `v5.2` (D-017).
+
+    The overlay is registered *after* the canonical seed, never before it, and
+    `seed_all` itself is unchanged. It is what the demo default now resolves
+    to, so a panel test needs it present exactly as the demo has it.
+    """
     for response in seed_all(harness):
         assert response.status_code == 201, response.json()
+    register_current_logic(harness)
     return harness
 
 
@@ -207,20 +217,36 @@ def missing_inputs_envelope() -> dict:
 # --- The default selection ----------------------------------------------------
 
 
-def test_the_default_selection_is_the_registered_v5_1_by_hash(seeded):
+def test_the_default_selection_is_the_registered_v5_2_by_hash(seeded):
+    """D-017 moved the demo default to `v5.2`; it still resolves by label to a hash."""
     selector = element(page(seeded), "current-logic-selector")
 
-    assert v5_1_hash() in selector
-    assert len(v5_1_hash()) == 64
-    assert "logic version v5.1" in selector
-    assert "the default was resolved by logic version v5.1" in selector
+    assert v5_2_hash() in selector
+    assert len(v5_2_hash()) == 64
+    assert "logic version v5.2" in selector
+    assert "the default was resolved by logic version v5.2" in selector
+
+
+def test_the_previous_default_v5_1_stays_registered_and_selectable(seeded):
+    """Registering a successor retires nothing: `v5.1` is still an option, by hash."""
+    registered = {option.value: option for option in artifact_select_options(page(seeded))}
+
+    assert v5_1_hash() in registered
+    assert not registered[v5_1_hash()].selected
+    assert registered[v5_2_hash()].selected
 
 
 # --- The canonical comparison -------------------------------------------------
 
 
 def test_the_canonical_comparison_renders_with_both_labels_and_the_whole_difference(seeded):
-    html = page(seeded)
+    """The historical 86 to 51 comparison, preserved by selecting `v5.1` by hash.
+
+    D-017 changed which artifact the *default* resolves to. It changed nothing
+    about this comparison, so this test now names `v5.1` explicitly and every
+    assertion below is unchanged.
+    """
+    html = page(seeded, query=f"?current={v5_1_hash()}")
     comparison = element(html, "replay-comparison")
 
     assert ORIGINAL_LABEL in comparison and COUNTERFACTUAL_LABEL in comparison
@@ -330,7 +356,7 @@ def test_a_missing_default_logic_version_is_named_as_such(harness):
         assert harness.post_raw(canonical_raw(index)).status_code == 201
 
     html = page(harness)
-    assert "Default replay logic v5.1 is not registered for this decision class." in element(
+    assert "Default replay logic v5.2 is not registered for this decision class." in element(
         html, "replay-no-selection"
     )
     assert not has_element(html, "replay-comparison")
@@ -350,18 +376,18 @@ def test_a_missing_default_logic_version_is_named_as_such(harness):
 def test_two_artifacts_carrying_the_same_logic_version_force_an_explicit_selection(seeded):
     envelope = derived_artifact_envelope(
         DUPLICATE_LABEL_ID,
-        "v5.1",
-        logic_artifact("v5.1")["factors"],
-        event_id="evt-system-logic-artifact-v5.1-duplicate-label",
+        "v5.2",
+        current_logic_artifact_content()["factors"],
+        event_id="evt-system-logic-artifact-v5.2-duplicate-label",
     )
     duplicate_hash = register_derived_artifact(seeded, envelope)
-    assert duplicate_hash != v5_1_hash()
+    assert duplicate_hash != v5_2_hash()
 
     html = page(seeded)
     no_selection = element(html, "replay-no-selection")
-    assert "More than one registered artifact carries logic version v5.1" in no_selection
+    assert "More than one registered artifact carries logic version v5.2" in no_selection
     assert "must be selected explicitly" in no_selection
-    assert v5_1_hash() in no_selection and duplicate_hash in no_selection
+    assert v5_2_hash() in no_selection and duplicate_hash in no_selection
     assert not has_element(html, "replay-comparison")
     assert not has_element(html, "replay-integrity-failure")
 
@@ -449,7 +475,7 @@ def test_the_missing_default_state_shows_the_placeholder(harness):
     assert v32_hash in registered
     assert not registered[v32_hash].selected
 
-    assert "Default replay logic v5.1 is not registered for this decision class." in element(
+    assert "Default replay logic v5.2 is not registered for this decision class." in element(
         html, "replay-no-selection"
     )
 
@@ -457,9 +483,9 @@ def test_the_missing_default_state_shows_the_placeholder(harness):
 def test_the_ambiguous_default_state_shows_the_placeholder(seeded):
     envelope = derived_artifact_envelope(
         DUPLICATE_LABEL_ID,
-        "v5.1",
-        logic_artifact("v5.1")["factors"],
-        event_id="evt-system-logic-artifact-v5.1-duplicate-label",
+        "v5.2",
+        current_logic_artifact_content()["factors"],
+        event_id="evt-system-logic-artifact-v5.2-duplicate-label",
     )
     duplicate_hash = register_derived_artifact(seeded, envelope)
 
@@ -467,12 +493,12 @@ def test_the_ambiguous_default_state_shows_the_placeholder(seeded):
     assert_placeholder_holds_the_control(html)
 
     registered = {option.value: option for option in artifact_select_options(html)}
-    assert not registered[v5_1_hash()].selected
+    assert not registered[v5_2_hash()].selected
     assert not registered[duplicate_hash].selected
 
     no_selection = element(html, "replay-no-selection")
-    assert "More than one registered artifact carries logic version v5.1" in no_selection
-    assert v5_1_hash() in no_selection and duplicate_hash in no_selection
+    assert "More than one registered artifact carries logic version v5.2" in no_selection
+    assert v5_2_hash() in no_selection and duplicate_hash in no_selection
 
 
 def test_a_registered_artifact_that_fails_stays_selected(seeded):
@@ -486,17 +512,18 @@ def test_a_registered_artifact_that_fails_stays_selected(seeded):
     assert "UnsupportedRule" in element(html, "replay-integrity-failure")
 
 
-def test_the_canonical_selection_is_unchanged(seeded):
+def test_the_default_selection_is_exactly_one_option_and_compares(seeded):
+    """Exactly one option is chosen, it is `v5.2`, and the comparison is 86 to 72."""
     html = page(seeded)
 
     registered = {option.value: option for option in artifact_select_options(html)}
-    assert registered[v5_1_hash()].selected
-    assert [value for value, option in registered.items() if option.selected] == [v5_1_hash()]
+    assert registered[v5_2_hash()].selected
+    assert [value for value, option in registered.items() if option.selected] == [v5_2_hash()]
     assert_no_placeholder(html)
 
     assert element(html, "original-score") == "86"
-    assert element(html, "counterfactual-score") == "51"
-    assert element(html, "score-delta") == "-35"
+    assert element(html, "counterfactual-score") == "72"
+    assert element(html, "score-delta") == "-14"
 
 
 # --- The introduction claims nothing about computation ------------------------
@@ -518,9 +545,9 @@ def test_the_recorded_sections_lede_makes_no_computation_claim(seeded):
         seeded,
         derived_artifact_envelope(
             DUPLICATE_LABEL_ID,
-            "v5.1",
-            logic_artifact("v5.1")["factors"],
-            event_id="evt-system-logic-artifact-v5.1-duplicate-label",
+            "v5.2",
+            current_logic_artifact_content()["factors"],
+            event_id="evt-system-logic-artifact-v5.2-duplicate-label",
         ),
     )
     no_selection = page(seeded)

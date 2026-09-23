@@ -22,7 +22,13 @@ from flight_recorder.attribution.policy import (
 from flight_recorder.attribution.service import build_envelope, run_attribution
 from flight_recorder.collector.canonical import canonical_hash, canonical_text
 from flight_recorder.collector.schema import LogicArtifact, format_utc
-from flight_recorder.fixtures import canonical_envelope_paths, load_json, logic_artifact_path
+from flight_recorder.fixtures import (
+    canonical_envelope_paths,
+    current_logic_artifact_path,
+    current_logic_registration_path,
+    load_json,
+    logic_artifact_path,
+)
 from flight_recorder.ledger.database import reset_database
 from flight_recorder.ledger.schema import (
     PROJECTION_TABLES,
@@ -513,6 +519,31 @@ def register_derived_artifact(harness: Harness, envelope: dict) -> str:
     response = harness.post(envelope)
     assert response.status_code == 201, (envelope["event_id"], response.json())
     return canonical_hash(envelope["payload"]["artifact"])
+
+
+def register_current_logic(harness: Harness) -> str:
+    """Register the selected demo overlay `v5.2` (D-017); returns its content hash.
+
+    The shipped envelope, through the same collector boundary the CLI's
+    `register-current-logic` uses. Call it *after* a fixture's existing seed
+    and never before one: `dataset/schedule.py` requires the ledger to be a
+    prefix of the schedule, so an overlay event inside that prefix makes a
+    later `seed-dataset` refuse with `ScheduleDiverged`.
+    """
+    envelope = load_json(current_logic_registration_path())
+    response = harness.post(envelope)
+    assert response.status_code == 201, (envelope["event_id"], response.json())
+    return canonical_hash(envelope["payload"]["artifact"])
+
+
+def current_logic_artifact_content() -> dict:
+    """The overlay `v5.2` artifact file as plain data."""
+    return load_json(current_logic_artifact_path())
+
+
+def v5_2_hash() -> str:
+    """The overlay `v5.2` artifact's content hash, derived, never typed."""
+    return canonical_hash(current_logic_artifact_content())
 
 
 def replay_under(harness: Harness, artifact_hash: str, decision_event_id: str = DECISION_EVENT_ID):

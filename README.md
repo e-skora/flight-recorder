@@ -135,9 +135,17 @@ counterfactual. Current logic may consume a historical signal the earlier logic 
 that is the interesting case — but it reads that signal from the preserved context, never
 from today's account state.
 
-The canonical scenario carries two fixture logic identities: `v3.2`, the logic that ran, and
-`v5.1`, the logic registered as current. `v5.1` adds a negative factor for low verified
-integration pressure — evidence that was available at the boundary and that `v3.2` ignored.
+The canonical scenario carries three fixture logic identities. `v3.2` is the logic that ran.
+`v5.1` was the demo's default replay logic and is preserved as a historical artifact: it adds
+a negative factor for low verified integration pressure, evidence that was available at the
+boundary and that `v3.2` ignored. `v5.2` is the demo default now: it replaces that negative
+factor with a positive one for high integration pressure, so it can produce either output.
+All three are immutable. Registering `v5.2` edited nothing and retired nothing, and `v5.1`
+stays selectable by its exact hash. Every weight in all three is a synthetic demonstration
+choice, not a business rule.
+
+`v5.2` lives in `fixtures/current/` rather than `fixtures/canonical/`, and is registered by
+its own command. The canonical nine envelopes are closed and unchanged.
 
 ### Canonical decision facts
 
@@ -162,12 +170,14 @@ inventing a percentage.
 ### The replay comparison, as the page renders it
 
 The canonical decision page computes this comparison on every request and records none of it.
+It uses the demo default, `v5.2`. Selecting the preserved `v5.1` by hash instead still gives
+counterfactual score `51` and delta `-35`, unchanged.
 
 | Field | Value |
 | --- | --- |
 | Original score | `86` |
-| Counterfactual score | `51` |
-| Score delta | `-35` |
+| Counterfactual score | `72` |
+| Score delta | `-14` |
 | Original threshold | `75` |
 | Counterfactual threshold | `75` |
 | Original output | `PRIORITIZE` |
@@ -344,14 +354,35 @@ From the repository root, on a clean checkout:
 uv sync
 uv run flight-recorder reset
 uv run flight-recorder seed-dataset
+uv run flight-recorder register-current-logic
 uv run flight-recorder serve
 ```
 
 Then open <http://127.0.0.1:8000/>.
 
-`seed-dataset` alone drives the whole demo path: it submits the canonical NovaSignal AI trace
-and the full synthetic dataset through the collector, and attributes the outcomes. The
+**Run those four in that order.** `seed-dataset` submits the canonical NovaSignal AI trace
+and the full synthetic dataset through the collector and attributes the outcomes;
+`register-current-logic` then adds the `v5.2` artifact the replay panel defaults to. The
 separate `seed` command builds only the canonical nine envelopes and is **not** the demo seed.
+
+**Why the order matters.** The dataset is submitted against a fixed schedule, and the
+collector refuses to load it into a ledger that already holds an event the schedule does not
+expect at that position. Registering `v5.2` first therefore makes the next `seed-dataset`
+stop with `ScheduleDiverged` and load nothing. Always seed the dataset first.
+
+A canonical-only demo is also possible:
+
+```
+uv run flight-recorder reset
+uv run flight-recorder seed
+uv run flight-recorder register-current-logic
+```
+
+That gives the nine canonical envelopes and the `v5.2` artifact, with no generated dataset:
+Insights is then populated by the one canonical recorded decision and nothing else.
+**That database cannot afterwards be extended with
+`seed-dataset`:** the overlay event already sits inside the schedule's prefix, so the load is
+refused. To get the full demo, run `reset` and start again from `seed-dataset`.
 
 **Mind the database path.** `--db` defaults to `$FLIGHT_RECORDER_DB` and falls back to
 `./flight_recorder.db` — and `reset` **deletes that file**. If `FLIGHT_RECORDER_DB` is already
@@ -371,14 +402,14 @@ optional and lives outside this repository.
 
 | Step | What you say | Destination | Expected visible cue |
 | --- | --- | --- | --- |
-| 1 | The account list: 241 synthetic accounts, with the canonical demo prospect pinned at the top. | `/` | `Canonical demo account: NovaSignal AI` |
-| 2 | Its whole trace: discovery, evidence, the decision, persona, outbound action, outcome, and its attribution. | `/accounts/novasignal-ai` | `Account trace for NovaSignal AI (8 events)` |
-| 3 | The decision scored 86 against threshold 75 and output `PRIORITIZE` under logic `v3.2`, identified by artifact hash, not by label. | `/accounts/novasignal-ai/decisions/evt-novasignal-04-decision-recorded` | `score 86 / threshold 75` |
-| 4 | The context preserved at the boundary, with provenance per input. Five consumed. Integration pressure available and ignored. One unavailable. | `/accounts/novasignal-ai/decisions/evt-novasignal-04-decision-recorded#evidence-context` | `available but ignored` |
+| 1 | The account list: 241 synthetic accounts, the canonical demo prospect pinned at the top. | `/` | `Canonical demo account: NovaSignal AI` |
+| 2 | Its trace: discovery, evidence, decision, persona, action, outcome, attribution. | `/accounts/novasignal-ai` | `Account trace for NovaSignal AI (8 events)` |
+| 3 | The decision scored 86 against threshold 75, output `PRIORITIZE` under `v3.2`, identified by artifact hash, not by label. | `/accounts/novasignal-ai/decisions/evt-novasignal-04-decision-recorded` | `score 86 / threshold 75` |
+| 4 | Context preserved at the boundary, provenance per input: five consumed, integration pressure available and ignored, one unavailable. | `/accounts/novasignal-ai/decisions/evt-novasignal-04-decision-recorded#evidence-context` | `available but ignored` |
 | 5 | Downstream: play `#14` to the Head of Platform, cost `$1.42`, a negative 90-day outcome, attributed `direct` under a named policy. | `/accounts/novasignal-ai/decisions/evt-novasignal-04-decision-recorded#outcome-evt-novasignal-07-outcome-evaluated` | `opportunity: no (recorded negative observation)` |
 | 6 | Across the dataset: funding barely moves the observed rate, integration pressure moves it a lot, `v4.2` sits below its cohort. Descriptive, not causal. | `/insights` | `38.9% observed (58 of 149 eligible decisions; n = 149)` |
-| 7 | Current logic `v5.1` is in effect, resolved by label to one registered artifact, then used by hash. | `/accounts/novasignal-ai/decisions/evt-novasignal-04-decision-recorded#current-logic-selector` | `In effect: logic version v5.1` |
-| 8 | The same preserved context under `v5.1`: 86 becomes 51, output flips to `DO_NOT_PRIORITIZE`. No present-day evidence entered; nothing stored. | `/accounts/novasignal-ai/decisions/evt-novasignal-04-decision-recorded#replay-comparison` | `output changed: yes` |
+| 7 | Current logic `v5.2` is in effect, resolved by label then used by hash. Preserved `v5.1` stays selectable; the page says its weights cannot reach its threshold. | `/accounts/novasignal-ai/decisions/evt-novasignal-04-decision-recorded#current-logic-selector` | `In effect: logic version v5.2` |
+| 8 | The same preserved context under `v5.2`: 86 becomes 72, output flips to `DO_NOT_PRIORITIZE`. No present-day evidence entered; nothing stored. | `/accounts/novasignal-ai/decisions/evt-novasignal-04-decision-recorded#replay-comparison` | `output changed: yes` |
 
 ### What Insights shows at that cutoff
 
@@ -396,12 +427,20 @@ recorded synthetic decisions, with sample size shown, and no cause or effect is 
 
 ### Screenshots
 
-Captured from the running application at commit `3e5123b3692fcd24cc7c62c359916a74ebac0f15`
-over a fresh `seed-dataset` ledger. Everything in them is synthetic.
+Everything in them is synthetic. They were not all captured at the same commit, and each is
+attributed to the code and the ledger that produced it.
+
+The trace and Insights images come from the running application at commit
+`3e5123b3692fcd24cc7c62c359916a74ebac0f15`, over a fresh `seed-dataset` ledger.
+
+The replay image was recaptured later and comes from the running application at commit
+`a7de7e7a7fe4bd98d56d6ec2038ac7b536d02815`, over a `seed-dataset` ledger with
+`register-current-logic` applied — the setup its `v5.2` comparison needs, and which the
+earlier commit could not have produced.
 
 ![The NovaSignal AI account trace: the synthetic-data disclosure banner above an eight-event trace, from discovery through the outcome attribution. Synthetic data.](docs/screenshots/trace.png)
 
-![The replay comparison on the canonical decision page: original score 86 and PRIORITIZE under v3.2, counterfactual score 51 and DO_NOT_PRIORITIZE under v5.1, a score delta of -35, and both thresholds at 75. Synthetic data; the counterfactual was computed on demand and not recorded.](docs/screenshots/decision-replay.png)
+![The replay comparison on the canonical decision page: original score 86 and PRIORITIZE under v3.2, counterfactual score 72 and DO_NOT_PRIORITIZE under v5.2, a score delta of -14, and both thresholds at 75. Synthetic data; the counterfactual was computed on demand and not recorded.](docs/screenshots/decision-replay.png)
 
 ![The Insights page: the how-to-read language block, the population counts at the ledger cutoff, and the observed 90-day opportunity rate with its sample size and exclusion counts. Synthetic data; the comparisons are descriptive, not causal.](docs/screenshots/insights.png)
 
@@ -426,18 +465,29 @@ over a fresh `seed-dataset` ledger. Everything in them is synthetic.
   seed, with three documented behaviors planted so the aggregate calculations can be checked
   against a manifest. They are demonstration checks, not market findings, and nothing here is
   evidence about real buyers.
-- **Under the fixture weights, `v5.1` prioritizes nothing.** Its positive factors sum to 72
-  against a threshold of 75, so no context reaches its threshold. That is a property of the
-  fixture logic, and Insights shows it as it is rather than hiding it — which is the honest
-  outcome, if a slightly deflating one.
+- **Under the fixture weights, `v5.1` prioritizes nothing, and the application says so.** Its
+  positive factors sum to 72 against a threshold of 75, so no context can reach that
+  threshold and a successful evaluation under it can only output `DO_NOT_PRIORITIZE`.
+  That is a stated historical property of a preserved artifact, not a defect and not
+  something the product hides: wherever `v5.1` is shown, the page reports the total, the
+  threshold and what they allow. `v5.1` was the demo default until `v5.2` replaced it; it was
+  never edited, and it is still selectable.
+
+  Read the reported figure as an upper bound rather than a proven maximum. It is the sum of
+  an artifact's positive weights, and the rule grammar accepts rules no value can satisfy, so
+  a weight can raise that sum without ever being reachable. The absence of the notice on some
+  other artifact is therefore not evidence that its threshold can be reached.
+
+  The weights in all three fixture artifacts are synthetic demonstration choices. They are
+  not business rules, and nothing in the synthetic Insights results validates them.
 
 ## What is not built
 
 Plain, user-visible limitations:
 
 - **No deployment and no hosted demo.** You run it locally or not at all.
-- **No rule editor in the product.** Both logic versions are fixtures registered through the
-  collector. Changing scoring logic means registering a new artifact, not editing a form.
+- **No rule editor in the product.** All three logic versions are fixtures registered through
+  the collector. Changing scoring logic means registering a new artifact, not editing a form.
 - **No authentication and no multi-tenancy.** The operating company is presentation context,
   not a tenant boundary. Anyone who can reach the port sees everything.
 - **No live vendor integrations.** Nothing talks to Apollo, Clay, Salesforce, HubSpot or a
