@@ -395,6 +395,42 @@ FLIGHT_RECORDER_DB=/tmp/flight-recorder-demo.db uv run flight-recorder reset
 
 passing the same variable, or `--db`, to every command in the sequence.
 
+## Public read-only mode
+
+The repository also contains a second way to serve the same pages: a public, read-only mode
+meant for a hosted demonstration. No hosted demo exists yet; this section describes what the
+mode does and how to run it locally the way a host would.
+
+It serves the account list, account traces, decision pages with replay computed on demand,
+Insights, the static files and a health check at `/healthz`. It refuses every request method
+other than `GET` and `HEAD` with `405`, opens its database read-only in SQLite as well, and
+registers no collector route and no API documentation. Every page carries a short notice that
+the demo is public, read-only and synthetic, and the account list opens with a short
+explanation and links to the canonical decision and its replay. The local application above
+is unchanged and keeps its writable collector.
+
+The public mode serves only a snapshot built by `build-demo-snapshot`. That command runs the
+same steps as the setup above (`reset`, `seed-dataset`, then `register-current-logic`)
+through the collector into a new file, refuses to overwrite a file that already exists, and
+never reads `--db` or `FLIGHT_RECORDER_DB`. It prints the snapshot's event count, its content
+identity (a SHA-256 over every stored row and the schema) and, labelled separately, the
+dataset's schedule digest. At startup the public mode checks for the canonical decision, the
+`v5.2` artifact's hash and the content identity pinned in the source, and refuses to start,
+with a named error, on any other database.
+
+To build a snapshot and serve it the way the host configuration does:
+
+```
+uv sync
+SNAP="$(mktemp -d)/demo.db"
+uv run flight-recorder build-demo-snapshot --out "$SNAP"
+FLIGHT_RECORDER_DEMO_DB="$SNAP" uv run uvicorn flight_recorder.public_demo:create_public_demo --factory --host 127.0.0.1 --port 8000 --workers 1
+```
+
+Then open <http://127.0.0.1:8000/>. The host's build step installs with
+`uv sync --locked --no-dev`, and its start command runs the same three lines on `0.0.0.0` at
+the host's `$PORT`, so every start rebuilds the same snapshot in a fresh temporary directory.
+
 ## The demo path
 
 Eight steps over the shipped seed. It is ready to record in 60 to 90 seconds; a recording is
@@ -451,9 +487,12 @@ earlier commit could not have produced.
   append-only guards, the atomic multi-table writes and the deterministic seed easy to state
   and easy to test. Timezone handling is explicit at the Pydantic boundary because SQLite has
   no timezone-aware type.
-- **No deployment and no hosted demo.** The setup above is the only way to run it. That keeps
-  the repository free of hosting configuration and write guards, and it means a reader has to
-  install something before they see it work.
+- **A read-only public mode, and no hosted demo yet.** The repository contains a separate
+  read-only public mode and host configuration for one small service (`render.yaml`), but
+  nothing is deployed: the setup above is the only way to run it today, and a reader has to
+  install something before they see it work. The public mode leaves the collector out
+  entirely rather than guarding it, so a hosted copy could show replay and Insights with no
+  write path at all, at the cost of a second application factory to keep correct.
 - **Counterfactuals are never persisted.** Recomputing on every page load costs a
   reconstruction plus an evaluation per request. In exchange, there is no schema in which a
   counterfactual could be mistaken for something that occurred.
