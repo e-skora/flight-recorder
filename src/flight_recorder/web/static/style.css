@@ -87,3 +87,39 @@ input[type="search"]:focus-visible { outline: 3px solid var(--focus); outline-of
 .signal-detail { border: 1px solid var(--line); padding: .5rem .9rem; margin: 1rem 0; }
 .signal-detail h3 { margin: .25rem 0; }
 .diagnostic { font-family: ui-monospace, monospace; word-break: break-word; }
+
+/* --- Public demo and readable layouts. Appended; no rule above is changed. -- */
+/* The notice and start block render only in the public read-only demo. */
+.public-demo-notice { margin: 0; padding: .6rem 1.5rem; background: #eaf1fb; border-bottom: 1px solid var(--focus); color: var(--ink); }
+.start-here { border: 2px solid var(--focus); padding: .5rem 1rem; margin: .75rem 0 1.5rem; max-width: 48rem; }
+.start-here h2 { margin: .25rem 0 .5rem; }
+.start-here p { margin: .4rem 0; }
+.start-links { padding-left: 1.25rem; margin: .5rem 0; }
+.start-links li { margin: .3rem 0; }
+.start-links a { font-weight: 700; }
+/* A wide table scrolls inside its own container, never the whole page. The
+   container carries no tabindex (the pages pin a single one, on <main>); a
+   browser that makes scrollable containers keyboard-focusable reaches it. */
+.table-scroll { overflow-x: auto; max-width: 100%; }
+.table-scroll:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+/* Keep every signal state readable within the 1280-pixel demo viewport. */
+#signals-table { table-layout: fixed; font-size: .875rem; }
+#signals-table th, #signals-table td { padding: .4rem .35rem; overflow-wrap: anywhere; }
+#signals-table th .state-word { font-family: inherit; }
+#signals-table thead th { overflow-wrap: normal; }
+#signals-table th:first-child { width: 12%; }
+#signals-table th:nth-child(2) { width: 18%; }
+#signals-table th:nth-child(3) { width: 10%; }
+#signals-table th:nth-child(8) { width: 10%; }
+/* Narrow screens: one column for label and value lists, and a table keeps a
+   readable minimum width inside its scrolling container. */
+@media (max-width: 40rem) {
+  main { padding: 1rem 1rem 3rem; }
+  .context-header { flex-wrap: wrap; gap: .25rem 1rem; padding: .75rem 1rem; }
+  .synthetic-banner, .public-demo-notice, .site-nav { padding-left: 1rem; padding-right: 1rem; }
+  dl.fields { grid-template-columns: minmax(0, 1fr); }
+  dl.fields dd { margin-bottom: .4rem; overflow-wrap: anywhere; }
+  .outcome-detail > dl.fields > dt, .outcome-detail > dl.fields > dd { grid-column: 1; }
+  #signals-table { min-width: 48rem; }
+  #current-logic-selector select { max-width: 100%; }
+}

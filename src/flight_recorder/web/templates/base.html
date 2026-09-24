@@ -17,6 +17,14 @@
     decisions, and outcomes shown here are simulated. RelayBridge and NovaSignal AI are fictional.
     Nothing on this page is connected to a live customer system.
   </aside>
+  {%- if request.app.state.public_demo %}
+  <aside id="public-demo-notice" class="public-demo-notice" role="note" aria-label="Public demo notice">
+    <strong>Public read-only demo.</strong> All data here is synthetic. Replays are computed on demand
+    under each decision's preserved context and are never stored, and nothing you send can change the data.
+    The writable collector runs locally from the
+    <a href="{{ request.app.state.source_repository_url }}">source repository</a>.
+  </aside>
+  {%- endif %}
   <nav class="site-nav" aria-label="Site"><a href="/">Accounts</a> <a href="/insights">Insights</a></nav>
   <main id="main" tabindex="-1">
     {% block content %}{% endblock %}

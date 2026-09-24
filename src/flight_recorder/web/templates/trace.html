@@ -4,6 +4,7 @@
 <nav aria-label="Breadcrumb"><a href="/">Accounts</a> › {{ account.name }}</nav>
 <h1>{{ account.name }} <span class="domain">{{ account.domain }}</span></h1>
 <p class="lede">Every recorded event for this account, in order of occurrence. Same-instant events keep their ingest order.</p>
+<div class="table-scroll" role="region" aria-label="Account trace table">
 <table class="trace">
   <caption>Account trace for {{ account.name }} ({{ rows | length }} events)</caption>
   <thead>
@@ -29,4 +30,5 @@
     {% endfor %}
   </tbody>
 </table>
+</div>
 {% endblock %}

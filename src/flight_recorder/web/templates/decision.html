@@ -36,6 +36,7 @@
 <section id="ruleset">
   <h2>Declarative ruleset as recorded</h2>
   {% if ruleset.available %}
+  <div class="table-scroll" role="region" aria-label="Declarative ruleset table">
   <table id="ruleset-table" class="grid">
     <caption>The immutable declarative ruleset of {{ decision.logic_version }}, exactly as it was recorded. It is never edited in place.</caption>
     <thead><tr><th scope="col">Factor</th><th scope="col">Rule</th><th scope="col">Weight</th></tr></thead>
@@ -45,6 +46,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
   <dl class="fields">
     <dt>Threshold</dt><dd>{{ ruleset.threshold }}</dd>
     <dt>Output at or above threshold</dt><dd>{{ ruleset.at_or_above_threshold }}</dd>
@@ -64,6 +66,7 @@
 
 <section id="evidence-context">
   <h2>Preserved historical context</h2>
+  <div class="table-scroll" role="region" aria-label="Preserved context table">
   <table id="context-table" class="grid">
     <caption>The values and availability states preserved at the decision boundary. Evidence recorded after that boundary is not part of them and is not shown here.</caption>
     <thead>
@@ -93,6 +96,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
   <p>Each state is a recorded fact: <strong>consumed</strong> means the historical logic referenced the input, <strong>available but ignored</strong> means it was present and no factor referenced it, <strong>unavailable</strong> means it was explicitly recorded as unavailable at the boundary, and <strong>absent</strong> means the historical logic references a key the preserved context has no entry for. A consumed input whose rule did not match contributes 0; every other state reads <em>not consumed</em> rather than 0.</p>
   {% if context_note %}<p class="unavailable-state">{{ context_note }}</p>{% endif %}
 </section>
@@ -110,6 +114,7 @@
 <section id="actions">
   <h2>Downstream action</h2>
   {% if action_rows %}
+  <div class="table-scroll" role="region" aria-label="Downstream action table">
   <table id="actions-table" class="grid">
     <caption>The recorded outbound action for this decision, with its recorded synthetic cost.</caption>
     <thead>
@@ -135,6 +140,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
   <p>The action names this decision as its recorded reference, and the collector required that decision to exist before accepting the action.</p>
   {% else %}
   <p>No action recorded for this decision.</p>
@@ -152,6 +158,7 @@
   <h2>Recorded account outcomes</h2>
   <p class="lede">These are outcomes recorded for this account. The attribution column shows, for each recorded outcome version, whether a policy-based link to a decision has been evaluated and what that evaluation recorded.{% if outcome_rows %} Details for each outcome version follow the table in the same order.{% endif %}</p>
   {% if outcome_rows %}
+  <div class="table-scroll" role="region" aria-label="Outcomes table">
   <table id="outcomes-table" class="grid">
     <caption>Every outcome recorded for {{ account.name }}, with its evaluation window and the observations recorded inside it.</caption>
     <thead>
@@ -214,6 +221,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
 
   {% for row in outcome_rows %}
   {% set result = row.attribution %}
@@ -422,6 +430,7 @@
     </dl>
     <p id="output-changed">output changed: {{ "yes" if comparison.output_changed else "no" }}</p>
 
+    <div class="table-scroll" role="region" aria-label="Replay contributions table">
     <table id="contributions-table" class="grid">
       <caption>Every input key either artifact references, and how each side treated it.</caption>
       <thead>
@@ -451,7 +460,9 @@
         {% endfor %}
       </tbody>
     </table>
+    </div>
 
+    <div class="table-scroll" role="region" aria-label="Missing inputs table">
     <table id="missing-inputs-table" class="grid">
       <caption>Inputs the selected current logic expects that the preserved context does not supply.</caption>
       <thead>
@@ -467,6 +478,7 @@
         {% endif %}
       </tbody>
     </table>
+    </div>
 
     <div id="ignored-lists">
       <p><span class="list-label">Available in the preserved context but not referenced by the {{ original_label }} logic:</span>
@@ -480,6 +492,7 @@
     <h3>Replay could not be established: {{ failure.class_name }}</h3>
     <p>{{ failure.summary }}</p>
     {% if failure.origin %}<p class="failure-origin">{{ failure.origin }}</p>{% endif %}
+    <div class="table-scroll" role="region" aria-label="Failure fields table">
     <table id="failure-fields-table" class="grid">
       <caption>What the failure {{ failure.class_name }} reports, under its own field names.</caption>
       <thead><tr><th scope="col">Field</th><th scope="col">Value</th></tr></thead>
@@ -492,6 +505,7 @@
         {% endfor %}
       </tbody>
     </table>
+    </div>
     <p class="failure-message">{{ failure.message }}</p>
     <p>No comparison and no counterfactual result is shown, and no other artifact, cached value, or partial result stands in for one.</p>
   </div>
