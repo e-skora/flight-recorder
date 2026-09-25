@@ -29,6 +29,12 @@ artifact is labelled `v5.2` and carries its pinned hash, and the snapshot's
 content identity equals `PINNED_CONTENT_IDENTITY`. Each failure is a named
 `SnapshotRefused` subclass. Admission only reads.
 
+**Insights once.** After admission, the Insights page model is computed once
+over the same read-only engine and kept on the app's state; `/insights`
+renders it. The snapshot cannot change while the process runs, so every
+request would compute the same model. Replay on the decision page is still
+computed on every request. The local app never provides a stored model.
+
 **Two identities, never conflated.** The *content identity* defined here is a
 SHA-256 over every row and column of the eleven domain tables, SQLite's
 `sqlite_sequence`, and the schema recorded in `sqlite_master`; it is what
@@ -54,6 +60,7 @@ from sqlalchemy.exc import DatabaseError
 
 from flight_recorder.app import STATIC_DIR
 from flight_recorder.ledger.database import make_engine
+from flight_recorder.web import routes as web_routes
 from flight_recorder.web.routes import router as web_router
 
 #: The only place the public snapshot path comes from, apart from an explicit
@@ -384,6 +391,11 @@ class CurrentLogicMismatch(SnapshotRefused):
         )
 
 
+class InsightsModelFailed(SnapshotRefused):
+    def __init__(self, detail: str):
+        super().__init__(f"the Insights page model could not be computed at startup: {detail}")
+
+
 class ContentIdentityMismatch(SnapshotRefused):
     """The snapshot's content is not the pinned release snapshot's content."""
 
@@ -489,6 +501,22 @@ def admit(conn: Connection, path: Path) -> str:
     return identity
 
 
+def _startup_insights_page(conn: Connection):
+    """The Insights page model, computed once over the admitted snapshot.
+
+    The snapshot is read-only and its full content is pinned by admission, so
+    the ledger maximum and every metric are the same on every request; the
+    route renders this stored model instead of recomputing it. The call goes
+    through the route module's own `load_insights_page`, the one name both call
+    sites share. The model is frozen and holds no connection. A failure here
+    refuses startup with a named error rather than serving a broken page.
+    """
+    try:
+        return web_routes.load_insights_page(conn)
+    except Exception as error:
+        raise InsightsModelFailed(f"{type(error).__name__}: {error}") from error
+
+
 # --- The method guard -----------------------------------------------------------------
 
 
@@ -538,6 +566,7 @@ def create_public_demo(snapshot_path: Path | str | None = None) -> FastAPI:
                     "aggregates; not the admission identity"
                 ),
             }
+            insights_page = _startup_insights_page(conn)
     except BaseException:
         engine.dispose()
         raise
@@ -559,6 +588,7 @@ def create_public_demo(snapshot_path: Path | str | None = None) -> FastAPI:
     app.state.engine = engine
     app.state.public_demo = True
     app.state.source_repository_url = SOURCE_REPOSITORY_URL
+    app.state.public_insights_page = insights_page
 
     def healthz() -> JSONResponse:
         return JSONResponse(health)
