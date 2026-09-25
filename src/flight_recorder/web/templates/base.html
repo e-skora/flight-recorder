@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en"{% if request.app.state.public_demo %} class="public-demo"{% endif %}>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -10,6 +10,9 @@
   <a class="skip-link" href="#main">Skip to main content</a>
   <header class="context-header">
     <p class="product">GTM Flight Recorder</p>
+    {%- if request.app.state.public_demo %}
+    <p class="public-badge">Public demo · read-only</p>
+    {%- endif %}
     <p class="operating-company">Operating company: <strong>{{ operating_company }}</strong> (fictional)</p>
   </header>
   <aside class="synthetic-banner" role="note" aria-label="Synthetic data disclosure">
@@ -24,8 +27,11 @@
     The writable collector runs locally from the
     <a href="{{ request.app.state.source_repository_url }}">source repository</a>.
   </aside>
-  {%- endif %}
+  {%- set path = request.url.path %}
+  <nav class="site-nav" aria-label="Site"><a href="/"{% if path == "/" %} aria-current="page"{% endif %}{% if path == "/" or path.startswith("/accounts/") %} class="is-current"{% endif %}>Accounts</a> <a href="/insights"{% if path == "/insights" %} aria-current="page" class="is-current"{% endif %}>Insights</a> <a class="site-nav-source" href="{{ request.app.state.source_repository_url }}">Source code</a></nav>
+  {%- else %}
   <nav class="site-nav" aria-label="Site"><a href="/">Accounts</a> <a href="/insights">Insights</a></nav>
+  {%- endif %}
   <main id="main" tabindex="-1">
     {% block content %}{% endblock %}
   </main>

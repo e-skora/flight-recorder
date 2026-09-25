@@ -98,8 +98,8 @@ input[type="search"]:focus-visible { outline: 3px solid var(--focus); outline-of
 .start-links li { margin: .3rem 0; }
 .start-links a { font-weight: 700; }
 /* A wide table scrolls inside its own container, never the whole page. The
-   container carries no tabindex (the pages pin a single one, on <main>); a
-   browser that makes scrollable containers keyboard-focusable reaches it. */
+   container is a named region with tabindex="0", so the keyboard can reach it
+   and scroll it with the arrow keys; its focus ring is always visible. */
 .table-scroll { overflow-x: auto; max-width: 100%; }
 .table-scroll:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 /* Keep every signal state readable within the 1280-pixel demo viewport. */
@@ -122,4 +122,162 @@ input[type="search"]:focus-visible { outline: 3px solid var(--focus); outline-of
   .outcome-detail > dl.fields > dt, .outcome-detail > dl.fields > dd { grid-column: 1; }
   #signals-table { min-width: 48rem; }
   #current-logic-selector select { max-width: 100%; }
+}
+
+/* --- Public demo theme (flight-recorder.app). Appended; no rule above is
+   changed. Every selector below is scoped to html.public-demo, which only the
+   public read-only app sets, so local pages keep their existing look. --- */
+html.public-demo {
+  /* Palette: lime signature, deep charcoal, warm off-white, white data panels. */
+  --pd-lime: #a3e635;          /* signature: primary actions, selection, highlights */
+  --pd-lime-hover: #bef264;
+  --pd-lime-tint: #f3fbe2;     /* quiet highlight behind selected or key content */
+  --pd-lime-deep: #3f6212;     /* lime family for text and links on light surfaces */
+  --pd-charcoal: #1b1f24;      /* header, body text, dark text on lime */
+  --pd-charcoal-2: #2a3038;
+  --pd-offwhite: #f6f4ee;      /* page background */
+  --pd-sand: #efe9d8;          /* synthetic-data disclosure */
+  --pd-surface: #ffffff;       /* panels and tables */
+  --pd-surface-2: #faf9f5;     /* table headers, secondary panels */
+  --pd-line: #dedad0;
+  --pd-line-strong: #c8c2b3;
+  --pd-muted: #4d5560;         /* secondary text: 7.4:1 on white */
+  /* Shape, spacing and type. */
+  --pd-radius: 12px;
+  --pd-radius-sm: 8px;
+  --pd-space-1: .25rem; --pd-space-2: .5rem; --pd-space-3: .75rem;
+  --pd-space-4: 1rem; --pd-space-5: 1.5rem; --pd-space-6: 2rem; --pd-space-7: 3rem;
+  --pd-shadow: 0 1px 2px rgba(27, 31, 36, .06), 0 2px 8px rgba(27, 31, 36, .05);
+  --pd-font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --pd-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --ink: var(--pd-charcoal); --muted: var(--pd-muted); --line: var(--pd-line);
+  --paper: var(--pd-surface); --focus: var(--pd-charcoal);
+  background: var(--pd-offwhite);
+}
+html.public-demo body { background: var(--pd-offwhite); color: var(--pd-charcoal); font-family: var(--pd-font); line-height: 1.55; }
+html.public-demo code, html.public-demo .kind, html.public-demo time,
+html.public-demo .state-word, html.public-demo .change-word { font-family: var(--pd-mono); }
+html.public-demo code { overflow-wrap: anywhere; }
+html.public-demo a { color: var(--pd-lime-deep); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+html.public-demo a:hover { color: var(--pd-charcoal); text-decoration-thickness: 2px; }
+/* Focus: a charcoal ring with a lime halo reads on white, off-white and lime alike. */
+html.public-demo :focus-visible { outline: 3px solid var(--pd-charcoal); outline-offset: 2px; box-shadow: 0 0 0 6px var(--pd-lime); border-radius: 4px; }
+html.public-demo .skip-link:focus { background: var(--pd-lime); color: var(--pd-charcoal); font-weight: 700; border-radius: var(--pd-radius-sm); z-index: 10; }
+
+/* Header, disclosures and navigation. */
+html.public-demo .context-header { background: var(--pd-charcoal); color: #f4f4f1; border-bottom: 0; gap: var(--pd-space-4) var(--pd-space-5); padding: var(--pd-space-4) var(--pd-space-6); flex-wrap: wrap; align-items: center; }
+html.public-demo .product { font-size: 1.1rem; letter-spacing: .01em; display: flex; align-items: center; gap: .6rem; }
+html.public-demo .product::before { content: ""; width: .8rem; height: .8rem; border-radius: 3px; background: var(--pd-lime); box-shadow: 0 0 0 3px rgba(163, 230, 53, .25); }
+html.public-demo .public-badge { margin: 0; padding: .15rem .6rem; border: 1px solid var(--pd-lime); border-radius: 999px; color: var(--pd-lime); font-size: .8rem; font-weight: 600; }
+html.public-demo .operating-company { margin-left: auto; color: #c9ccd1; font-size: .92rem; }
+html.public-demo .operating-company strong { color: #ffffff; }
+html.public-demo .synthetic-banner { background: var(--pd-sand); border-bottom: 1px solid var(--pd-line-strong); padding: .45rem var(--pd-space-6); font-size: .88rem; line-height: 1.45; }
+html.public-demo .public-demo-notice { background: var(--pd-surface); border-bottom: 1px solid var(--pd-line); border-left: 6px solid var(--pd-lime); padding: .45rem var(--pd-space-6); font-size: .88rem; line-height: 1.45; }
+html.public-demo .site-nav { background: var(--pd-surface); border-bottom: 1px solid var(--pd-line); padding: 0 var(--pd-space-6); gap: var(--pd-space-2); align-items: stretch; }
+html.public-demo .site-nav a { color: var(--pd-charcoal); text-decoration: none; font-weight: 600; padding: .8rem .85rem; border-bottom: 3px solid transparent; }
+html.public-demo .site-nav a:hover { border-bottom-color: var(--pd-line-strong); }
+html.public-demo .site-nav a.is-current { border-bottom-color: var(--pd-lime); }
+html.public-demo .site-nav .site-nav-source { margin-left: auto; color: var(--pd-muted); font-weight: 500; }
+
+/* Page body: headings, breadcrumbs, panels. */
+html.public-demo main { max-width: 76rem; margin: 0 auto; padding: var(--pd-space-6) var(--pd-space-6) var(--pd-space-7); }
+html.public-demo h1 { font-size: 2rem; line-height: 1.2; letter-spacing: -.01em; margin: var(--pd-space-2) 0 var(--pd-space-4); }
+html.public-demo h2 { font-size: 1.3rem; line-height: 1.3; margin: 0 0 var(--pd-space-2); }
+html.public-demo h3 { font-size: 1.05rem; }
+html.public-demo .lede { color: var(--pd-muted); font-size: 1.02rem; max-width: 60rem; }
+html.public-demo nav[aria-label="Breadcrumb"] { font-size: .9rem; color: var(--pd-muted); margin-bottom: var(--pd-space-2); }
+html.public-demo main > section, html.public-demo .signal-detail, html.public-demo .account-list {
+  background: var(--pd-surface); border: 1px solid var(--pd-line); border-radius: var(--pd-radius);
+  box-shadow: var(--pd-shadow); padding: var(--pd-space-5) var(--pd-space-5); margin: 0 0 var(--pd-space-5);
+}
+html.public-demo .signal-detail { box-shadow: none; background: var(--pd-surface-2); }
+html.public-demo dl.fields { gap: .35rem 1.25rem; }
+html.public-demo dl.fields dt { color: var(--pd-muted); }
+html.public-demo dl.fields dd { font-weight: 500; }
+
+/* Tables: white data surfaces with a quiet header row. */
+html.public-demo .table-scroll { border: 1px solid var(--pd-line); border-radius: var(--pd-radius-sm); margin: var(--pd-space-3) 0; background: var(--pd-surface); }
+html.public-demo table.grid, html.public-demo table.trace { margin: 0; background: var(--pd-surface); }
+html.public-demo table.grid caption, html.public-demo table.trace caption { padding: var(--pd-space-3) var(--pd-space-4); font-size: .9rem; caption-side: top; }
+html.public-demo table.grid th, html.public-demo table.trace th { background: var(--pd-surface-2); font-size: .85rem; font-weight: 600; color: var(--pd-charcoal-2); border-bottom: 1px solid var(--pd-line-strong); }
+html.public-demo table.grid td, html.public-demo table.trace td, html.public-demo table.grid th, html.public-demo table.trace th { padding: .6rem .75rem; }
+html.public-demo table.grid tbody tr:last-child td, html.public-demo table.trace tbody tr:last-child td { border-bottom: 0; }
+html.public-demo tbody tr:hover td { background: #fcfcf8; }
+/* Identifiers and instants in tables: slightly smaller, and an instant in the
+   trace never breaks mid-value. A caption stays at the visible left edge while its table
+   scrolls sideways, so it is always readable in full. */
+html.public-demo table code, html.public-demo table time { font-size: .84em; }
+html.public-demo table.trace time { white-space: nowrap; }
+html.public-demo .table-scroll caption { position: sticky; left: 0; max-width: calc(100vw - 4.25rem); box-sizing: border-box; }
+
+/* Controls: lime primary actions with dark text; consistent inputs. */
+html.public-demo button, html.public-demo .button {
+  display: inline-flex; align-items: center; justify-content: center; gap: .4rem;
+  font: inherit; font-weight: 700; line-height: 1.2; text-decoration: none; box-sizing: border-box; min-height: 2.75rem;
+  padding: .65rem 1.1rem; border-radius: var(--pd-radius-sm); border: 1px solid var(--pd-charcoal);
+  background: var(--pd-lime); color: var(--pd-charcoal); cursor: pointer;
+}
+html.public-demo button:hover, html.public-demo .button-primary:hover { background: var(--pd-lime-hover); color: var(--pd-charcoal); }
+html.public-demo .button-secondary { background: var(--pd-surface); }
+html.public-demo .button-secondary:hover { background: var(--pd-lime-tint); color: var(--pd-charcoal); }
+html.public-demo select, html.public-demo input[type="search"] {
+  font: inherit; padding: .6rem .75rem; border: 1px solid var(--pd-line-strong);
+  border-radius: var(--pd-radius-sm); background: var(--pd-surface); color: var(--pd-charcoal); min-height: 2.75rem; box-sizing: border-box;
+}
+
+/* The account list: the start block, then a scannable panel of accounts. */
+html.public-demo .start-here { max-width: none; border: 1px solid var(--pd-line); border-top: 6px solid var(--pd-lime); padding: var(--pd-space-6); }
+html.public-demo .start-eyebrow { margin: 0 0 var(--pd-space-2); font-size: .85rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--pd-lime-deep); }
+html.public-demo .start-here h2 { font-size: 1.6rem; max-width: 44rem; margin-bottom: var(--pd-space-3); }
+html.public-demo .start-here p { max-width: 50rem; }
+html.public-demo .start-links { list-style: none; padding: 0; margin: var(--pd-space-5) 0 var(--pd-space-4); display: flex; flex-wrap: wrap; gap: var(--pd-space-3); align-items: center; }
+html.public-demo .start-links li { margin: 0; }
+html.public-demo .start-source { font-weight: 600; margin-left: var(--pd-space-2); }
+html.public-demo .start-steps { margin: var(--pd-space-4) 0 0; padding: var(--pd-space-4) 0 0 1.4rem; border-top: 1px solid var(--pd-line); display: grid; gap: var(--pd-space-2); color: var(--pd-charcoal-2); }
+html.public-demo .start-steps li::marker { font-weight: 700; color: var(--pd-lime-deep); }
+html.public-demo #canonical-account { font-weight: 600; }
+html.public-demo #account-filter { margin: var(--pd-space-4) 0 var(--pd-space-2); gap: var(--pd-space-3); }
+html.public-demo #account-count { color: var(--pd-muted); }
+html.public-demo .account-list { list-style: none; padding: var(--pd-space-4) var(--pd-space-5); columns: 3 16rem; column-gap: var(--pd-space-6); }
+html.public-demo .account-list li { break-inside: avoid; padding: .35rem 0; border-bottom: 1px solid #efece4; }
+html.public-demo .account-list a { font-weight: 600; text-decoration: none; }
+html.public-demo .account-list a:hover { text-decoration: underline; }
+
+/* Decision and replay: the counterfactual stays labelled in words; its frame is
+   dashed charcoal, never a "positive" lime. */
+html.public-demo .counterfactual-warning { border: 2px dashed var(--pd-charcoal); border-radius: var(--pd-radius-sm); background: var(--pd-surface-2); padding: var(--pd-space-3) var(--pd-space-4); }
+html.public-demo #current-logic-selector { background: var(--pd-lime-tint); border: 1px solid #d6ecae; border-radius: var(--pd-radius-sm); padding: var(--pd-space-3) var(--pd-space-4); margin: var(--pd-space-4) 0; }
+html.public-demo #current-logic-selector form { gap: var(--pd-space-3); }
+html.public-demo #replay-comparison { scroll-margin-top: var(--pd-space-4); border-top: 1px solid var(--pd-line); padding-top: var(--pd-space-4); margin-top: var(--pd-space-4); }
+html.public-demo #replay-comparison dl.fields dd { font-variant-numeric: tabular-nums; }
+html.public-demo #original-score, html.public-demo #counterfactual-score, html.public-demo #score-delta { font-size: 1.15rem; font-weight: 700; }
+html.public-demo .confidence, html.public-demo .positive-weight-bound, html.public-demo blockquote { border-left-color: var(--pd-line-strong); }
+html.public-demo #replay-integrity-failure { border-radius: var(--pd-radius-sm); background: #fff6f4; }
+html.public-demo .unavailable-state, html.public-demo #replay-no-selection { border-radius: var(--pd-radius-sm); }
+
+/* Motion only where it helps orientation, and never when reduced motion is asked. */
+@media (prefers-reduced-motion: no-preference) {
+  html.public-demo { scroll-behavior: smooth; }
+  html.public-demo button, html.public-demo .button, html.public-demo .site-nav a { transition: background-color .15s ease, border-color .15s ease, color .15s ease; }
+}
+
+/* Narrow screens. */
+@media (max-width: 40rem) {
+  html.public-demo .context-header { padding: var(--pd-space-3) var(--pd-space-4); }
+  html.public-demo .operating-company { margin-left: 0; width: 100%; }
+  html.public-demo .synthetic-banner, html.public-demo .public-demo-notice { padding: .4rem var(--pd-space-4); font-size: .82rem; }
+  html.public-demo .context-header { gap: var(--pd-space-2) var(--pd-space-3); }
+  html.public-demo .operating-company { font-size: .85rem; }
+  html.public-demo .table-scroll table code { white-space: nowrap; }
+  html.public-demo .site-nav { padding: 0 var(--pd-space-3); gap: 0; }
+  html.public-demo .site-nav a { padding: .75rem .6rem; }
+  html.public-demo main { padding: var(--pd-space-4) var(--pd-space-4) var(--pd-space-7); }
+  html.public-demo h1 { font-size: 1.55rem; }
+  html.public-demo main > section, html.public-demo .signal-detail { padding: var(--pd-space-4); }
+  html.public-demo .start-here { padding: var(--pd-space-5) var(--pd-space-4); }
+  html.public-demo .start-here h2 { font-size: 1.3rem; }
+  html.public-demo .start-links { flex-direction: column; align-items: stretch; }
+  html.public-demo .start-links .button { width: 100%; }
+  html.public-demo .start-source { margin-left: 0; }
+  html.public-demo #current-logic-selector select, html.public-demo #current-logic-selector button { width: 100%; }
 }

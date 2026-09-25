@@ -4,17 +4,23 @@
 <h1>Accounts</h1>
 {%- if request.app.state.public_demo %}
 <section id="start-here" class="start-here" aria-labelledby="start-here-heading">
-  <h2 id="start-here-heading">Start here</h2>
+  <p class="start-eyebrow">Public read-only demo · synthetic data</p>
+  <h2 id="start-here-heading">See why an automated decision was made, and what newer logic would change</h2>
   <p>Flight Recorder keeps a record of automated account-prioritization decisions: the evidence each
   decision could see, the exact logic it ran, its score, and what was observed afterwards.</p>
   <p>Replay recomputes a past decision from that preserved record, under its own logic or a newer
   version, so you can check why it was made and what a change in logic would have changed, without
   today's data rewriting the past. Every account here is synthetic.</p>
   <ul class="start-links">
-    <li><a id="start-canonical-decision" href="/accounts/novasignal-ai/decisions/evt-novasignal-04-decision-recorded">Open the NovaSignal AI decision</a></li>
-    <li><a id="start-replay-comparison" href="/accounts/novasignal-ai/decisions/evt-novasignal-04-decision-recorded#replay-comparison">Go straight to its replay comparison</a></li>
-    <li><a id="start-source" href="{{ request.app.state.source_repository_url }}">Read the source code</a></li>
+    <li><a id="start-canonical-decision" href="/accounts/novasignal-ai/decisions/evt-novasignal-04-decision-recorded" class="button button-primary">Open the NovaSignal AI decision</a></li>
+    <li><a id="start-replay-comparison" href="/accounts/novasignal-ai/decisions/evt-novasignal-04-decision-recorded#replay-comparison" class="button button-secondary">Go straight to its replay comparison</a></li>
+    <li><a id="start-source" href="{{ request.app.state.source_repository_url }}" class="start-source">Read the source code</a></li>
   </ul>
+  <ol class="start-steps">
+    <li><strong>The decision.</strong> Its preserved evidence, the logic it ran, its score and its recorded outcome.</li>
+    <li><strong>The replay.</strong> The same preserved context under another logic version, computed on demand and never stored.</li>
+    <li><strong>Insights.</strong> Observed rates across {{ total }} synthetic accounts, with every denominator shown.</li>
+  </ol>
 </section>
 {%- endif %}
 <p>Select an account to open its trace inside the {{ operating_company }} context.</p>
