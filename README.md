@@ -416,7 +416,10 @@ never reads `--db` or `FLIGHT_RECORDER_DB`. It prints the snapshot's event count
 identity (a SHA-256 over every stored row and the schema) and, labelled separately, the
 dataset's schedule digest. At startup the public mode checks for the canonical decision, the
 `v5.2` artifact's hash and the content identity pinned in the source, and refuses to start,
-with a named error, on any other database.
+with a named error, on any other database. Because that database cannot change while the
+server runs, the public mode computes the Insights page once at startup and serves that
+result; replay on the decision page is still computed on every request. The local application
+computes Insights on every request, as before.
 
 To build a snapshot and serve it the way the host configuration does:
 
