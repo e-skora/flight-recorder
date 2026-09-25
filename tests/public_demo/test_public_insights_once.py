@@ -123,7 +123,6 @@ def test_public_insights_is_computed_exactly_once_before_the_first_request(spy, 
 def test_the_local_app_computes_per_request_and_shows_a_new_event(spy, snapshot, tmp_path):
     local_db = owned_copy(snapshot, tmp_path, "local.db")
     app = create_app(local_db)
-    assert not hasattr(app.state, "public_insights_page")
     with TestClient(app) as client:
         first = client.get("/insights").text
         assert spy.calls == 1
@@ -140,6 +139,7 @@ def test_the_local_app_computes_per_request_and_shows_a_new_event(spy, snapshot,
         assert spy.calls == 4
     assert visible(element(first, "insights-cutoff")) == "1597"
     assert visible(element(after, "insights-cutoff")) == "1598"
+    assert not hasattr(app.state, "public_insights_page")
 
 
 # --- (d) a failure refuses startup ----------------------------------------------------
