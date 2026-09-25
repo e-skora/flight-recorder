@@ -101,6 +101,11 @@ input[type="search"]:focus-visible { outline: 3px solid var(--focus); outline-of
    container is a named region with tabindex="0", so the keyboard can reach it
    and scroll it with the arrow keys; its focus ring is always visible. */
 .table-scroll { overflow-x: auto; max-width: 100%; }
+/* A scrolling container stops its table's margin from merging with the
+   paragraph above, so the wrapper carries that margin instead: the page's
+   spacing stays exactly as it was before the wrapper. */
+.table-scroll:has(> table.grid) { margin: .5rem 0; }
+.table-scroll > table.grid { margin: 0; }
 .table-scroll:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 /* Keep every signal state readable within the 1280-pixel demo viewport. */
 #signals-table { table-layout: fixed; font-size: .875rem; }
