@@ -621,7 +621,15 @@ def test_the_page_is_keyboard_usable_and_states_are_text(seeded):
     assert "onclick" not in html
     assert 'role="button"' not in html
     assert "<script" not in html
-    assert html.count('tabindex="') == 1
+    # Keyboard targets: the main skip target plus one named, focusable region
+    # per horizontally scrolling table, and no positive tabindex anywhere.
+    scroll_regions = re.findall(r'<div class="table-scroll"[^>]*>', html)
+    assert scroll_regions
+    for region_tag in scroll_regions:
+        assert 'role="region"' in region_tag and 'tabindex="0"' in region_tag, region_tag
+        assert re.search(r'aria-label="[^"]+"', region_tag), region_tag
+    assert html.count('tabindex="') == 1 + len(scroll_regions)
+    assert not re.search(r'tabindex="[1-9]', html)
     assert 'tabindex="-1"' in html
 
     assert html.count("<table") == html.count("<caption>")

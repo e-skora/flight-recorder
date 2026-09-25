@@ -36,7 +36,7 @@
 <section id="ruleset">
   <h2>Declarative ruleset as recorded</h2>
   {% if ruleset.available %}
-  <div class="table-scroll" role="region" aria-label="Declarative ruleset table">
+  <div class="table-scroll" role="region" aria-label="Declarative ruleset table" tabindex="0">
   <table id="ruleset-table" class="grid">
     <caption>The immutable declarative ruleset of {{ decision.logic_version }}, exactly as it was recorded. It is never edited in place.</caption>
     <thead><tr><th scope="col">Factor</th><th scope="col">Rule</th><th scope="col">Weight</th></tr></thead>
@@ -66,7 +66,7 @@
 
 <section id="evidence-context">
   <h2>Preserved historical context</h2>
-  <div class="table-scroll" role="region" aria-label="Preserved context table">
+  <div class="table-scroll" role="region" aria-label="Preserved context table" tabindex="0">
   <table id="context-table" class="grid">
     <caption>The values and availability states preserved at the decision boundary. Evidence recorded after that boundary is not part of them and is not shown here.</caption>
     <thead>
@@ -114,7 +114,7 @@
 <section id="actions">
   <h2>Downstream action</h2>
   {% if action_rows %}
-  <div class="table-scroll" role="region" aria-label="Downstream action table">
+  <div class="table-scroll" role="region" aria-label="Downstream action table" tabindex="0">
   <table id="actions-table" class="grid">
     <caption>The recorded outbound action for this decision, with its recorded synthetic cost.</caption>
     <thead>
@@ -158,7 +158,7 @@
   <h2>Recorded account outcomes</h2>
   <p class="lede">These are outcomes recorded for this account. The attribution column shows, for each recorded outcome version, whether a policy-based link to a decision has been evaluated and what that evaluation recorded.{% if outcome_rows %} Details for each outcome version follow the table in the same order.{% endif %}</p>
   {% if outcome_rows %}
-  <div class="table-scroll" role="region" aria-label="Outcomes table">
+  <div class="table-scroll" role="region" aria-label="Outcomes table" tabindex="0">
   <table id="outcomes-table" class="grid">
     <caption>Every outcome recorded for {{ account.name }}, with its evaluation window and the observations recorded inside it.</caption>
     <thead>
@@ -302,6 +302,7 @@
       <dt class="detail-history-label">Attribution history</dt>
       <dd class="detail-history">
         {% if row.attribution_history %}
+        <div class="table-scroll" role="region" aria-label="Outcome {{ row.outcome_event_id }} attribution history table" tabindex="0">
         <table id="attribution-history-{{ row.outcome_event_id }}" class="grid history-table">
           <caption>{% if row.attribution_failure %}Every attribution result recorded for this outcome version. The policy's selection of an effective result could not be established, so no row is marked effective; each row shows what that result recorded.{% elif row.attribution_history | length > 1 %}Every attribution result recorded for this outcome version. Earlier results are retained as recorded and were replaced by a reevaluation at a newer ledger cutoff; each row shows what that result recorded.{% else %}The attribution result recorded for this outcome version, as recorded.{% endif %}</caption>
           <thead>
@@ -343,6 +344,7 @@
             {% endfor %}
           </tbody>
         </table>
+        </div>
         {% else %}
         No attribution result has been recorded for this outcome version.
         {% endif %}
@@ -430,7 +432,7 @@
     </dl>
     <p id="output-changed">output changed: {{ "yes" if comparison.output_changed else "no" }}</p>
 
-    <div class="table-scroll" role="region" aria-label="Replay contributions table">
+    <div class="table-scroll" role="region" aria-label="Replay contributions table" tabindex="0">
     <table id="contributions-table" class="grid">
       <caption>Every input key either artifact references, and how each side treated it.</caption>
       <thead>
@@ -462,7 +464,7 @@
     </table>
     </div>
 
-    <div class="table-scroll" role="region" aria-label="Missing inputs table">
+    <div class="table-scroll" role="region" aria-label="Missing inputs table" tabindex="0">
     <table id="missing-inputs-table" class="grid">
       <caption>Inputs the selected current logic expects that the preserved context does not supply.</caption>
       <thead>
@@ -492,7 +494,7 @@
     <h3>Replay could not be established: {{ failure.class_name }}</h3>
     <p>{{ failure.summary }}</p>
     {% if failure.origin %}<p class="failure-origin">{{ failure.origin }}</p>{% endif %}
-    <div class="table-scroll" role="region" aria-label="Failure fields table">
+    <div class="table-scroll" role="region" aria-label="Failure fields table" tabindex="0">
     <table id="failure-fields-table" class="grid">
       <caption>What the failure {{ failure.class_name }} reports, under its own field names.</caption>
       <thead><tr><th scope="col">Field</th><th scope="col">Value</th></tr></thead>
