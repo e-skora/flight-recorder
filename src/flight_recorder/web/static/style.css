@@ -260,9 +260,9 @@ html.public-demo .confidence, html.public-demo .positive-weight-bound, html.publ
 html.public-demo #replay-integrity-failure { border-radius: var(--pd-radius-sm); background: #fff6f4; }
 html.public-demo .unavailable-state, html.public-demo #replay-no-selection { border-radius: var(--pd-radius-sm); }
 
-/* Motion only where it helps orientation, and never when reduced motion is asked. */
+/* Motion only where it helps orientation, and never when reduced motion is
+   asked. Page scrolling stays instant: a link into a long page lands at once. */
 @media (prefers-reduced-motion: no-preference) {
-  html.public-demo { scroll-behavior: smooth; }
   html.public-demo button, html.public-demo .button, html.public-demo .site-nav a { transition: background-color .15s ease, border-color .15s ease, color .15s ease; }
 }
 
