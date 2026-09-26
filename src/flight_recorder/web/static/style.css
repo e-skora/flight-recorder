@@ -286,3 +286,53 @@ html.public-demo .unavailable-state, html.public-demo #replay-no-selection { bor
   html.public-demo .start-source { margin-left: 0; }
   html.public-demo #current-logic-selector select, html.public-demo #current-logic-selector button { width: 100%; }
 }
+
+/* Public presentation correction: first action, replay result, Insights headline. */
+/* One compact disclosure strip; its first line states the essentials, and the
+   full wording is one native disclosure away. */
+html.public-demo .public-demo-notice { display: flex; flex-wrap: wrap; align-items: baseline; gap: .15rem var(--pd-space-3); background: var(--pd-sand); border-left: 6px solid var(--pd-lime); border-bottom: 1px solid var(--pd-line-strong); }
+html.public-demo .public-demo-notice p { margin: 0; }
+html.public-demo .notice-more summary { cursor: pointer; font-weight: 600; color: var(--pd-lime-deep); text-decoration: underline; text-underline-offset: 2px; }
+html.public-demo .notice-more[open] { flex-basis: 100%; }
+html.public-demo .notice-more[open] summary { margin-bottom: var(--pd-space-1); }
+html.public-demo .notice-more p + p { margin-top: var(--pd-space-1); }
+/* The start block: purpose, then the action, then the explanation. */
+html.public-demo .start-here { padding: var(--pd-space-5) var(--pd-space-6); }
+html.public-demo .start-here h2 { margin-top: 0; }
+html.public-demo .start-purpose { font-size: 1.05rem; color: var(--pd-charcoal-2); }
+html.public-demo .start-links { margin: var(--pd-space-4) 0; }
+/* The replay result: recorded and computed side by side, neutral surfaces; the
+   counterfactual keeps the dashed frame used for counterfactual content. */
+html.public-demo .replay-summary { display: grid; grid-template-columns: 1fr 1fr; gap: var(--pd-space-3); margin: var(--pd-space-3) 0 var(--pd-space-4); }
+html.public-demo .replay-side { background: var(--pd-surface); border: 1px solid var(--pd-line-strong); border-radius: var(--pd-radius-sm); padding: var(--pd-space-3) var(--pd-space-4); }
+html.public-demo .replay-counterfactual { border: 2px dashed var(--pd-charcoal); background: var(--pd-surface-2); }
+html.public-demo .replay-side p { margin: 0; }
+html.public-demo .replay-side-label { font-size: .8rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--pd-muted); }
+html.public-demo .replay-score { margin: .15rem 0 .2rem; }
+html.public-demo .replay-score > span:first-child { font-size: 2rem; font-weight: 800; line-height: 1.1; font-variant-numeric: tabular-nums; }
+html.public-demo .replay-threshold { color: var(--pd-muted); font-size: .9rem; }
+html.public-demo .replay-line { font-size: .95rem; }
+html.public-demo .replay-line span { font-family: var(--pd-mono); font-weight: 600; }
+html.public-demo .replay-change { grid-column: 1 / -1; margin: 0; font-weight: 600; }
+/* The Insights headline. */
+html.public-demo .insights-headline { border-top: 6px solid var(--pd-lime); }
+html.public-demo .insights-headline h2 { font-size: .85rem; letter-spacing: .06em; text-transform: uppercase; color: var(--pd-lime-deep); margin-bottom: var(--pd-space-1); }
+html.public-demo .headline-label { margin: 0; font-weight: 600; }
+html.public-demo .headline-rate { margin: .2rem 0 .35rem; font-size: 1.6rem; font-weight: 800; line-height: 1.25; }
+html.public-demo .headline-context { margin: 0; color: var(--pd-muted); max-width: 52rem; }
+@media (max-width: 40rem) {
+  html.public-demo .context-header { padding: .6rem var(--pd-space-4); gap: .2rem .6rem; }
+  html.public-demo .product { font-size: 1rem; }
+  html.public-demo .public-badge { font-size: .72rem; padding: .05rem .5rem; }
+  html.public-demo .operating-company { font-size: .8rem; }
+  html.public-demo .public-demo-notice { padding: .4rem var(--pd-space-4); }
+  html.public-demo main { padding-top: var(--pd-space-3); }
+  html.public-demo main > h1 { margin: var(--pd-space-1) 0 var(--pd-space-3); font-size: 1.4rem; }
+  html.public-demo .start-here { padding: var(--pd-space-4); }
+  html.public-demo .start-here h2 { font-size: 1.2rem; margin-bottom: var(--pd-space-2); }
+  html.public-demo .start-purpose { font-size: 1rem; }
+  html.public-demo .start-links { margin: var(--pd-space-3) 0; gap: var(--pd-space-2); }
+  html.public-demo .replay-summary { grid-template-columns: 1fr; gap: var(--pd-space-2); }
+  html.public-demo .replay-score > span:first-child { font-size: 1.7rem; }
+  html.public-demo .headline-rate { font-size: 1.3rem; }
+}

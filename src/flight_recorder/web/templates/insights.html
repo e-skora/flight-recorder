@@ -11,6 +11,17 @@ no comparison: {% for name in missing.names %}{% if not loop.first %} and {% end
 {%- endmacro %}
 {% block content %}
 <h1>Insights</h1>
+{%- if request.app.state.public_demo and page.state == "ready" %}
+{#- The existing overall observed rate, as the detailed section renders it,
+    with its window, denominators and qualification. Shown only for a ready
+    model; the empty and selection-failure states keep their own sections. #}
+<section id="insights-headline" class="insights-headline" aria-labelledby="insights-headline-heading">
+  <h2 id="insights-headline-heading">At a glance</h2>
+  <p class="headline-label">Observed {{ qualifying_period_days }}-day opportunity rate, all decisions</p>
+  <p id="headline-rate" class="headline-rate">{{ rate_line(page.result.overall) }}</p>
+  <p class="headline-context">Cohort total <span id="headline-cohort-total">{{ page.result.overall.cohort_total }}</span> decisions at ledger cutoff <span id="headline-cutoff">{{ page.result.cutoff }}</span>. Observed on synthetic data: descriptive, not causal, and not a conversion probability. How to read it, every exclusion and every denominator follow below.</p>
+</section>
+{%- endif %}
 
 <section id="insights-language">
   <h2>How to read this page</h2>

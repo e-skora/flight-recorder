@@ -414,6 +414,26 @@
   {% if comparison %}
   <div id="replay-comparison">
     <h3>Comparison</h3>
+    {%- if request.app.state.public_demo %}
+    {#- A compact summary of this comparison, read from the same comparison
+        fields as the detailed list below; it states the selected artifact's
+        actual result and interprets nothing beyond it. #}
+    <div id="replay-summary" class="replay-summary" role="group" aria-label="Replay result summary">
+      <div class="replay-side replay-original">
+        <p class="replay-side-label">{{ original_label | capitalize }}, recorded</p>
+        <p class="replay-score"><span id="summary-original-score">{{ comparison.original_score }}</span> <span class="replay-threshold">against threshold {{ comparison.original_threshold }}</span></p>
+        <p class="replay-line">Logic <span id="summary-original-logic">{{ comparison.historical_logic.logic_version }}</span></p>
+        <p class="replay-line">Output <span id="summary-original-output">{{ comparison.original_output }}</span></p>
+      </div>
+      <div class="replay-side replay-counterfactual">
+        <p class="replay-side-label">{{ counterfactual_label | capitalize }}, computed now, not recorded</p>
+        <p class="replay-score"><span id="summary-counterfactual-score">{{ comparison.counterfactual_score }}</span> <span class="replay-threshold">against threshold {{ comparison.counterfactual_threshold }}</span></p>
+        <p class="replay-line">Logic <span id="summary-counterfactual-logic">{{ comparison.current_logic.logic_version }}</span></p>
+        <p class="replay-line">Output <span id="summary-counterfactual-output">{{ comparison.counterfactual_output }}</span></p>
+      </div>
+      <p id="summary-output-change" class="replay-change">{% if comparison.output_changed %}The output changes from {{ comparison.original_output }} to {{ comparison.counterfactual_output }}{% else %}The output does not change: both are {{ comparison.original_output }}{% endif %}; score {{ comparison.original_score }} to {{ comparison.counterfactual_score }} ({{ comparison.score_delta | signed }}). Same preserved context, evaluated on demand; nothing is stored.</p>
+    </div>
+    {%- endif %}
     <p class="counterfactual-computed">This result is the historical context preserved at <time datetime="{{ decision.decision_boundary }}">{{ decision.decision_boundary }}</time>, evaluated now under {{ current_logic_text }}. It was computed on demand when this page was opened and was not stored.</p>
     <dl class="fields">
       <dt>{{ original_label }} (recorded) logic version</dt><dd id="original-logic-version">{{ comparison.historical_logic.logic_version }}</dd>

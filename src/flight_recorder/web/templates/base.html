@@ -15,18 +15,26 @@
     {%- endif %}
     <p class="operating-company">Operating company: <strong>{{ operating_company }}</strong> (fictional)</p>
   </header>
+  {%- if request.app.state.public_demo %}
+  <aside id="public-demo-notice" class="public-demo-notice" role="note" aria-label="Synthetic data and public demo disclosure">
+    <p class="notice-lead"><strong>Public read-only demo.</strong> All data here is synthetic; RelayBridge and NovaSignal AI are fictional.</p>
+    <details class="notice-more">
+      <summary>What this means</summary>
+      <p><strong>Synthetic data.</strong> All accounts, vendor-like events (Apollo-, Clay-, and CRM-like),
+      decisions, and outcomes shown here are simulated. Nothing on this page is connected to a live customer system.</p>
+      <p>Replays are computed on demand under each decision's preserved context and are never stored, and
+      nothing you send can change the data. The writable collector runs locally from the
+      <a href="{{ request.app.state.source_repository_url }}">source repository</a>.</p>
+    </details>
+  </aside>
+  {%- else %}
   <aside class="synthetic-banner" role="note" aria-label="Synthetic data disclosure">
     <strong>Synthetic data.</strong> All accounts, vendor-like events (Apollo-, Clay-, and CRM-like),
     decisions, and outcomes shown here are simulated. RelayBridge and NovaSignal AI are fictional.
     Nothing on this page is connected to a live customer system.
   </aside>
+  {%- endif %}
   {%- if request.app.state.public_demo %}
-  <aside id="public-demo-notice" class="public-demo-notice" role="note" aria-label="Public demo notice">
-    <strong>Public read-only demo.</strong> All data here is synthetic. Replays are computed on demand
-    under each decision's preserved context and are never stored, and nothing you send can change the data.
-    The writable collector runs locally from the
-    <a href="{{ request.app.state.source_repository_url }}">source repository</a>.
-  </aside>
   {%- set path = request.url.path %}
   <nav class="site-nav" aria-label="Site"><a href="/"{% if path == "/" %} aria-current="page"{% endif %}{% if path == "/" or path.startswith("/accounts/") %} class="is-current"{% endif %}>Accounts</a> <a href="/insights"{% if path == "/insights" %} aria-current="page" class="is-current"{% endif %}>Insights</a> <a class="site-nav-source" href="{{ request.app.state.source_repository_url }}">Source code</a></nav>
   {%- else %}
