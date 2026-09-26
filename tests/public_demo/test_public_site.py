@@ -20,11 +20,14 @@ never accepted alone as proof.
 
 import dataclasses
 import re
+import sqlite3
 from collections import Counter
 
 import pytest
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
+from sqlalchemy import event as sqlalchemy_event
+from sqlalchemy.exc import OperationalError
 
 from flight_recorder import public_demo
 from flight_recorder.app import create_app
@@ -360,6 +363,171 @@ def test_a_failing_replay_leaves_the_example_unavailable_and_home_still_200(
     # The recorded examples are unaffected by a replay failure.
     assert text_of(html, "example-recorded-score") == "86"
     assert_unchanged(snapshot, state, sha256)
+
+
+# --- Correction 1: a failed recorded read keeps Home available (B1.4, INV-09) -----------
+
+
+@pytest.fixture
+def fail_select(app):
+    """Install a `before_cursor_execute` listener on the app's own engine that
+    raises SQLAlchemy's `OperationalError` on the first statement containing
+    every given fragment; records that statement. Removed after the test."""
+    installed = []
+
+    def install(*fragments: str) -> list[str]:
+        raised: list[str] = []
+
+        def listener(conn, cursor, statement, parameters, context, executemany):
+            if not raised and all(fragment in statement for fragment in fragments):
+                raised.append(statement)
+                raise OperationalError(
+                    statement, parameters, sqlite3.OperationalError("injected read failure")
+                )
+
+        sqlalchemy_event.listen(app.state.engine, "before_cursor_execute", listener)
+        installed.append(listener)
+        return raised
+
+    def remove() -> None:
+        for listener in installed:
+            if sqlalchemy_event.contains(app.state.engine, "before_cursor_execute", listener):
+                sqlalchemy_event.remove(app.state.engine, "before_cursor_execute", listener)
+
+    install.remove = remove
+    yield install
+    remove()
+
+
+def assert_all_three_examples_unavailable(response) -> None:
+    """200; the unavailable statement in all three examples, each still linking
+    to the canonical decision page; no recorded or counterfactual value in the
+    examples section; the rest of Home intact."""
+    assert response.status_code == 200
+    html = response.text
+    for element_id in (
+        "example-recorded-unavailable",
+        "example-ignored-unavailable",
+        "example-replay-unavailable",
+    ):
+        assert text_of(html, element_id).startswith(EXAMPLE_UNAVAILABLE), element_id
+    for example, fragment in (
+        ("example-recorded", ""),
+        ("example-ignored", "#evidence-context"),
+        ("example-replay", "#replay-comparison"),
+    ):
+        assert f'href="{DECISION_URL}{fragment}"' in element(html, example), example
+    examples = element(html, "home-examples")
+    for value in (r"\b86\b", r"\b72\b", r"\b75\b", "PRIORITIZE", r"\bv3\.2\b", r"\bv5\.2\b"):
+        assert not re.search(value, examples), value
+    for element_id in (
+        "example-account",
+        "example-recorded-score",
+        "example-recorded-output",
+        "example-counterfactual-score",
+        "example-original-score",
+    ):
+        assert not has_element(html, element_id), element_id
+    assert "example-ignored-input" not in examples and "example-unavailable-input" not in examples
+    for element_id in ("home-intro", "try-the-demo", "how-it-works", "home-boundary"):
+        assert has_element(html, element_id), element_id
+    assert '<a id="try-the-demo" href="/demo"' in html
+    assert has_element(html, "site-attribution")
+    assert "<nav" in html
+
+
+def test_a_failing_recorded_read_leaves_all_three_examples_unavailable_and_home_200(
+    public, monkeypatch, snapshot
+):
+    def raising(conn, decision_event_id):
+        raise IntegrityFailure("decision_event_id", "spy", stored="a", recomputed="b")
+
+    monkeypatch.setattr(public_demo, "load_decision_page", raising)
+    state, sha256 = full_state(snapshot), file_sha256(snapshot)
+    response = public.get("/")
+    assert_all_three_examples_unavailable(response)
+    assert "IntegrityFailure" in text_of(response.text, "example-replay-unavailable")
+    assert_unchanged(snapshot, state, sha256)
+
+
+def test_a_database_error_on_the_decisions_read_leaves_home_200_then_recovers(
+    public, fail_select, monkeypatch, snapshot
+):
+    raised = fail_select("FROM decisions")
+    state, sha256 = full_state(snapshot), file_sha256(snapshot)
+    response = public.get("/")
+    assert len(raised) == 1 and raised[0].lstrip().startswith("SELECT")
+    assert_all_three_examples_unavailable(response)
+    statement = text_of(response.text, "example-replay-unavailable")
+    assert "OperationalError" in statement and "SELECT" not in statement
+    assert_unchanged(snapshot, state, sha256)
+
+    # With the listener removed, the next request computes fresh values.
+    fail_select.remove()
+    calls = []
+
+    def passthrough(conn, decision_event_id, current_artifact_hash):
+        calls.append((decision_event_id, current_artifact_hash))
+        return replay(conn, decision_event_id, current_artifact_hash)
+
+    monkeypatch.setattr(public_demo, "replay", passthrough)
+    recovered = public.get("/")
+    assert recovered.status_code == 200
+    assert calls == [(DECISION_EVENT_ID, V5_2_HASH)]
+    scores = home_scores(recovered.text)
+    assert scores["recorded-score"] == "86" and scores["counterfactual-score"] == "72"
+    assert not has_element(recovered.text, "example-recorded-unavailable")
+    assert_unchanged(snapshot, state, sha256)
+
+
+def test_a_database_error_on_the_account_name_read_leaves_all_three_unavailable(
+    public, fail_select, snapshot
+):
+    raised = fail_select("FROM accounts", "accounts.account_ref = ")
+    state, sha256 = full_state(snapshot), file_sha256(snapshot)
+    response = public.get("/")
+    assert len(raised) == 1
+    assert_all_three_examples_unavailable(response)
+    assert_unchanged(snapshot, state, sha256)
+
+
+def test_a_database_error_on_the_default_artifact_lookup_keeps_the_record(
+    public, fail_select, snapshot
+):
+    raised = fail_select("FROM logic_artifacts", "logic_artifacts.logic_version = ")
+    state, sha256 = full_state(snapshot), file_sha256(snapshot)
+    response = public.get("/")
+    assert len(raised) == 1 and response.status_code == 200
+    html = response.text
+    assert text_of(html, "example-recorded-score") == "86"
+    assert not has_element(html, "example-ignored-unavailable")
+    statement = text_of(html, "example-replay-unavailable")
+    assert statement.startswith(EXAMPLE_UNAVAILABLE) and "OperationalError" in statement
+    assert not has_element(html, "example-counterfactual-score")
+    assert_unchanged(snapshot, state, sha256)
+
+
+def test_a_connection_that_cannot_be_opened_leaves_all_three_unavailable(public, app, monkeypatch):
+    class Unopenable:
+        def connect(self):
+            raise OperationalError(
+                "connect", None, sqlite3.OperationalError("injected open failure")
+            )
+
+    monkeypatch.setattr(app.state, "engine", Unopenable())
+    response = public.get("/")
+    assert_all_three_examples_unavailable(response)
+    assert "could not be opened" in text_of(response.text, "example-replay-unavailable")
+
+
+@pytest.mark.parametrize("target", ["load_decision_page", "replay"])
+def test_a_programming_error_in_the_examples_is_not_caught(public, monkeypatch, target):
+    def raising(*args):
+        raise RuntimeError(f"programming error in {target}")
+
+    monkeypatch.setattr(public_demo, target, raising)
+    with pytest.raises(RuntimeError, match=f"programming error in {target}"):
+        public.get("/")
 
 
 # --- B4.5: the walkthrough slot ---------------------------------------------------------

@@ -65,7 +65,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import event
 from sqlalchemy.engine import Connection, Engine
-from sqlalchemy.exc import DatabaseError
+from sqlalchemy.exc import DatabaseError, DBAPIError
 
 from flight_recorder.app import STATIC_DIR
 from flight_recorder.ledger.database import make_engine
@@ -576,51 +576,34 @@ class ReadOnlyMethods:
 EXAMPLE_UNAVAILABLE = "This example could not be computed for this request."
 
 
-def _home_examples(conn: Connection) -> dict:
-    """Home's three example answers, read and computed for this request alone.
+#: The failures Home shows as unavailable examples instead of raising: the replay
+#: failures the decision page names, and SQLAlchemy's wrapper for a driver
+#: failure at connection or query execution (`OperationalError`,
+#: `DatabaseError`). Anything else, a programming error included, propagates.
+HOME_EXAMPLE_FAILURES = (*REPLAY_FAILURES, DBAPIError)
 
-    Examples 1 and 2 come from the decision page's own read path
-    (`load_decision_page`): the recorded score, threshold, output and logic
-    version, and the preserved inputs in the `available but ignored` and
-    `unavailable` states, kept distinct (INV-03). Example 3 is the default
-    current artifact resolved exactly as the decision page resolves it, then
-    `compare(replay(...))` run by the engine now: a counterfactual, labelled as
-    one (INV-06), never a substitute for the record. Every replay failure the
-    decision page names is caught and shown as an unavailable example (INV-09);
-    a programming error still propagates. The returned mapping is built fresh
-    on every call and is kept nowhere: not on the app, not in a module
-    variable, not behind a memoizing decorator (D-011).
+
+def _failure_note(error: Exception) -> str:
+    """The diagnostic Home prints after an unavailable example's statement.
+
+    A database error is named by its type alone, because its message carries
+    the SQL statement and its parameters.
     """
-    page = load_decision_page(conn, CANONICAL_DECISION_EVENT_ID)
-    account_name = None
-    recorded = None
-    ignored: tuple = ()
-    unavailable: tuple = ()
-    if page is not None:
-        recorded = page.decision
-        ignored = tuple(row for row in page.context_rows if row.state == AVAILABLE_BUT_IGNORED)
-        unavailable = tuple(row for row in page.context_rows if row.state == UNAVAILABLE)
-        account = conn.execute(
-            accounts_query().where(accounts.c.account_ref == page.decision.account_ref)
-        ).first()
-        account_name = account.name if account is not None else page.decision.account_ref
+    if isinstance(error, DBAPIError):
+        return type(error).__name__
+    return f"{type(error).__name__}: {error}"
 
-    comparison = None
-    counterfactual_failure = None
-    if page is None:
-        counterfactual_failure = "the canonical decision is not recorded"
-    else:
-        current_hash, no_selection = web_routes._default_current_artifact(
-            conn, page.decision.decision_class
-        )
-        if current_hash is None:
-            counterfactual_failure = no_selection
-        else:
-            try:
-                comparison = compare(replay(conn, CANONICAL_DECISION_EVENT_ID, current_hash))
-            except REPLAY_FAILURES as error:
-                counterfactual_failure = f"{type(error).__name__}: {error}"
 
+def _examples(
+    *,
+    account_name=None,
+    recorded=None,
+    ignored: tuple = (),
+    unavailable: tuple = (),
+    comparison=None,
+    counterfactual_failure: str | None = None,
+) -> dict:
+    """The template mapping for Home's examples; absent parts render unavailable."""
     return {
         "account_name": account_name,
         "recorded": recorded,
@@ -633,11 +616,82 @@ def _home_examples(conn: Connection) -> dict:
     }
 
 
+def _home_examples(conn: Connection) -> dict:
+    """Home's three example answers, read and computed for this request alone.
+
+    Examples 1 and 2 come from the decision page's own read path
+    (`load_decision_page`): the recorded score, threshold, output and logic
+    version, and the preserved inputs in the `available but ignored` and
+    `unavailable` states, kept distinct (INV-03). Example 3 is the default
+    current artifact resolved exactly as the decision page resolves it, then
+    `compare(replay(...))` run by the engine now: a counterfactual, labelled as
+    one (INV-06), never a substitute for the record.
+
+    The two parts fail visibly and separately (INV-09). If the recorded read
+    (the decision page and the account name) raises one of
+    `HOME_EXAMPLE_FAILURES`, all three examples are unavailable: example 3
+    needs the recorded decision class, and nothing is guessed in its place. If
+    only the counterfactual part (the default-artifact lookup and the replay)
+    raises, examples 1 and 2 still show the record. A programming error still
+    propagates. The returned mapping is built fresh on every call and is kept
+    nowhere: not on the app, not in a module variable, not behind a memoizing
+    decorator (D-011).
+    """
+    try:
+        page = load_decision_page(conn, CANONICAL_DECISION_EVENT_ID)
+        account = None
+        if page is not None:
+            account = conn.execute(
+                accounts_query().where(accounts.c.account_ref == page.decision.account_ref)
+            ).first()
+    except HOME_EXAMPLE_FAILURES as error:
+        return _examples(
+            counterfactual_failure=(
+                f"the recorded decision could not be read ({_failure_note(error)})"
+            )
+        )
+    if page is None:
+        return _examples(counterfactual_failure="the canonical decision is not recorded")
+
+    comparison = None
+    counterfactual_failure = None
+    try:
+        current_hash, no_selection = web_routes._default_current_artifact(
+            conn, page.decision.decision_class
+        )
+        if current_hash is None:
+            counterfactual_failure = no_selection
+        else:
+            comparison = compare(replay(conn, CANONICAL_DECISION_EVENT_ID, current_hash))
+    except HOME_EXAMPLE_FAILURES as error:
+        counterfactual_failure = _failure_note(error)
+
+    return _examples(
+        account_name=account.name if account is not None else page.decision.account_ref,
+        recorded=page.decision,
+        ignored=tuple(row for row in page.context_rows if row.state == AVAILABLE_BUT_IGNORED),
+        unavailable=tuple(row for row in page.context_rows if row.state == UNAVAILABLE),
+        comparison=comparison,
+        counterfactual_failure=counterfactual_failure,
+    )
+
+
 def home(request: Request) -> HTMLResponse:
-    """The Home page (D-020). Its examples are computed inside this request."""
+    """The Home page (D-020). Its examples are computed inside this request.
+
+    Home always answers: when the connection itself cannot be opened, all three
+    examples are unavailable and the rest of the page still renders (INV-09).
+    """
     engine = request.app.state.engine
-    with engine.connect() as conn:
-        examples = _home_examples(conn)
+    try:
+        connection = engine.connect()
+    except DBAPIError as error:
+        examples = _examples(
+            counterfactual_failure=f"the demo data could not be opened ({_failure_note(error)})"
+        )
+    else:
+        with connection as conn:
+            examples = _home_examples(conn)
     return templates.TemplateResponse(
         request,
         "home.html",
