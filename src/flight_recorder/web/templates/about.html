@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}About · How Flight Recorder was built{% endblock %}
+{% block content %}
+<h1 id="about-headline">About Flight Recorder, and how it was built</h1>
+
+<section id="about-why" aria-labelledby="about-why-heading">
+  <h2 id="about-why-heading">Why this exists</h2>
+  <p>When a sales system decides which accounts deserve attention, the final score is easy to see. It is much harder to explain why that score happened, especially after the account data and the scoring rules have changed. The record of what the rules could see, what they used and what they left out is usually gone by the time anyone asks.</p>
+  <p>Flight Recorder records the evidence and the rules behind an automated account-prioritization decision, so the person responsible for that workflow can inspect what happened and ask whether different rules would have produced a different result, without the present rewriting the past.</p>
+</section>
+
+<section id="about-what-i-did" aria-labelledby="about-what-i-did-heading">
+  <h2 id="about-what-i-did-heading">What I did</h2>
+  <p class="about-byline">{{ request.app.state.created_by }}</p>
+  <p>This was an AI-assisted build. I worked with AI tools for implementation and review. My contribution was directing the product: choosing the problem, setting boundaries, making product decisions, and deciding what evidence was needed before accepting the work.</p>
+  <p>One concrete example was how to handle a scoring revision. I approved introducing a new version while preserving the earlier rules and historical records. That lets decisions be compared without quietly changing the past.</p>
+  <p>I also kept the scope focused on account prioritization as the one fully replayable decision type. That gave the project a specific claim that could be built and checked.</p>
+</section>
+
+<section id="about-how-it-works" aria-labelledby="about-how-it-works-heading">
+  <h2 id="about-how-it-works-heading">How it works</h2>
+  <ul class="about-architecture">
+    <li><strong>One collector.</strong> Every event, including the demo's own seed data, enters through one versioned, idempotent door. There is no other write path.</li>
+    <li><strong>An append-only ledger.</strong> Recorded decisions, their preserved context and their logic identity are never edited. Corrections, outcomes and new rules are appended beside them.</li>
+    <li><strong>A deterministic evaluator.</strong> Scoring rules are declarative data identified by a content hash plus an evaluator version, so a decision can be re-verified exactly. A version label alone is not identity.</li>
+    <li><strong>On-demand replay.</strong> A replay re-verifies the original decision, then evaluates the same preserved context under a selected rule version. The result is labelled a counterfactual and kept nowhere.</li>
+    <li><strong>Pages that only read.</strong> The public demo serves a fixed synthetic snapshot read-only: mutating requests are refused before routing, and the database itself is opened read-only.</li>
+  </ul>
+</section>
+
+<section id="about-decisions" aria-labelledby="about-decisions-heading">
+  <h2 id="about-decisions-heading">Four decisions and their tradeoffs</h2>
+  <dl class="fields about-decisions">
+    <dt>A new rule version instead of editing old rules</dt>
+    <dd>Older decisions stay explainable under the rules that made them, and any two versions can be compared on the same evidence. The cost is that rules accumulate and each version must be registered and identified rather than patched in place.</dd>
+    <dt>Replay is never stored</dt>
+    <dd>A counterfactual can never be mistaken for something that happened, and no cache can go stale. The cost is that every replay is computed again on each request.</dd>
+    <dt>One fully replayable decision type</dt>
+    <dd>Account prioritization is proven end to end: record, preserve, replay, compare. The cost is breadth: no other decision class is replayable here.</dd>
+    <dt>A read-only public demo from a fixed synthetic snapshot</dt>
+    <dd>The demo is stable for every visitor, needs no accounts and cannot be changed by anything a visitor sends. The cost is that it shows one dataset, and only the local installation accepts new events.</dd>
+  </dl>
+</section>
+
+<section id="about-limitations" aria-labelledby="about-limitations-heading">
+  <h2 id="about-limitations-heading">Limitations</h2>
+  <ul>
+    <li>All data is synthetic. {{ operating_company }} and every prospect are fictional, and no real customer, vendor connection or result is behind any page.</li>
+    <li>One decision type. Account prioritization is the only fully replayable decision class.</li>
+    <li>No integrations. Events resemble vendor-like sources but nothing is connected to a live system.</li>
+    <li>The Insights comparisons are descriptive: observed rates, sample sizes and windows on synthetic data. They are not causal, they do not measure lift and they validate no scoring weight for a real business.</li>
+  </ul>
+</section>
+
+<section id="about-run-it" aria-labelledby="about-run-it-heading">
+  <h2 id="about-run-it-heading">Run it yourself</h2>
+  <p>The source is public. Its README holds the local setup: a few commands seed the same synthetic dataset through the collector and serve the same pages, with the writable collector available locally.</p>
+  <p><a id="about-source" href="{{ request.app.state.source_repository_url }}">Source code</a> · <a id="about-setup" href="{{ request.app.state.source_repository_url }}#setup">Local setup in the README</a> · <a href="/demo">Try the demo</a></p>
+</section>
+
+<section id="about-attribution" aria-labelledby="about-attribution-heading">
+  <h2 id="about-attribution-heading">Attribution</h2>
+  <p id="about-attribution-line">Created by {{ request.app.state.created_by }} · <a href="{{ request.app.state.company_url }}">{{ request.app.state.company_name }}</a></p>
+</section>
+{% endblock %}

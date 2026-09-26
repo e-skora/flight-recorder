@@ -187,7 +187,7 @@ def test_no_summary_without_a_successful_comparison(public, local):
 
 
 def test_the_start_block_puts_purpose_and_the_primary_action_before_the_explanation(public):
-    block = element(public.get("/").text, "start-here")
+    block = element(public.get("/demo").text, "start-here")
     heading = block.index('id="start-here-heading"')
     purpose = block.index('class="start-purpose"')
     primary = block.index('id="start-canonical-decision"')
@@ -197,7 +197,7 @@ def test_the_start_block_puts_purpose_and_the_primary_action_before_the_explanat
 
 
 def test_the_condensed_disclosure_states_the_essentials_without_opening(public, local):
-    for url in ("/", DECISION_URL, "/insights"):
+    for url in ("/", "/demo", DECISION_URL, "/insights"):
         html = public.get(url).text
         notice = element(html, "public-demo-notice")
         lead = visible(notice[: notice.index("<details")])

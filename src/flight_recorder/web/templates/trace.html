@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ account.name }} trace · GTM Flight Recorder{% endblock %}
 {% block content %}
-<nav aria-label="Breadcrumb"><a href="/">Accounts</a> › {{ account.name }}</nav>
+<nav aria-label="Breadcrumb"><a href="{{ "/demo" if request.app.state.public_demo else "/" }}">Accounts</a> › {{ account.name }}</nav>
 <h1>{{ account.name }} <span class="domain">{{ account.domain }}</span></h1>
 <p class="lede">Every recorded event for this account, in order of occurrence. Same-instant events keep their ingest order.</p>
 <div class="table-scroll" role="region" aria-label="Account trace table" tabindex="0">

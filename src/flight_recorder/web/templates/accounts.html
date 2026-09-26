@@ -25,7 +25,7 @@
 {% if canonical %}
 <p id="canonical-account">Canonical demo account: <a href="/accounts/{{ canonical.account_ref }}">{{ canonical.name }}</a></p>
 {% endif %}
-<form method="get" action="/" id="account-filter"><label for="account-query">Filter by account name</label> <input type="search" name="q" id="account-query" value="{{ query }}"> <button type="submit">Filter</button></form>
+<form method="get" action="{{ "/demo" if request.app.state.public_demo else "/" }}" id="account-filter"><label for="account-query">Filter by account name</label> <input type="search" name="q" id="account-query" value="{{ query }}"> <button type="submit">Filter</button></form>
 <p id="account-count">Showing {{ shown }} of {{ total }} accounts{% if query %} matching “{{ query }}”{% endif %}</p>
 {% if accounts %}
 <ul class="account-list">

@@ -43,6 +43,9 @@ from tests.public_demo.conftest import (
 PUBLIC_READS = (
     "/",
     "/?q=nova",
+    "/demo",
+    "/demo?q=nova",
+    "/about",
     "/accounts/novasignal-ai",
     DECISION_URL,
     f"{DECISION_URL}?current={V5_1_HASH}",
@@ -180,18 +183,26 @@ START = "start-here"
 
 
 def test_the_notice_renders_on_every_public_page_and_the_start_block_on_the_list(public):
-    for url in ("/", "/?q=nova", "/accounts/novasignal-ai", DECISION_URL, "/insights"):
+    for url in (
+        "/",
+        "/demo",
+        "/demo?q=nova",
+        "/about",
+        "/accounts/novasignal-ai",
+        DECISION_URL,
+        "/insights",
+    ):
         html = public.get(url).text
         notice = page_text(element(html, NOTICE))
         assert "Public read-only demo." in notice
         assert "synthetic" in notice
         assert "computed on demand" in notice and "never stored" in notice
         assert f'href="{SOURCE_URL}"' in element(html, NOTICE)
-        assert has_element(html, START) == (url in ("/", "/?q=nova"))
+        assert has_element(html, START) == (url in ("/demo", "/demo?q=nova"))
 
 
 def test_the_start_block_links_work(public):
-    html = public.get("/").text
+    html = public.get("/demo").text
     block = element(html, START)
     links = dict(re.findall(r'<a id="([^"]+)" href="([^"]+)"', block))
     assert links["start-canonical-decision"] == DECISION_URL
@@ -206,10 +217,10 @@ def test_the_start_block_links_work(public):
 
 
 def test_public_wording_stays_inside_the_claim_rules(public):
-    for url in ("/", DECISION_URL):
+    for url in ("/demo", DECISION_URL):
         html = public.get(url).text
         text = page_text(element(html, NOTICE)).lower()
-        if url == "/":
+        if url == "/demo":
             text += " " + page_text(element(html, START)).lower()
         for word in ("real-time", "production", "validated", "causal", "live customer data"):
             assert word not in text, word
@@ -244,7 +255,8 @@ def test_every_readme_demo_cue_renders_in_public_mode(public):
     steps = demo_steps()
     assert len(steps) == 8
     for step in steps:
-        response = public.get(step.path)
+        # In public mode the demo path starts at /demo; every later step keeps its address.
+        response = public.get("/demo" if step.path == "/" else step.path)
         assert response.status_code == 200, step
         assert step.cue in page_text(response.text), step
         if step.fragment:

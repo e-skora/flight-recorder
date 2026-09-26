@@ -36,12 +36,19 @@
   {%- endif %}
   {%- if request.app.state.public_demo %}
   {%- set path = request.url.path %}
-  <nav class="site-nav" aria-label="Site"><a href="/"{% if path == "/" %} aria-current="page"{% endif %}{% if path == "/" or path.startswith("/accounts/") %} class="is-current"{% endif %}>Accounts</a> <a href="/insights"{% if path == "/insights" %} aria-current="page" class="is-current"{% endif %}>Insights</a> <a class="site-nav-source" href="{{ request.app.state.source_repository_url }}">Source code</a></nav>
+  {%- set in_demo = path == "/demo" or path.startswith("/accounts/") %}
+  <nav class="site-nav" aria-label="Site"><a href="/"{% if path == "/" %} aria-current="page" class="is-current"{% endif %}>Home</a> <a href="/demo"{% if path == "/demo" %} aria-current="page"{% endif %}{% if in_demo %} class="is-current"{% endif %}>Try the demo</a> <a href="/insights"{% if path == "/insights" %} aria-current="page" class="is-current"{% endif %}>Insights</a> <a href="/about"{% if path == "/about" %} aria-current="page" class="is-current"{% endif %}>About</a> <a class="site-nav-source" href="{{ request.app.state.source_repository_url }}">Source code</a></nav>
   {%- else %}
   <nav class="site-nav" aria-label="Site"><a href="/">Accounts</a> <a href="/insights">Insights</a></nav>
   {%- endif %}
   <main id="main" tabindex="-1">
     {% block content %}{% endblock %}
   </main>
+  {%- if request.app.state.public_demo %}
+  <footer id="site-footer" class="site-footer">
+    <nav aria-label="Footer"><a href="/about">About</a> · <a href="{{ request.app.state.source_repository_url }}">Source code</a></nav>
+    <p id="site-attribution" class="site-attribution">Created by {{ request.app.state.created_by }} · <a href="{{ request.app.state.company_url }}">{{ request.app.state.company_name }}</a></p>
+  </footer>
+  {%- endif %}
 </body>
 </html>

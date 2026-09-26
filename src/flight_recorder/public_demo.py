@@ -35,6 +35,15 @@ renders it. The snapshot cannot change while the process runs, so every
 request would compute the same model. Replay on the decision page is still
 computed on every request. The local app never provides a stored model.
 
+**The public site (D-020).** In public mode `/` is the Home page, `/demo` is
+the account list exactly as the shared handler renders it, and `/about` is the
+About page; every other shared page keeps its address. The shared router's own
+`GET /` (the account list) is not included, so exactly one route answers each
+public path. Home's three example answers are read and computed inside each
+request through the paths the decision page uses, and the `v5.2` counterfactual
+is replayed by the engine on every Home request and kept nowhere (D-011). The
+local application registers none of this and keeps `/` as the account list.
+
 **Two identities, never conflated.** The *content identity* defined here is a
 SHA-256 over every row and column of the eleven domain tables, SQLite's
 `sqlite_sequence`, and the schema recorded in `sqlite_master`; it is what
@@ -51,8 +60,8 @@ from collections.abc import Iterable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, FastAPI, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import event
 from sqlalchemy.engine import Connection, Engine
@@ -60,7 +69,16 @@ from sqlalchemy.exc import DatabaseError
 
 from flight_recorder.app import STATIC_DIR
 from flight_recorder.ledger.database import make_engine
+from flight_recorder.ledger.schema import accounts, accounts_query
+from flight_recorder.replay.counterfactual import compare, replay
 from flight_recorder.web import routes as web_routes
+from flight_recorder.web.decision_view import AVAILABLE_BUT_IGNORED, UNAVAILABLE, load_decision_page
+from flight_recorder.web.routes import (
+    OPERATING_COMPANY,
+    REPLAY_FAILURES,
+    account_list,
+    templates,
+)
 from flight_recorder.web.routes import router as web_router
 
 #: The only place the public snapshot path comes from, apart from an explicit
@@ -68,6 +86,14 @@ from flight_recorder.web.routes import router as web_router
 DEMO_DB_ENV_VAR = "FLIGHT_RECORDER_DEMO_DB"
 
 SOURCE_REPOSITORY_URL = "https://github.com/e-skora/flight-recorder"
+
+#: Attribution on every public page (the user's own values, D-020).
+CREATED_BY = "Elias Skora"
+COMPANY_NAME = "Consilience Operations House LLC"
+COMPANY_URL = "https://consilienceops.com"
+
+#: The decision page of the canonical decision, where every Home example leads.
+CANONICAL_DECISION_URL = "/accounts/novasignal-ai/decisions/evt-novasignal-04-decision-recorded"
 
 #: The canonical decision the demo is built around.
 CANONICAL_DECISION_EVENT_ID = "evt-novasignal-04-decision-recorded"
@@ -544,11 +570,127 @@ class ReadOnlyMethods:
         await self.app(scope, receive, send)
 
 
+# --- The public site pages (D-020) ----------------------------------------------------
+
+#: The statement Home shows in an example's place when it could not be computed.
+EXAMPLE_UNAVAILABLE = "This example could not be computed for this request."
+
+
+def _home_examples(conn: Connection) -> dict:
+    """Home's three example answers, read and computed for this request alone.
+
+    Examples 1 and 2 come from the decision page's own read path
+    (`load_decision_page`): the recorded score, threshold, output and logic
+    version, and the preserved inputs in the `available but ignored` and
+    `unavailable` states, kept distinct (INV-03). Example 3 is the default
+    current artifact resolved exactly as the decision page resolves it, then
+    `compare(replay(...))` run by the engine now: a counterfactual, labelled as
+    one (INV-06), never a substitute for the record. Every replay failure the
+    decision page names is caught and shown as an unavailable example (INV-09);
+    a programming error still propagates. The returned mapping is built fresh
+    on every call and is kept nowhere: not on the app, not in a module
+    variable, not behind a memoizing decorator (D-011).
+    """
+    page = load_decision_page(conn, CANONICAL_DECISION_EVENT_ID)
+    account_name = None
+    recorded = None
+    ignored: tuple = ()
+    unavailable: tuple = ()
+    if page is not None:
+        recorded = page.decision
+        ignored = tuple(row for row in page.context_rows if row.state == AVAILABLE_BUT_IGNORED)
+        unavailable = tuple(row for row in page.context_rows if row.state == UNAVAILABLE)
+        account = conn.execute(
+            accounts_query().where(accounts.c.account_ref == page.decision.account_ref)
+        ).first()
+        account_name = account.name if account is not None else page.decision.account_ref
+
+    comparison = None
+    counterfactual_failure = None
+    if page is None:
+        counterfactual_failure = "the canonical decision is not recorded"
+    else:
+        current_hash, no_selection = web_routes._default_current_artifact(
+            conn, page.decision.decision_class
+        )
+        if current_hash is None:
+            counterfactual_failure = no_selection
+        else:
+            try:
+                comparison = compare(replay(conn, CANONICAL_DECISION_EVENT_ID, current_hash))
+            except REPLAY_FAILURES as error:
+                counterfactual_failure = f"{type(error).__name__}: {error}"
+
+    return {
+        "account_name": account_name,
+        "recorded": recorded,
+        "ignored": ignored,
+        "unavailable": unavailable,
+        "comparison": comparison,
+        "counterfactual_failure": counterfactual_failure,
+        "ignored_state": AVAILABLE_BUT_IGNORED,
+        "unavailable_state": UNAVAILABLE,
+    }
+
+
+def home(request: Request) -> HTMLResponse:
+    """The Home page (D-020). Its examples are computed inside this request."""
+    engine = request.app.state.engine
+    with engine.connect() as conn:
+        examples = _home_examples(conn)
+    return templates.TemplateResponse(
+        request,
+        "home.html",
+        {
+            "operating_company": OPERATING_COMPANY,
+            "decision_url": CANONICAL_DECISION_URL,
+            "example_unavailable": EXAMPLE_UNAVAILABLE,
+            "walkthrough_url": request.app.state.public_walkthrough_url,
+            **examples,
+        },
+    )
+
+
+def about(request: Request) -> HTMLResponse:
+    """The About / How it was built page (D-020). Reads nothing from the ledger."""
+    return templates.TemplateResponse(
+        request,
+        "about.html",
+        {
+            "operating_company": OPERATING_COMPANY,
+            "decision_url": CANONICAL_DECISION_URL,
+        },
+    )
+
+
+def public_site_router() -> APIRouter:
+    """The public site's routes: Home at `/`, the shared account list at
+    `/demo` (the same handler, so the `q` filter and the start block come with
+    it), About at `/about`, and every shared page except the shared `GET /`.
+    Exactly one route answers each path; nothing is shadowed."""
+    router = APIRouter(tags=["public-site"])
+    router.add_api_route("/", home, methods=["GET"], response_class=HTMLResponse)
+    router.add_api_route("/demo", account_list, methods=["GET"], response_class=HTMLResponse)
+    router.add_api_route("/about", about, methods=["GET"], response_class=HTMLResponse)
+    shared = APIRouter()
+    shared.routes.extend(route for route in web_router.routes if route.path != "/")
+    router.include_router(shared)
+    return router
+
+
 # --- The factory ----------------------------------------------------------------------
 
 
-def create_public_demo(snapshot_path: Path | str | None = None) -> FastAPI:
-    """The public read-only application over an admitted release snapshot."""
+def create_public_demo(
+    snapshot_path: Path | str | None = None, *, walkthrough_url: str | None = None
+) -> FastAPI:
+    """The public read-only application over an admitted release snapshot.
+
+    `walkthrough_url`, when given, is the address of the personal walkthrough;
+    Home then shows its walkthrough section and its **Watch the walkthrough**
+    action as a plain link. With no address (the default, and what the host's
+    `--factory` start gives) neither renders.
+    """
     path = _snapshot_path(snapshot_path)
     engine = open_read_only(path)
     try:
@@ -589,12 +731,16 @@ def create_public_demo(snapshot_path: Path | str | None = None) -> FastAPI:
     app.state.public_demo = True
     app.state.source_repository_url = SOURCE_REPOSITORY_URL
     app.state.public_insights_page = insights_page
+    app.state.public_walkthrough_url = walkthrough_url or None
+    app.state.created_by = CREATED_BY
+    app.state.company_name = COMPANY_NAME
+    app.state.company_url = COMPANY_URL
 
     def healthz() -> JSONResponse:
         return JSONResponse(health)
 
     app.add_api_route("/healthz", healthz, methods=list(ALLOWED_METHODS), include_in_schema=False)
-    app.include_router(web_router)
+    app.include_router(public_site_router())
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     app.add_middleware(ReadOnlyMethods)
     return app

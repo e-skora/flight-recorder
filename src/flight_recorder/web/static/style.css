@@ -336,3 +336,44 @@ html.public-demo .headline-context { margin: 0; color: var(--pd-muted); max-widt
   html.public-demo .replay-score > span:first-child { font-size: 1.7rem; }
   html.public-demo .headline-rate { font-size: 1.3rem; }
 }
+
+/* Public site pages (D-020): Home, About, the site navigation and footer.
+   Appended; no rule above is changed. Every selector is scoped to
+   html.public-demo, so local pages keep their existing look. */
+html.public-demo .site-nav { flex-wrap: wrap; }
+/* Home: the headline, the lead and the primary action first. */
+html.public-demo .home-hero { border-top: 6px solid var(--pd-lime); padding: var(--pd-space-6); }
+html.public-demo .home-hero h1 { font-size: 2.3rem; line-height: 1.15; max-width: 46rem; margin: var(--pd-space-2) 0 var(--pd-space-4); }
+html.public-demo .home-lead { font-size: 1.12rem; color: var(--pd-charcoal-2); max-width: 48rem; margin: 0 0 var(--pd-space-4); }
+html.public-demo .home-actions { list-style: none; padding: 0; margin: var(--pd-space-4) 0; display: flex; flex-wrap: wrap; gap: var(--pd-space-3); align-items: center; }
+html.public-demo .home-actions li { margin: 0; }
+html.public-demo .home-audience { color: var(--pd-muted); margin: var(--pd-space-3) 0 0; max-width: 48rem; }
+html.public-demo .home-questions { list-style: none; padding: 0; margin: var(--pd-space-4) 0 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--pd-space-4); counter-reset: question; }
+html.public-demo .home-questions > li { background: var(--pd-surface-2); border: 1px solid var(--pd-line); border-radius: var(--pd-radius-sm); padding: var(--pd-space-4) var(--pd-space-4) var(--pd-space-3); counter-increment: question; }
+html.public-demo .home-questions h3 { margin: 0 0 var(--pd-space-2); font-size: 1.1rem; }
+html.public-demo .home-questions h3::before { content: counter(question) ". "; color: var(--pd-lime-deep); font-weight: 800; }
+html.public-demo .home-questions p { margin: 0 0 var(--pd-space-2); font-size: .97rem; }
+html.public-demo .home-questions p:last-child { margin: var(--pd-space-3) 0 0; font-weight: 600; }
+html.public-demo .example-unavailable { border: 2px dashed var(--pd-line-strong); border-radius: var(--pd-radius-sm); padding: var(--pd-space-2) var(--pd-space-3); }
+html.public-demo .home-steps { margin: var(--pd-space-3) 0 0; padding-left: 1.4rem; display: grid; gap: var(--pd-space-2); color: var(--pd-charcoal-2); }
+html.public-demo .home-steps li::marker { font-weight: 700; color: var(--pd-lime-deep); }
+/* About. */
+html.public-demo .about-byline { margin: 0 0 var(--pd-space-3); font-weight: 700; color: var(--pd-lime-deep); }
+html.public-demo .about-architecture { padding-left: 1.2rem; display: grid; gap: var(--pd-space-2); }
+html.public-demo .about-decisions dt { color: var(--pd-charcoal); font-weight: 700; }
+html.public-demo .about-decisions dd { font-weight: 400; margin-bottom: var(--pd-space-2); }
+html.public-demo #about-limitations ul { padding-left: 1.2rem; display: grid; gap: var(--pd-space-2); }
+/* The footer: the About and source links, then attribution. */
+html.public-demo .site-footer { max-width: 76rem; margin: 0 auto; padding: var(--pd-space-5) var(--pd-space-6) var(--pd-space-7); border-top: 1px solid var(--pd-line); color: var(--pd-muted); font-size: .92rem; display: flex; flex-wrap: wrap; gap: var(--pd-space-2) var(--pd-space-5); align-items: baseline; }
+html.public-demo .site-footer nav a { font-weight: 600; }
+html.public-demo .site-attribution { margin: 0; }
+@media (max-width: 40rem) {
+  html.public-demo .home-hero { padding: var(--pd-space-4); }
+  html.public-demo .home-hero h1 { font-size: 1.5rem; margin: var(--pd-space-1) 0 var(--pd-space-3); }
+  html.public-demo .home-lead { font-size: 1rem; margin-bottom: var(--pd-space-3); }
+  html.public-demo .home-actions { flex-direction: column; align-items: stretch; margin: var(--pd-space-3) 0; gap: var(--pd-space-2); }
+  html.public-demo .home-actions .button { width: 100%; }
+  html.public-demo .home-questions { grid-template-columns: minmax(0, 1fr); gap: var(--pd-space-3); }
+  html.public-demo .site-nav .site-nav-source { margin-left: 0; }
+  html.public-demo .site-footer { padding: var(--pd-space-4) var(--pd-space-4) var(--pd-space-6); flex-direction: column; align-items: flex-start; }
+}

@@ -84,13 +84,22 @@ def test_public_theme_hooks_occur_only_in_public_mode(clients, url):
 
 def test_the_public_nav_marks_the_current_page(clients):
     public, _ = clients
-    assert '<a href="/" aria-current="page" class="is-current">Accounts</a>' in public.get("/").text
+    home = public.get("/").text
+    assert '<a href="/" aria-current="page" class="is-current">Home</a>' in home
+    assert home.count('aria-current="page"') == 1
+    demo = public.get("/demo").text
+    assert '<a href="/demo" aria-current="page" class="is-current">Try the demo</a>' in demo
+    assert demo.count('aria-current="page"') == 1
     insights = public.get("/insights").text
     assert '<a href="/insights" aria-current="page" class="is-current">Insights</a>' in insights
     assert insights.count('aria-current="page"') == 1
+    about = public.get("/about").text
+    assert '<a href="/about" aria-current="page" class="is-current">About</a>' in about
+    assert about.count('aria-current="page"') == 1
     decision = public.get(DECISION_URL).text
     assert 'aria-current="page"' not in decision  # a section marker, not a page claim
-    assert '<a href="/" class="is-current">Accounts</a>' in decision
+    assert '<a href="/demo" class="is-current">Try the demo</a>' in decision
+    assert decision.count("is-current") == 1
 
 
 def test_the_public_theme_is_scoped_in_the_stylesheet(clients):

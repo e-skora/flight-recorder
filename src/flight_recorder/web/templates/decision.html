@@ -4,7 +4,7 @@
 {% set current_logic_text = comparison.current_logic.logic_version if comparison else (selected_option.logic_version if selected_option else "the selected current logic") %}
 
 <section id="decision-summary">
-  <nav aria-label="Breadcrumb"><a href="/">Accounts</a> › <a href="/accounts/{{ account.account_ref }}">{{ account.name }}</a> › Decision</nav>
+  <nav aria-label="Breadcrumb"><a href="{{ "/demo" if request.app.state.public_demo else "/" }}">Accounts</a> › <a href="/accounts/{{ account.account_ref }}">{{ account.name }}</a> › Decision</nav>
   <h1>{{ account.name }}: recorded {{ decision.decision_class }} decision</h1>
   <p class="lede">The recorded sections show stored decision data. The replay panel can compare that preserved context under selected logic without changing the record.</p>
   <dl class="fields">

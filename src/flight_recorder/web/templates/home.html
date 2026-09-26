@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Flight Recorder · See why an automated decision was made{% endblock %}
+{% block content %}
+<section id="home-intro" class="home-hero" aria-labelledby="home-headline">
+  <p class="start-eyebrow">Observability for automated revenue decisions</p>
+  <h1 id="home-headline">See why an automated decision was made, and what newer rules would have done.</h1>
+  <p id="home-lead" class="home-lead">Flight Recorder keeps the evidence and the exact rules behind automated account-prioritization decisions, so the person who owns that workflow can inspect a past decision and replay it under different rules without rewriting history.</p>
+  <ul class="home-actions">
+    <li><a id="try-the-demo" href="/demo" class="button button-primary">Try the demo</a></li>
+    {%- if walkthrough_url %}
+    <li><a id="watch-the-walkthrough" href="#walkthrough" class="button button-secondary">Watch the walkthrough</a></li>
+    {%- endif %}
+  </ul>
+  <p id="home-audience" class="home-audience">For GTM engineers, technical RevOps operators and revenue-systems owners responsible for automated prioritization logic.</p>
+</section>
+
+<section id="home-examples" aria-labelledby="home-examples-heading">
+  <h2 id="home-examples-heading">Three questions the demo answers</h2>
+  <p class="lede">Each answer below is read from the demo's own synthetic data on this request, and each links into the page that shows it in full.</p>
+  <ol class="home-questions">
+    <li id="example-recorded">
+      <h3>Why was this account prioritized?</h3>
+      {%- if recorded %}
+      <p><span id="example-account">{{ account_name }}</span> scored <span id="example-recorded-score">{{ recorded.score }}</span> against a threshold of <span id="example-recorded-threshold">{{ recorded.threshold }}</span> under rules <code id="example-recorded-logic">{{ recorded.logic_version }}</code>, so the output was <span id="example-recorded-output">{{ recorded.output }}</span>.</p>
+      {%- else %}
+      <p id="example-recorded-unavailable" class="example-unavailable">{{ example_unavailable }}</p>
+      {%- endif %}
+      <p><a href="{{ decision_url }}">Open the recorded decision</a></p>
+    </li>
+    <li id="example-ignored">
+      <h3>What was available but ignored?</h3>
+      {%- if recorded %}
+      {%- for row in ignored %}
+      <p class="example-ignored-input"><code>{{ row.input_key }}</code> was recorded as <code>{{ row.value_display }}</code>. It was available at the decision boundary, but the rules did not use it: its recorded state is <span class="state-word">{{ row.state }}</span>.</p>
+      {%- else %}
+      <p class="example-ignored-input">No preserved input is in the <span class="state-word">{{ ignored_state }}</span> state for this decision.</p>
+      {%- endfor %}
+      {%- for row in unavailable %}
+      <p class="example-unavailable-input"><code>{{ row.input_key }}</code> was explicitly <span class="state-word">{{ row.state }}</span>, which is a different thing: the system did not have it.</p>
+      {%- else %}
+      <p class="example-unavailable-input">No preserved input is in the <span class="state-word">{{ unavailable_state }}</span> state for this decision.</p>
+      {%- endfor %}
+      {%- else %}
+      <p id="example-ignored-unavailable" class="example-unavailable">{{ example_unavailable }}</p>
+      {%- endif %}
+      <p><a href="{{ decision_url }}#evidence-context">See the preserved context</a></p>
+    </li>
+    <li id="example-replay">
+      <h3>Would newer rules decide the same?</h3>
+      {%- if comparison %}
+      <p>Replayed under <code id="example-counterfactual-logic">{{ comparison.current_logic.logic_version }}</code> on the same preserved evidence, the score is <span id="example-counterfactual-score">{{ comparison.counterfactual_score }}</span> against threshold <span id="example-counterfactual-threshold">{{ comparison.counterfactual_threshold }}</span>: <span id="example-counterfactual-output">{{ comparison.counterfactual_output }}</span>. The recorded decision stays <span id="example-original-score">{{ comparison.original_score }}</span>, <span id="example-original-output">{{ comparison.original_output }}</span>.</p>
+      <p class="counterfactual-computed">That second result is a counterfactual: computed on demand for this request, never stored, exactly as on the decision page. No present-day evidence entered it.</p>
+      {%- else %}
+      <p id="example-replay-unavailable" class="example-unavailable">{{ example_unavailable }} <span class="diagnostic">{{ counterfactual_failure }}</span></p>
+      {%- endif %}
+      <p><a href="{{ decision_url }}#replay-comparison">Open the replay comparison</a></p>
+    </li>
+  </ol>
+</section>
+
+<section id="how-it-works" aria-labelledby="how-it-works-heading">
+  <h2 id="how-it-works-heading">How it works</h2>
+  <ol class="home-steps">
+    <li><strong>Record.</strong> Each decision enters through one collector with the evidence it could see and the exact rules it ran.</li>
+    <li><strong>Preserve.</strong> That context is kept exactly as it was at the decision boundary. Later evidence never rewrites it.</li>
+    <li><strong>Replay.</strong> The same preserved context is evaluated under other rules, and the two results are compared side by side.</li>
+  </ol>
+</section>
+{%- if walkthrough_url %}
+
+<section id="walkthrough" aria-labelledby="walkthrough-heading">
+  <h2 id="walkthrough-heading">The walkthrough</h2>
+  <p>A short personal walkthrough of the demo: the recorded decision, what was available and what was ignored, and the replay under newer rules.</p>
+  <p><a id="walkthrough-link" href="{{ walkthrough_url }}">Watch the walkthrough</a></p>
+</section>
+{%- endif %}
+
+<section id="home-boundary" aria-labelledby="home-boundary-heading">
+  <h2 id="home-boundary-heading">What this is, and is not</h2>
+  <p>Every account, event and outcome here is synthetic; {{ operating_company }} and its prospects are fictional. The demo is read-only. No real customers, live integrations or results are claimed. The project fully replays one decision class, account prioritization, deterministically, on synthetic data.</p>
+  <p><a href="/about">How it was built</a> · <a href="{{ request.app.state.source_repository_url }}">Source code</a></p>
+</section>
+{% endblock %}

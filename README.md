@@ -401,13 +401,18 @@ The repository also contains a second way to serve the same pages: a public, rea
 meant for a hosted demonstration. No hosted demo exists yet; this section describes what the
 mode does and how to run it locally the way a host would.
 
-It serves the account list, account traces, decision pages with replay computed on demand,
-Insights, the static files and a health check at `/healthz`. It refuses every request method
-other than `GET` and `HEAD` with `405`, opens its database read-only in SQLite as well, and
-registers no collector route and no API documentation. Every page carries a short notice that
-the demo is public, read-only and synthetic, and the account list opens with a short
-explanation and links to the canonical decision and its replay. The local application above
-is unchanged and keeps its writable collector.
+It serves three public pages and the demo behind them: **Home** at `/`, which introduces the
+project and answers three example questions from the demo's own data (its replay example is
+computed on every request and never stored); **Try the demo** at `/demo`, the account list
+with its filter and start block, and behind it the account traces, the decision pages with
+replay computed on demand, and Insights at their usual addresses; and **About / How it was
+built** at `/about`. It also serves the static files and a health check at `/healthz`. It
+refuses every request method other than `GET` and `HEAD` with `405`, opens its database
+read-only in SQLite as well, and registers no collector route and no API documentation.
+Every page carries a short notice that the demo is public, read-only and synthetic, a
+navigation bar and a footer with attribution. The local application above is unchanged:
+`/` stays the account list, `/demo` and `/about` do not exist there, and it keeps its
+writable collector.
 
 The public mode serves only a snapshot built by `build-demo-snapshot`. That command runs the
 same steps as the setup above (`reset`, `seed-dataset`, then `register-current-logic`)
@@ -430,7 +435,9 @@ uv run flight-recorder build-demo-snapshot --out "$SNAP"
 FLIGHT_RECORDER_DEMO_DB="$SNAP" uv run uvicorn flight_recorder.public_demo:create_public_demo --factory --host 127.0.0.1 --port 8000 --workers 1
 ```
 
-Then open <http://127.0.0.1:8000/>. The host's build step installs with
+Then open <http://127.0.0.1:8000/> for Home, <http://127.0.0.1:8000/demo> for the account
+list, or <http://127.0.0.1:8000/about>. In public mode the demo path below starts at `/demo`
+instead of `/`; every later step keeps its address. The host's build step installs with
 `uv sync --locked --no-dev`, and its start command runs the same three lines on `0.0.0.0` at
 the host's `$PORT`, so every start rebuilds the same snapshot in a fresh temporary directory.
 
