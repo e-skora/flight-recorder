@@ -414,6 +414,19 @@ navigation bar and a footer with attribution. The local application above is unc
 `/` stays the account list, `/demo` and `/about` do not exist there, and it keeps its
 writable collector.
 
+Home also carries a personal walkthrough video in the browser's own player. The video file
+and its poster image are served from the author's media subdomain,
+`media.flight-recorder.app`, not from this application; their addresses and the video's
+SHA-256 are constants in `src/flight_recorder/public_demo.py`, and startup refuses any
+address outside that subdomain. Replacing the video means uploading it under new, dated
+object names (an accepted file is never overwritten), changing all three constants
+together, repeating the delivery, markup, playback and content checks on the new commit,
+and accepting that commit before it is published. Home's **Contact** button opens a small
+form whose messages go to the author's email through Web3Forms, an external form service
+that processes them; this application never receives or stores a message, and only shows
+the `/contact/sent` page the service returns the visitor to. The form's access key is in
+the page on purpose: Web3Forms documents it as a public key meant for client-side code.
+
 The public mode serves only a snapshot built by `build-demo-snapshot`. That command runs the
 same steps as the setup above (`reset`, `seed-dataset`, then `register-current-logic`)
 through the collector into a new file, refuses to overwrite a file that already exists, and
