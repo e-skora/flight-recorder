@@ -37,6 +37,7 @@ from flight_recorder.public_demo import (
     CREATED_BY,
     EXAMPLE_UNAVAILABLE,
     about,
+    contact_sent,
     create_public_demo,
     home,
     open_read_only,
@@ -71,7 +72,7 @@ PUBLIC_PAGES = (
 )
 SITE_PATHS = ("/", "/demo", "/about")
 REFUSED_METHODS = ("POST", "PUT", "PATCH", "DELETE", "OPTIONS")
-WALKTHROUGH = "https://walkthrough.example.test/flight-recorder"
+WALKTHROUGH = "https://media.flight-recorder.app/flight-recorder-walkthrough-2026-09-27-1080p.mp4"
 
 
 @pytest.fixture(scope="module")
@@ -159,11 +160,13 @@ def test_exactly_one_get_route_answers_each_public_path(app):
     assert by_path["/"] is home
     assert by_path["/demo"] is account_list
     assert by_path["/about"] is about
+    assert by_path["/contact/sent"] is contact_sent  # the default configures contact
     assert set(by_path) == {
         "/healthz",
         "/",
         "/demo",
         "/about",
+        "/contact/sent",
         "/accounts/{account_ref}",
         "/accounts/{account_ref}/decisions/{decision_event_id}",
         "/insights",
@@ -180,6 +183,7 @@ def test_exactly_one_get_route_answers_each_public_path(app):
         ("/", frozenset({"GET"})),
         ("/demo", frozenset({"GET"})),
         ("/about", frozenset({"GET"})),
+        ("/contact/sent", frozenset({"GET"})),
     }
     (shared,) = [route for route in site.routes if hasattr(route, "original_router")]
     assert {(r.path, frozenset(r.methods)) for r in shared.original_router.routes} == {
@@ -324,7 +328,20 @@ def test_nothing_from_home_is_kept_on_the_app_between_requests(app, public):
         for name, value in stored.items()
         if name != "public_insights_page" and not isinstance(value, (str, bool, type(None)))
     }
-    assert set(kept) == {"engine"}, kept
+    # The walkthrough and contact settings are fixed at startup, not per request.
+    assert set(kept) == {"engine", "public_walkthrough", "public_contact"}, kept
+    assert kept["public_walkthrough"] == {
+        "video_url": WALKTHROUGH,
+        "poster_url": "https://media.flight-recorder.app/poster-2026-09-27.jpg",
+    }
+    assert set(kept["public_contact"]) == {
+        "access_key",
+        "action",
+        "subject",
+        "from_name",
+        "redirect",
+        "max_length",
+    }
     for value in stored.values():
         assert not hasattr(value, "counterfactual_score")
         assert not (isinstance(value, str) and "example-counterfactual-score" in value)
@@ -534,19 +551,19 @@ def test_a_programming_error_in_the_examples_is_not_caught(public, monkeypatch, 
 
 
 def test_the_walkthrough_section_and_action_render_only_with_an_address(snapshot):
-    with TestClient(create_public_demo(snapshot)) as without:
+    with TestClient(create_public_demo(snapshot, walkthrough_url=None)) as without:
         html = without.get("/").text
         assert not has_element(html, "walkthrough")
         assert not has_element(html, "watch-the-walkthrough")
         assert "Watch the walkthrough" not in page_text(html)
-        assert "<iframe" not in html and "<script" not in html
-    with TestClient(create_public_demo(snapshot, walkthrough_url=WALKTHROUGH)) as with_address:
+        assert "<iframe" not in html and "<script" not in html and "<video" not in html
+    with TestClient(create_public_demo(snapshot)) as with_address:  # the default: the video
         html = with_address.get("/").text
         assert has_element(html, "walkthrough")
         assert '<a id="watch-the-walkthrough" href="#walkthrough"' in html
-        assert f'<a id="walkthrough-link" href="{WALKTHROUGH}">Watch the walkthrough</a>' in html
+        assert f'<source src="{WALKTHROUGH}" type="video/mp4">' in element(html, "walkthrough")
         assert "<iframe" not in html and "<script" not in html
-        assert "<video" not in html and "<embed" not in html and "<object" not in html
+        assert "<embed" not in html and "<object" not in html
         for url in ("/demo", "/about", DECISION_URL):
             assert "<iframe" not in with_address.get(url).text
 

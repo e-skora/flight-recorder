@@ -377,3 +377,30 @@ html.public-demo .site-attribution { margin: 0; }
   html.public-demo .site-nav .site-nav-source { margin-left: 0; }
   html.public-demo .site-footer { padding: var(--pd-space-4) var(--pd-space-4) var(--pd-space-6); flex-direction: column; align-items: flex-start; }
 }
+/* Home: the personal walkthrough and the Contact form. Appended; no rule above
+   is changed, and every selector is scoped to html.public-demo. */
+html.public-demo .walkthrough-frame { position: relative; width: 100%; max-width: 64rem; aspect-ratio: 16 / 9; margin: var(--pd-space-3) 0; background: var(--pd-charcoal); border-radius: var(--pd-radius-sm); overflow: hidden; }
+html.public-demo .walkthrough-frame video { display: block; width: 100%; height: 100%; object-fit: contain; background: var(--pd-charcoal); }
+html.public-demo .walkthrough-frame video p { color: #f4f4f1; padding: var(--pd-space-4); }
+html.public-demo .walkthrough-frame video p a { color: var(--pd-lime); }
+html.public-demo .walkthrough-caption { max-width: 60rem; margin: 0 0 var(--pd-space-2); }
+html.public-demo .walkthrough-meta { color: var(--pd-muted); font-size: .92rem; margin: 0 0 var(--pd-space-4); }
+html.public-demo .walkthrough-meta a { font-weight: 600; }
+html.public-demo .contact { margin: var(--pd-space-4) 0 0; }
+html.public-demo .contact > summary { list-style: none; width: fit-content; }
+html.public-demo .contact > summary::-webkit-details-marker { display: none; }
+html.public-demo .contact[open] > summary { background: var(--pd-lime-tint); }
+html.public-demo .contact-form { display: grid; gap: var(--pd-space-3); max-width: 36rem; margin: var(--pd-space-4) 0 0; }
+html.public-demo .contact-form p { margin: 0; }
+html.public-demo .contact-form label { display: block; font-weight: 600; margin-bottom: var(--pd-space-1); }
+html.public-demo .contact-form input[type="text"], html.public-demo .contact-form input[type="email"], html.public-demo .contact-form textarea {
+  display: block; width: 100%; box-sizing: border-box; font: inherit; padding: .6rem .75rem; border: 1px solid var(--pd-line-strong);
+  border-radius: var(--pd-radius-sm); background: var(--pd-surface); color: var(--pd-charcoal); min-height: 2.75rem;
+}
+html.public-demo .contact-form textarea { resize: vertical; }
+html.public-demo .contact-provider { color: var(--pd-muted); font-size: .9rem; max-width: 36rem; margin: var(--pd-space-3) 0 0; }
+html.public-demo .contact-sent { border-top: 6px solid var(--pd-lime); padding: var(--pd-space-6); }
+@media (max-width: 40rem) {
+  html.public-demo .contact > summary { width: 100%; }
+  html.public-demo .contact-sent { padding: var(--pd-space-4); }
+}

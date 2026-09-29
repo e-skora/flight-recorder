@@ -63,7 +63,9 @@ def test_scroll_regions_are_named_and_focusable_without_positive_tabindex(client
             assert 'role="region"' in tag, tag
             assert 'tabindex="0"' in tag, tag
             assert re.search(r'aria-label="[^"]+ table"', tag), tag
-        assert html.count('tabindex="') == 1 + len(wrappers)
+        assert html.count('tabindex="') == 1 + len(wrappers) + html.count(
+            '<input type="checkbox" name="botcheck" class="hidden" style="display:none" tabindex="-1" autocomplete="off">'  # noqa: E501
+        )
         # Every table on the page is inside one of those regions.
         assert html.count("<table") == len(wrappers)
 

@@ -41,8 +41,12 @@ About page; every other shared page keeps its address. The shared router's own
 `GET /` (the account list) is not included, so exactly one route answers each
 public path. Home's three example answers are read and computed inside each
 request through the paths the decision page uses, and the `v5.2` counterfactual
-is replayed by the engine on every Home request and kept nowhere (D-011). The
-local application registers none of this and keeps `/` as the account list.
+is replayed by the engine on every Home request and kept nowhere (D-011). Home
+also carries the personal walkthrough, a native video player whose file is
+served from the media subdomain and never by this app, and a **Contact** form
+that posts to Web3Forms, not here; `/contact/sent` is the page the provider
+returns the visitor to (D-021). The local application registers none of this
+and keeps `/` as the account list.
 
 **Two identities, never conflated.** The *content identity* defined here is a
 SHA-256 over every row and column of the eleven domain tables, SQLite's
@@ -55,6 +59,7 @@ separately, never used in its place.
 
 import hashlib
 import os
+import re
 import sqlite3
 from collections.abc import Iterable
 from contextlib import asynccontextmanager
@@ -107,6 +112,34 @@ CURRENT_LOGIC_HASH = "cbefd0508d9c999de299b8ed7a5d60f38b746dfc81520e798bd6c25515
 PINNED_CONTENT_IDENTITY = "ad3e8f376182421baf81f8fdc24d91c33c17fbef3e9e57ec8c0dd3cff2f42217"
 
 ALLOWED_METHODS = ("GET", "HEAD")
+
+#: The personal walkthrough on Home (D-020, D-021): a placeholder recording
+#: served from the user's own media subdomain, never from this application. A
+#: replacement goes up under new, dated object names and changes all three
+#: values together; accepted objects are never overwritten.
+PERSONAL_WALKTHROUGH_VIDEO_URL = (
+    "https://media.flight-recorder.app/flight-recorder-walkthrough-2026-09-27-1080p.mp4"
+)
+PERSONAL_WALKTHROUGH_POSTER_URL = "https://media.flight-recorder.app/poster-2026-09-27.jpg"
+#: The video file's SHA-256: documentation of its identity, checked by the
+#: release's delivery evidence. The page never fetches or checks it.
+PERSONAL_WALKTHROUGH_VIDEO_SHA256 = (
+    "19c24c9372a5f27866c5baeeaa979e158dfc6aa3410f5c53e62438463318dabe"
+)
+#: The only origin a walkthrough address may use: scheme, host and the slash.
+MEDIA_ADDRESS_PREFIX = "https://media.flight-recorder.app/"
+
+#: Contact on Home (D-021): a plain form posting to Web3Forms, which delivers
+#: the message to the owner's own address. The owner's email is never in the
+#: page; the access key is public by the provider's own documentation.
+CONTACT_FORM_ACCESS_KEY = "f2ed1fb0-7c9f-4eee-8d7b-3a2f4add6490"
+CONTACT_FORM_ACTION = "https://api.web3forms.com/submit"
+CONTACT_SUBJECT = "Flight Recorder contact"
+CONTACT_FROM_NAME = "Flight Recorder website"
+CONTACT_REDIRECT_URL = "https://flight-recorder.app/contact/sent"
+CONTACT_MESSAGE_MAX_LENGTH = 4000
+#: The canonical lowercase UUID form, with no version constraint.
+CONTACT_KEY_PATTERN = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
 # --- The content identity -------------------------------------------------------------
 
@@ -453,6 +486,61 @@ class SnapshotColumnsMismatch(ContentIdentityMismatch):
         )
 
 
+class SiteConfigurationRefused(RuntimeError):
+    """The public site refuses to start with an invalid Home setting."""
+
+
+class WalkthroughAddressRefused(SiteConfigurationRefused):
+    def __init__(self, role: str, address, reason: str):
+        self.role = role
+        self.address = address
+        super().__init__(
+            f"the walkthrough {role} address {address!r} is refused: {reason}; it must be "
+            f"{MEDIA_ADDRESS_PREFIX} followed by a non-empty path, with no query or fragment"
+        )
+
+
+class ContactKeyRefused(SiteConfigurationRefused):
+    def __init__(self, reason: str):
+        super().__init__(
+            f"the contact form access key is refused: {reason}; it must be a lowercase UUID "
+            "in the 8-4-4-4-12 form"
+        )
+
+
+def validate_media_address(role: str, address) -> str:
+    """The address unchanged, or `WalkthroughAddressRefused`.
+
+    The exact prefix fixes the scheme and the host together: another scheme,
+    another host (an `r2.dev` address included), a port or credentials before
+    the host all fail it. The rest must be a non-empty path with no query
+    string, fragment or whitespace.
+    """
+    if not isinstance(address, str):
+        raise WalkthroughAddressRefused(role, address, "it is not a string")
+    if not address.startswith(MEDIA_ADDRESS_PREFIX):
+        raise WalkthroughAddressRefused(role, address, "another scheme or host")
+    path = address[len(MEDIA_ADDRESS_PREFIX) :]
+    if path == "":
+        raise WalkthroughAddressRefused(role, address, "the path is empty")
+    if "?" in path:
+        raise WalkthroughAddressRefused(role, address, "it carries a query string")
+    if "#" in path:
+        raise WalkthroughAddressRefused(role, address, "it carries a fragment")
+    if any(character.isspace() for character in path):
+        raise WalkthroughAddressRefused(role, address, "the path contains whitespace")
+    return address
+
+
+def validate_contact_key(key) -> str:
+    """The key unchanged, or `ContactKeyRefused`."""
+    if not isinstance(key, str):
+        raise ContactKeyRefused("it is not a string")
+    if CONTACT_KEY_PATTERN.fullmatch(key) is None:
+        raise ContactKeyRefused(f"{key!r} is not in the canonical form")
+    return key
+
+
 # --- Opening and admission ------------------------------------------------------------
 
 
@@ -699,9 +787,18 @@ def home(request: Request) -> HTMLResponse:
             "operating_company": OPERATING_COMPANY,
             "decision_url": CANONICAL_DECISION_URL,
             "example_unavailable": EXAMPLE_UNAVAILABLE,
-            "walkthrough_url": request.app.state.public_walkthrough_url,
+            "walkthrough": request.app.state.public_walkthrough,
+            "contact": request.app.state.public_contact,
             **examples,
         },
+    )
+
+
+def contact_sent(request: Request) -> HTMLResponse:
+    """Where the contact provider sends the visitor after a message. Reads
+    nothing and receives nothing: the message itself never reaches this app."""
+    return templates.TemplateResponse(
+        request, "contact_sent.html", {"operating_company": OPERATING_COMPANY}
     )
 
 
@@ -717,15 +814,20 @@ def about(request: Request) -> HTMLResponse:
     )
 
 
-def public_site_router() -> APIRouter:
+def public_site_router(*, contact: bool = False) -> APIRouter:
     """The public site's routes: Home at `/`, the shared account list at
     `/demo` (the same handler, so the `q` filter and the start block come with
-    it), About at `/about`, and every shared page except the shared `GET /`.
-    Exactly one route answers each path; nothing is shadowed."""
+    it), About at `/about`, `/contact/sent` only when contact is configured,
+    and every shared page except the shared `GET /`. Exactly one route answers
+    each path; nothing is shadowed."""
     router = APIRouter(tags=["public-site"])
     router.add_api_route("/", home, methods=["GET"], response_class=HTMLResponse)
     router.add_api_route("/demo", account_list, methods=["GET"], response_class=HTMLResponse)
     router.add_api_route("/about", about, methods=["GET"], response_class=HTMLResponse)
+    if contact:
+        router.add_api_route(
+            "/contact/sent", contact_sent, methods=["GET"], response_class=HTMLResponse
+        )
     shared = APIRouter()
     shared.routes.extend(route for route in web_router.routes if route.path != "/")
     router.include_router(shared)
@@ -736,15 +838,41 @@ def public_site_router() -> APIRouter:
 
 
 def create_public_demo(
-    snapshot_path: Path | str | None = None, *, walkthrough_url: str | None = None
+    snapshot_path: Path | str | None = None,
+    *,
+    walkthrough_url: str | None = PERSONAL_WALKTHROUGH_VIDEO_URL,
+    walkthrough_poster_url: str | None = PERSONAL_WALKTHROUGH_POSTER_URL,
+    contact_access_key: str | None = CONTACT_FORM_ACCESS_KEY,
 ) -> FastAPI:
     """The public read-only application over an admitted release snapshot.
 
-    `walkthrough_url`, when given, is the address of the personal walkthrough;
-    Home then shows its walkthrough section and its **Watch the walkthrough**
-    action as a plain link. With no address (the default, and what the host's
-    `--factory` start gives) neither renders.
+    Not passed (what the host's `--factory` start gives), `walkthrough_url`
+    and `walkthrough_poster_url` are the personal walkthrough's constants, and
+    Home shows the video player and its **Watch the walkthrough** action;
+    `None` or `""` for `walkthrough_url` shows neither. Not passed,
+    `contact_access_key` is the contact form's constant and Home shows the
+    **Contact** control, with `/contact/sent` registered; `None` or `""` shows
+    no control and registers no route. The two settings are independent. Every
+    configured value is validated before the snapshot is opened, and an
+    invalid one refuses startup with a named `SiteConfigurationRefused`.
     """
+    walkthrough = None
+    if walkthrough_url:
+        walkthrough = {
+            "video_url": validate_media_address("video", walkthrough_url),
+            "poster_url": validate_media_address("poster", walkthrough_poster_url),
+        }
+    contact = None
+    if contact_access_key:
+        contact = {
+            "access_key": validate_contact_key(contact_access_key),
+            "action": CONTACT_FORM_ACTION,
+            "subject": CONTACT_SUBJECT,
+            "from_name": CONTACT_FROM_NAME,
+            "redirect": CONTACT_REDIRECT_URL,
+            "max_length": CONTACT_MESSAGE_MAX_LENGTH,
+        }
+
     path = _snapshot_path(snapshot_path)
     engine = open_read_only(path)
     try:
@@ -785,7 +913,8 @@ def create_public_demo(
     app.state.public_demo = True
     app.state.source_repository_url = SOURCE_REPOSITORY_URL
     app.state.public_insights_page = insights_page
-    app.state.public_walkthrough_url = walkthrough_url or None
+    app.state.public_walkthrough = walkthrough
+    app.state.public_contact = contact
     app.state.created_by = CREATED_BY
     app.state.company_name = COMPANY_NAME
     app.state.company_url = COMPANY_URL
@@ -794,7 +923,7 @@ def create_public_demo(
         return JSONResponse(health)
 
     app.add_api_route("/healthz", healthz, methods=list(ALLOWED_METHODS), include_in_schema=False)
-    app.include_router(public_site_router())
+    app.include_router(public_site_router(contact=contact is not None))
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     app.add_middleware(ReadOnlyMethods)
     return app
