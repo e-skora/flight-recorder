@@ -72,7 +72,7 @@ PUBLIC_PAGES = (
 )
 SITE_PATHS = ("/", "/demo", "/about")
 REFUSED_METHODS = ("POST", "PUT", "PATCH", "DELETE", "OPTIONS")
-WALKTHROUGH = "https://media.flight-recorder.app/flight-recorder-walkthrough-2026-09-27-1080p.mp4"
+WALKTHROUGH = "https://media.flight-recorder.app/flight-recorder-walkthrough-2026-09-30-1080p.mp4"
 
 
 @pytest.fixture(scope="module")

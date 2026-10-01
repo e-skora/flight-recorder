@@ -118,13 +118,13 @@ ALLOWED_METHODS = ("GET", "HEAD")
 #: replacement goes up under new, dated object names and changes all three
 #: values together; accepted objects are never overwritten.
 PERSONAL_WALKTHROUGH_VIDEO_URL = (
-    "https://media.flight-recorder.app/flight-recorder-walkthrough-2026-09-27-1080p.mp4"
+    "https://media.flight-recorder.app/flight-recorder-walkthrough-2026-09-30-1080p.mp4"
 )
 PERSONAL_WALKTHROUGH_POSTER_URL = "https://media.flight-recorder.app/poster-2026-09-27.jpg"
 #: The video file's SHA-256: documentation of its identity, checked by the
 #: release's delivery evidence. The page never fetches or checks it.
 PERSONAL_WALKTHROUGH_VIDEO_SHA256 = (
-    "19c24c9372a5f27866c5baeeaa979e158dfc6aa3410f5c53e62438463318dabe"
+    "2bf39ab062a2540295612740283c739009664beffe1bc30898a5f41b0a1fe27d"
 )
 #: The only origin a walkthrough address may use: scheme, host and the slash.
 MEDIA_ADDRESS_PREFIX = "https://media.flight-recorder.app/"
