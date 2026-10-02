@@ -72,7 +72,7 @@ PUBLIC_PAGES = (
 )
 SITE_PATHS = ("/", "/demo", "/about")
 REFUSED_METHODS = ("POST", "PUT", "PATCH", "DELETE", "OPTIONS")
-WALKTHROUGH = "https://media.flight-recorder.app/flight-recorder-walkthrough-2026-09-30-1080p.mp4"
+WALKTHROUGH = "https://media.flight-recorder.app/flight-recorder-walkthrough-2026-10-02-1080p.mp4"
 
 
 @pytest.fixture(scope="module")
@@ -332,7 +332,7 @@ def test_nothing_from_home_is_kept_on_the_app_between_requests(app, public):
     assert set(kept) == {"engine", "public_walkthrough", "public_contact"}, kept
     assert kept["public_walkthrough"] == {
         "video_url": WALKTHROUGH,
-        "poster_url": "https://media.flight-recorder.app/poster-2026-09-27.jpg",
+        "poster_url": "https://media.flight-recorder.app/poster-2026-10-02.jpg",
     }
     assert set(kept["public_contact"]) == {
         "access_key",

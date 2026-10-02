@@ -39,9 +39,9 @@ from tests.public_demo.conftest import (
 
 #: The accepted values, written out here independently of the production
 #: constants, so a changed constant is caught too.
-VIDEO_URL = "https://media.flight-recorder.app/flight-recorder-walkthrough-2026-09-30-1080p.mp4"
-POSTER_URL = "https://media.flight-recorder.app/poster-2026-09-27.jpg"
-VIDEO_SHA256 = "2bf39ab062a2540295612740283c739009664beffe1bc30898a5f41b0a1fe27d"
+VIDEO_URL = "https://media.flight-recorder.app/flight-recorder-walkthrough-2026-10-02-1080p.mp4"
+POSTER_URL = "https://media.flight-recorder.app/poster-2026-10-02.jpg"
+VIDEO_SHA256 = "ab39bfc83900d3cc54ee650db6e28b9bdc7cef5a4d90677e5cdf4d78ed485660"
 ACCESS_KEY = "f2ed1fb0-7c9f-4eee-8d7b-3a2f4add6490"
 CAPTION = (
     "Elias Skora walks through one decision: its preserved evidence, the rules it ran, "
