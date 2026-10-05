@@ -312,10 +312,16 @@ def insights_page(request: Request):
     failure is a data condition rendered as a named state, like a replay failure
     on the decision page. Every number is an engine field; every state word is
     the engine's constant, passed in here and never retyped in the template.
+
+    The public read-only demo computes this page model once at startup over its
+    admitted, immutable snapshot and provides it as `public_insights_page`; the
+    local app never provides one, so it computes per request exactly as before.
     """
-    engine = request.app.state.engine
-    with engine.connect() as conn:
-        page = load_insights_page(conn)
+    page = getattr(request.app.state, "public_insights_page", None)
+    if page is None:
+        engine = request.app.state.engine
+        with engine.connect() as conn:
+            page = load_insights_page(conn)
     return templates.TemplateResponse(
         request,
         "insights.html",

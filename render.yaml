@@ -1,0 +1,22 @@
+# Render Blueprint for the public, read-only Flight Recorder demo.
+#
+# Configuration only: nothing here is deployed by committing it. Every start
+# rebuilds the synthetic snapshot through the ordinary collector into a fresh
+# temporary directory, then serves it read-only; no persistent disk is used and
+# nothing depends on a file surviving from the build step. Auto-deploy is off
+# so each release is deliberate. No secret, account identifier or domain here.
+services:
+  - type: web
+    name: flight-recorder-demo
+    runtime: python
+    plan: 0.5c-512mb
+    numInstances: 1
+    buildCommand: uv sync --locked --no-dev
+    startCommand: >-
+      SNAP="$(mktemp -d)/demo.db" &&
+      uv run --no-sync flight-recorder build-demo-snapshot --out "$SNAP" &&
+      FLIGHT_RECORDER_DEMO_DB="$SNAP" exec uv run --no-sync
+      uvicorn flight_recorder.public_demo:create_public_demo --factory
+      --host 0.0.0.0 --port "$PORT" --workers 1
+    healthCheckPath: /healthz
+    autoDeployTrigger: "off"

@@ -395,6 +395,65 @@ FLIGHT_RECORDER_DB=/tmp/flight-recorder-demo.db uv run flight-recorder reset
 
 passing the same variable, or `--db`, to every command in the sequence.
 
+## Public read-only mode
+
+The repository also contains a second way to serve the same pages: a public, read-only mode
+meant for a hosted demonstration. No hosted demo exists yet; this section describes what the
+mode does and how to run it locally the way a host would.
+
+It serves three public pages and the demo behind them: **Home** at `/`, which introduces the
+project and answers three example questions from the demo's own data (its replay example is
+computed on every request and never stored); **Try the demo** at `/demo`, the account list
+with its filter and start block, and behind it the account traces, the decision pages with
+replay computed on demand, and Insights at their usual addresses; and **About / How it was
+built** at `/about`. It also serves the static files and a health check at `/healthz`. It
+refuses every request method other than `GET` and `HEAD` with `405`, opens its database
+read-only in SQLite as well, and registers no collector route and no API documentation.
+Every page carries a short notice that the demo is public, read-only and synthetic, a
+navigation bar and a footer with attribution. The local application above is unchanged:
+`/` stays the account list, `/demo` and `/about` do not exist there, and it keeps its
+writable collector.
+
+Home also carries a personal walkthrough video in the browser's own player. The video file
+and its poster image are served from the author's media subdomain,
+`media.flight-recorder.app`, not from this application; their addresses and the video's
+SHA-256 are constants in `src/flight_recorder/public_demo.py`, and startup refuses any
+address outside that subdomain. Replacing the video means uploading it under new, dated
+object names (an accepted file is never overwritten), changing all three constants
+together, repeating the delivery, markup, playback and content checks on the new commit,
+and accepting that commit before it is published. Home's **Contact** button opens a small
+form whose messages go to the author's email through Web3Forms, an external form service
+that processes them; this application never receives or stores a message, and only shows
+the `/contact/sent` page the service returns the visitor to. The form's access key is in
+the page on purpose: Web3Forms documents it as a public key meant for client-side code.
+
+The public mode serves only a snapshot built by `build-demo-snapshot`. That command runs the
+same steps as the setup above (`reset`, `seed-dataset`, then `register-current-logic`)
+through the collector into a new file, refuses to overwrite a file that already exists, and
+never reads `--db` or `FLIGHT_RECORDER_DB`. It prints the snapshot's event count, its content
+identity (a SHA-256 over every stored row and the schema) and, labelled separately, the
+dataset's schedule digest. At startup the public mode checks for the canonical decision, the
+`v5.2` artifact's hash and the content identity pinned in the source, and refuses to start,
+with a named error, on any other database. Because that database cannot change while the
+server runs, the public mode computes the Insights page once at startup and serves that
+result; replay on the decision page is still computed on every request. The local application
+computes Insights on every request, as before.
+
+To build a snapshot and serve it the way the host configuration does:
+
+```
+uv sync
+SNAP="$(mktemp -d)/demo.db"
+uv run flight-recorder build-demo-snapshot --out "$SNAP"
+FLIGHT_RECORDER_DEMO_DB="$SNAP" uv run uvicorn flight_recorder.public_demo:create_public_demo --factory --host 127.0.0.1 --port 8000 --workers 1
+```
+
+Then open <http://127.0.0.1:8000/> for Home, <http://127.0.0.1:8000/demo> for the account
+list, or <http://127.0.0.1:8000/about>. In public mode the demo path below starts at `/demo`
+instead of `/`; every later step keeps its address. The host's build step installs with
+`uv sync --locked --no-dev`, and its start command runs the same three lines on `0.0.0.0` at
+the host's `$PORT`, so every start rebuilds the same snapshot in a fresh temporary directory.
+
 ## The demo path
 
 Eight steps over the shipped seed. It is ready to record in 60 to 90 seconds; a recording is
@@ -451,9 +510,12 @@ earlier commit could not have produced.
   append-only guards, the atomic multi-table writes and the deterministic seed easy to state
   and easy to test. Timezone handling is explicit at the Pydantic boundary because SQLite has
   no timezone-aware type.
-- **No deployment and no hosted demo.** The setup above is the only way to run it. That keeps
-  the repository free of hosting configuration and write guards, and it means a reader has to
-  install something before they see it work.
+- **A read-only public mode, and no hosted demo yet.** The repository contains a separate
+  read-only public mode and host configuration for one small service (`render.yaml`), but
+  nothing is deployed: the setup above is the only way to run it today, and a reader has to
+  install something before they see it work. The public mode leaves the collector out
+  entirely rather than guarding it, so a hosted copy could show replay and Insights with no
+  write path at all, at the cost of a second application factory to keep correct.
 - **Counterfactuals are never persisted.** Recomputing on every page load costs a
   reconstruction plus an evaluation per request. In exchange, there is no schema in which a
   counterfactual could be mistaken for something that occurred.

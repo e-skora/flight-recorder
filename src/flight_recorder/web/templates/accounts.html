@@ -2,11 +2,30 @@
 {% block title %}Accounts · GTM Flight Recorder{% endblock %}
 {% block content %}
 <h1>Accounts</h1>
+{%- if request.app.state.public_demo %}
+<section id="start-here" class="start-here" aria-labelledby="start-here-heading">
+  <h2 id="start-here-heading">See why an automated decision was made, and what newer logic would change</h2>
+  <p class="start-purpose">Flight Recorder keeps each automated account-prioritization decision with the evidence it could see and the exact logic it ran, so the decision can be replayed later.</p>
+  <ul class="start-links">
+    <li><a id="start-canonical-decision" href="/accounts/novasignal-ai/decisions/evt-novasignal-04-decision-recorded" class="button button-primary">Open the NovaSignal AI decision</a></li>
+    <li><a id="start-replay-comparison" href="/accounts/novasignal-ai/decisions/evt-novasignal-04-decision-recorded#replay-comparison" class="button button-secondary">Go straight to its replay comparison</a></li>
+    <li><a id="start-source" href="{{ request.app.state.source_repository_url }}" class="start-source">Read the source code</a></li>
+  </ul>
+  <p>Replay recomputes a past decision from that preserved record, under its own logic or a newer
+  version, so you can check why it was made and what a change in logic would have changed, without
+  today's data rewriting the past. Every account here is synthetic.</p>
+  <ol class="start-steps">
+    <li><strong>The decision.</strong> Its preserved evidence, the logic it ran, its score and its recorded outcome.</li>
+    <li><strong>The replay.</strong> The same preserved context under another logic version, computed on demand and never stored.</li>
+    <li><strong>Insights.</strong> Observed rates across {{ total }} synthetic accounts, with every denominator shown.</li>
+  </ol>
+</section>
+{%- endif %}
 <p>Select an account to open its trace inside the {{ operating_company }} context.</p>
 {% if canonical %}
 <p id="canonical-account">Canonical demo account: <a href="/accounts/{{ canonical.account_ref }}">{{ canonical.name }}</a></p>
 {% endif %}
-<form method="get" action="/" id="account-filter"><label for="account-query">Filter by account name</label> <input type="search" name="q" id="account-query" value="{{ query }}"> <button type="submit">Filter</button></form>
+<form method="get" action="{{ "/demo" if request.app.state.public_demo else "/" }}" id="account-filter"><label for="account-query">Filter by account name</label> <input type="search" name="q" id="account-query" value="{{ query }}"> <button type="submit">Filter</button></form>
 <p id="account-count">Showing {{ shown }} of {{ total }} accounts{% if query %} matching “{{ query }}”{% endif %}</p>
 {% if accounts %}
 <ul class="account-list">

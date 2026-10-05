@@ -1,7 +1,7 @@
 """Console entry point.
 
 `flight-recorder reset | seed | seed-dataset | register-current-logic |
-attribute [--reevaluate] | serve`
+attribute [--reevaluate] | serve | build-demo-snapshot --out PATH`
 """
 
 import argparse
@@ -200,6 +200,158 @@ def cmd_seed_dataset(db_path: Path) -> int:
     return 0
 
 
+#: The fresh-seed schedule digest `seed-dataset` must report for a snapshot build.
+FRESH_SEED_DIGEST = "530f992c3f08f2c01f4e1a5bcc84b05fcc47660c14e51543efa40b2fe41c35ea"
+FRESH_SEED_ITEMS = 1596
+
+
+class SnapshotBuildFailed(Exception):
+    """A build step did not report what the release snapshot requires."""
+
+
+def _build_snapshot_into(path: Path) -> None:
+    """`reset`, `seed-dataset`, `register-current-logic` into `path`, in that order.
+
+    Every event enters through the ordinary collector exactly as the local
+    recipe submits it. Raises `SnapshotBuildFailed` unless the dataset seed is
+    fresh at the pinned digest over the pinned item count and the overlay
+    registration creates exactly one event.
+    """
+    import asyncio
+
+    import httpx
+
+    from flight_recorder.app import create_app
+    from flight_recorder.dataset.generator import generate
+    from flight_recorder.dataset.schedule import run_schedule
+    from flight_recorder.fixtures import (
+        canonical_artifacts,
+        current_logic_registration_path,
+        dataset_comparison_workflow_version,
+        dataset_config,
+        dataset_signals,
+    )
+    from flight_recorder.ledger.database import make_engine
+    from flight_recorder.ledger.schema import create_schema
+
+    # `reset`, without its deletion: the file is this invocation's own empty
+    # temporary file, so there is nothing to delete.
+    engine = make_engine(path)
+    try:
+        create_schema(engine)
+    finally:
+        engine.dispose()
+
+    app = create_app(path)
+    try:
+        report = run_schedule(
+            app,
+            generate(dataset_config(), artifacts=canonical_artifacts()),
+            signals=dataset_signals(),
+            comparison_workflow_version=dataset_comparison_workflow_version(),
+        )
+        print(
+            f"build-demo-snapshot: seed-dataset {report.created} created, "
+            f"{report.duplicate} duplicate ({len(report.results)} items); "
+            f"fresh {report.fresh}; digest {report.digest}"
+        )
+        if not (
+            report.fresh
+            and report.digest == FRESH_SEED_DIGEST
+            and len(report.results) == FRESH_SEED_ITEMS
+            and report.created == FRESH_SEED_ITEMS
+        ):
+            raise SnapshotBuildFailed(
+                f"seed-dataset did not report a fresh seed of {FRESH_SEED_ITEMS} items at "
+                f"digest {FRESH_SEED_DIGEST}"
+            )
+
+        async def register() -> tuple[int, dict]:
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://build") as client:
+                response = await client.post(
+                    "/api/v1/decision-events",
+                    content=current_logic_registration_path().read_bytes(),
+                    headers={"content-type": "application/json"},
+                )
+                return response.status_code, response.json()
+
+        status, body = asyncio.run(register())
+        print(f"build-demo-snapshot: register-current-logic {status} {body.get('status')}")
+        if (status, body.get("status")) != (201, "created"):
+            raise SnapshotBuildFailed(
+                f"register-current-logic did not create exactly one event: {status} {body}"
+            )
+    finally:
+        app.state.engine.dispose()
+
+
+def cmd_build_demo_snapshot(out: Path) -> int:
+    """Build the public demo's release snapshot at `out`, which must not exist.
+
+    Builds into a temporary file beside `out` and moves it into place with a
+    no-overwrite link, so `out` is either absent or the finished snapshot.
+    Never reads `--db` or `FLIGHT_RECORDER_DB`, and never deletes or truncates
+    a file this invocation did not create.
+    """
+    import os
+    import tempfile
+    import time
+
+    from flight_recorder.ledger.database import make_engine
+    from flight_recorder.public_demo import (
+        PINNED_CONTENT_IDENTITY,
+        content_identity,
+        event_count,
+        schedule_digest,
+    )
+
+    if os.path.lexists(out):
+        print(
+            f"build-demo-snapshot: refused: {out} already exists; nothing written", file=sys.stderr
+        )
+        return 1
+    if not out.parent.is_dir():
+        print(
+            f"build-demo-snapshot: refused: directory {out.parent} does not exist", file=sys.stderr
+        )
+        return 1
+
+    started = time.monotonic()
+    handle, name = tempfile.mkstemp(dir=out.parent, prefix=f".{out.name}.", suffix=".building")
+    os.close(handle)
+    temporary = Path(name)
+    try:
+        _build_snapshot_into(temporary)
+        engine = make_engine(temporary)
+        try:
+            with engine.connect() as conn:
+                count = event_count(conn)
+                identity = content_identity(conn)
+                digest = schedule_digest(conn)
+        finally:
+            engine.dispose()
+        # Atomic and never overwriting: the link fails if `out` appeared meanwhile.
+        os.link(temporary, out)
+    except Exception as error:
+        # Only this invocation's own files: its temporary file and the rollback
+        # journal SQLite may have left beside it.
+        for path in (temporary, Path(f"{temporary}-journal")):
+            if path.exists():
+                path.unlink()
+        print(f"build-demo-snapshot: failed: {error}; no snapshot written", file=sys.stderr)
+        return 1
+    temporary.unlink()
+    elapsed = time.monotonic() - started
+    print(f"build-demo-snapshot: wrote {out} ({out.stat().st_size} bytes) in {elapsed:.2f} s")
+    print(f"events: {count}")
+    print(f"content identity: {identity}")
+    matches = "yes" if identity == PINNED_CONTENT_IDENTITY else "no"
+    print(f"content identity matches the pinned release identity: {matches}")
+    print(f"schedule digest (reproducibility evidence, not the content identity): {digest}")
+    return 0
+
+
 def cmd_serve(db_path: Path) -> int:
     import uvicorn
 
@@ -229,6 +381,11 @@ def main(argv: list[str] | None = None) -> int:
         help="submit fixtures/current/ through the collector; run after seed-dataset",
     )
     sub.add_parser("serve", help="run uvicorn on 127.0.0.1:8000")
+    snapshot = sub.add_parser(
+        "build-demo-snapshot",
+        help="build the public demo's read-only snapshot at a new path (ignores --db)",
+    )
+    snapshot.add_argument("--out", type=Path, required=True, help="path to create; must not exist")
     attribute = sub.add_parser(
         "attribute",
         help="attribute outcomes under outcome-attribution-v1 through the collector",
@@ -240,6 +397,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    # Dispatched before `--db` and FLIGHT_RECORDER_DB are resolved: the snapshot
+    # build never reads either.
+    if args.command == "build-demo-snapshot":
+        return cmd_build_demo_snapshot(args.out)
     db_path = args.db if args.db is not None else db_path_from_env()
     if args.command == "attribute":
         return cmd_attribute(db_path, reevaluate=args.reevaluate)

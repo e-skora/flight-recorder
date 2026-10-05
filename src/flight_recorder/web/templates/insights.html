@@ -11,6 +11,17 @@ no comparison: {% for name in missing.names %}{% if not loop.first %} and {% end
 {%- endmacro %}
 {% block content %}
 <h1>Insights</h1>
+{%- if request.app.state.public_demo and page.state == "ready" %}
+{#- The existing overall observed rate, as the detailed section renders it,
+    with its window, denominators and qualification. Shown only for a ready
+    model; the empty and selection-failure states keep their own sections. #}
+<section id="insights-headline" class="insights-headline" aria-labelledby="insights-headline-heading">
+  <h2 id="insights-headline-heading">At a glance</h2>
+  <p class="headline-label">Observed {{ qualifying_period_days }}-day opportunity rate, all decisions</p>
+  <p id="headline-rate" class="headline-rate">{{ rate_line(page.result.overall) }}</p>
+  <p class="headline-context">Cohort total <span id="headline-cohort-total">{{ page.result.overall.cohort_total }}</span> decisions at ledger cutoff <span id="headline-cutoff">{{ page.result.cutoff }}</span>. Observed on synthetic data: descriptive, not causal, and not a conversion probability. How to read it, every exclusion and every denominator follow below.</p>
+</section>
+{%- endif %}
 
 <section id="insights-language">
   <h2>How to read this page</h2>
@@ -97,6 +108,7 @@ no comparison: {% for name in missing.names %}{% if not loop.first %} and {% end
 <section id="reconstruction-failures">
   <h2>Reconstruction failures</h2>
   {% if page.failure_links %}
+  <div class="table-scroll" role="region" aria-label="Reconstruction failures table" tabindex="0">
   <table id="reconstruction-failures-table" class="grid">
     <caption>These decisions stay in the population and in every coverage and standing count above, and are excluded from every matched count and every rate below.</caption>
     <thead><tr><th scope="col">Decision</th><th scope="col">Error</th><th scope="col">Detail</th></tr></thead>
@@ -110,6 +122,7 @@ no comparison: {% for name in missing.names %}{% if not loop.first %} and {% end
       {% endfor %}
     </tbody>
   </table>
+  </div>
   {% else %}
   <p id="reconstruction-failures-none">No decision failed exact reconstruction at this cutoff.</p>
   {% endif %}
@@ -117,6 +130,7 @@ no comparison: {% for name in missing.names %}{% if not loop.first %} and {% end
 
 <section id="signals">
   <h2>Signals (demonstration checks)</h2>
+  <div class="table-scroll" role="region" aria-label="Signals table" tabindex="0">
   <table id="signals-table" class="grid">
     <caption>The six states are exclusive and add up to the population; only {{ word(words.known_true) }} and {{ word(words.known_false) }} form the comparison arms. Input available counts decisions whose sealed context held the key, input consumed counts those whose recorded decision consumed it, and an available-but-ignored input is never counted as consumed.</caption>
     <thead>
@@ -150,9 +164,11 @@ no comparison: {% for name in missing.names %}{% if not loop.first %} and {% end
       {% endfor %}
     </tbody>
   </table>
+  </div>
   {% for row in result.signals %}
   <div id="signal-{{ row.id }}" class="signal-detail">
     <h3>Signal <code>{{ row.id }}</code></h3>
+    <div class="table-scroll" role="region" aria-label="Signal {{ row.id }} rules table" tabindex="0">
     <table id="signal-{{ row.id }}-rules" class="grid">
       <caption>Historical rule matched, by the decision's own logic artifact</caption>
       <thead><tr><th scope="col">Logic version</th><th scope="col">Artifact hash</th><th scope="col">Rule</th><th scope="col">Decisions</th><th scope="col">Matched</th></tr></thead>
@@ -168,6 +184,8 @@ no comparison: {% for name in missing.names %}{% if not loop.first %} and {% end
         {% endfor %}
       </tbody>
     </table>
+    </div>
+    <div class="table-scroll" role="region" aria-label="Signal {{ row.id }} comparison table" tabindex="0">
     <table id="signal-{{ row.id }}-comparison" class="grid">
       <caption>Observed {{ qualifying_period_days }}-day opportunity rate by signal state; the three exclusion counts are reasons that may overlap</caption>
       <thead>
@@ -197,6 +215,7 @@ no comparison: {% for name in missing.names %}{% if not loop.first %} and {% end
         {% endfor %}
       </tbody>
     </table>
+    </div>
     <dl class="fields">
       <dt>Difference</dt><dd id="signal-{{ row.id }}-difference">{{ difference(row.comparison, words.known_true, words.known_false, true) }}</dd>
     </dl>
@@ -206,6 +225,7 @@ no comparison: {% for name in missing.names %}{% if not loop.first %} and {% end
 
 <section id="workflows">
   <h2>Workflow versions</h2>
+  <div class="table-scroll" role="region" aria-label="Workflow versions table" tabindex="0">
   <table id="workflows-table" class="grid">
     <caption>Decisions and the observed {{ qualifying_period_days }}-day opportunity rate by workflow version; the three exclusion counts are reasons that may overlap</caption>
     <thead>
@@ -243,6 +263,7 @@ no comparison: {% for name in missing.names %}{% if not loop.first %} and {% end
       {% endfor %}
     </tbody>
   </table>
+  </div>
   {% set compared = result.workflow_comparison %}
   <div id="workflow-comparison">
     <h3>Workflow comparison</h3>

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en"{% if request.app.state.public_demo %} class="public-demo"{% endif %}>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -10,16 +10,45 @@
   <a class="skip-link" href="#main">Skip to main content</a>
   <header class="context-header">
     <p class="product">GTM Flight Recorder</p>
+    {%- if request.app.state.public_demo %}
+    <p class="public-badge">Public demo · read-only</p>
+    {%- endif %}
     <p class="operating-company">Operating company: <strong>{{ operating_company }}</strong> (fictional)</p>
   </header>
+  {%- if request.app.state.public_demo %}
+  <aside id="public-demo-notice" class="public-demo-notice" role="note" aria-label="Synthetic data and public demo disclosure">
+    <p class="notice-lead"><strong>Public read-only demo.</strong> All data here is synthetic; RelayBridge and NovaSignal AI are fictional.</p>
+    <details class="notice-more">
+      <summary>What this means</summary>
+      <p><strong>Synthetic data.</strong> All accounts, vendor-like events (Apollo-, Clay-, and CRM-like),
+      decisions, and outcomes shown here are simulated. Nothing on this page is connected to a live customer system.</p>
+      <p>Replays are computed on demand under each decision's preserved context and are never stored, and
+      nothing you send can change the data. The writable collector runs locally from the
+      <a href="{{ request.app.state.source_repository_url }}">source repository</a>.</p>
+    </details>
+  </aside>
+  {%- else %}
   <aside class="synthetic-banner" role="note" aria-label="Synthetic data disclosure">
     <strong>Synthetic data.</strong> All accounts, vendor-like events (Apollo-, Clay-, and CRM-like),
     decisions, and outcomes shown here are simulated. RelayBridge and NovaSignal AI are fictional.
     Nothing on this page is connected to a live customer system.
   </aside>
+  {%- endif %}
+  {%- if request.app.state.public_demo %}
+  {%- set path = request.url.path %}
+  {%- set in_demo = path == "/demo" or path.startswith("/accounts/") %}
+  <nav class="site-nav" aria-label="Site"><a href="/"{% if path == "/" %} aria-current="page" class="is-current"{% endif %}>Home</a> <a href="/demo"{% if path == "/demo" %} aria-current="page"{% endif %}{% if in_demo %} class="is-current"{% endif %}>Try the demo</a> <a href="/insights"{% if path == "/insights" %} aria-current="page" class="is-current"{% endif %}>Insights</a> <a href="/about"{% if path == "/about" %} aria-current="page" class="is-current"{% endif %}>About</a> <a class="site-nav-source" href="{{ request.app.state.source_repository_url }}">Source code</a></nav>
+  {%- else %}
   <nav class="site-nav" aria-label="Site"><a href="/">Accounts</a> <a href="/insights">Insights</a></nav>
+  {%- endif %}
   <main id="main" tabindex="-1">
     {% block content %}{% endblock %}
   </main>
+  {%- if request.app.state.public_demo %}
+  <footer id="site-footer" class="site-footer">
+    <nav aria-label="Footer"><a href="/about">About</a> · <a href="{{ request.app.state.source_repository_url }}">Source code</a></nav>
+    <p id="site-attribution" class="site-attribution">Created by {{ request.app.state.created_by }} · <a href="{{ request.app.state.company_url }}">{{ request.app.state.company_name }}</a></p>
+  </footer>
+  {%- endif %}
 </body>
 </html>
