@@ -203,6 +203,17 @@
 - **Must not change:** D-018 to D-021 in full, including the read-only boundary, the snapshot identity, scoring and replay semantics, the synthetic and counterfactual labels, the working contact form, D-019's lime/charcoal direction (a new design choice needs the user's explicit yes) and the rule of no em dashes in public text. Live changes stay a reviewed commit that the user deploys by Manual Deploy of that exact commit. This entry authorizes no merge, deployment, new dependency, spending or account.
 - **Provenance:** Status: decided by the user on 2026-10-05, stating "i want to start a codex project that has access to the files and rules, ect and have it make design edits to the flight recorder website".
 
+### D-023 — How Codex's design work flows: one branch, `main`; Codex merges its own design pull requests after the full check; review only when the user asks; the user deploys
+
+- **Decision:**
+  - **One working branch.** `release/public-site`, which held the live website, is merged into `main` (merge commit `ea4c2b8922fd9d15bff17673888bf543dbd5c676`; the application files are identical to the live commit `d20aa4e`). From here every agent branches from `main`, and live deploys are of `main` commits. `release/public-site` and `release/public-demo-candidate` stay as history and are not deleted.
+  - **No routine review of Codex's design work.** Codex opens a pull request for each change, runs the full check (`ruff check`, `ruff format --check`, the full `pytest` suite) and merges its own pull request when the check and CI pass. Claude reviews a Codex pull request only when the user asks for it, which he reserves for the most important decisions, not small design or visual updates. The different-model review rule proposed in the setup brief is withdrawn.
+  - **The user deploys.** After a merge, Codex gives the user the exact `main` commit to deploy by Render Manual Deploy, "Deploy a specific commit"; Codex then checks the live site. Auto Sync and service auto-deploy stay off.
+  - **The user's explicit yes still comes first** for a new design direction beyond D-019, a new dependency, and anything that changes publishing, the contact form or privacy.
+- **Scope:** this governs Codex's design work under D-022 only. The existing process for Claude Code builds (pre-dispatch and implementation review by the ChatGPT reviewer) is unchanged.
+- **Must not change:** everything D-018 to D-022 preserve.
+- **Provenance:** Status: decided by the user on 2026-10-05, answering the coordinator's three setup questions: "1. yes 2. lets remove that rule and i will have you review when i feel its neccessary, i want to remove blockers and let the work flow more freely 3. sure but i'll only have you review the most improtant decisions not small design or visual updates".
+
 ## Open (Intentionally Unresolved)
 
 These are not decisions. The ratified sources leave them open; nothing here may be assumed by an implementer without a recorded decision. Per the responsibility boundaries, a high-lock-in choice is proposed with tradeoffs and ratified by the user; ordinary reversible choices inside an approved task do not need an entry.
