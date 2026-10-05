@@ -66,4 +66,4 @@ None.
 
 ## Next Action (exactly one)
 
-Scope the next phase with the user (research and a mock implementation, then v2, with a parallel training program), per `.handoffs/continuation-2026-10-03-next-phase-scoping.md`; nothing is built until he asks. Still open, not next: the README's hosted-demo wording; merging `release/public-site` (user's decision). Live site changes stay a reviewed commit plus the user's Manual Deploy of it (Auto Sync and auto-deploy off).
+Set up Codex as the website's design builder (**D-022**, 2026-10-05): the user answers three setup questions (merge the live site branch into `main`; who deploys; who reviews Codex's pull requests), then the coordinator writes the Codex setup prompt and the reviewer note. Paused behind it: next-phase scoping (`.handoffs/continuation-2026-10-03-next-phase-scoping.md`). Still open, not next: the README's hosted-demo wording; merging `release/public-site` (user's decision). Live site changes stay a reviewed commit plus the user's Manual Deploy of it (Auto Sync and auto-deploy off).
