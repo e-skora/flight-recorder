@@ -427,3 +427,33 @@ html.public-demo main, html.public-demo .site-footer, html.public-demo .context-
   html.public-demo .site-nav a { font-size: .875rem; padding-inline: .35rem; }
   html.public-demo .brand-link { min-width: 0; }
 }
+
+/* Public decision journey: the record first, followed by one labelled replay. */
+html.public-demo .decision-navigation { display: flex; flex-wrap: wrap; gap: .6rem 1rem; padding: 0 .25rem 1.25rem; }
+html.public-demo .decision-navigation span { font-weight: 700; }
+html.public-demo #decision-summary { border-top: 4px solid var(--pd-lime); }
+html.public-demo #decision-score-threshold { font-size: 1.2rem; font-weight: 750; font-variant-numeric: tabular-nums; }
+html.public-demo .recorded-metadata { margin-top: 1rem; border-top: 1px solid var(--pd-line); padding-top: .75rem; }
+html.public-demo .recorded-metadata summary { font-weight: 600; cursor: pointer; }
+html.public-demo .scroll-cue { color: var(--pd-muted); font-size: .875rem; margin-bottom: .25rem; }
+html.public-demo #replay-result, html.public-demo #account-results, html.public-demo #logic-identity { scroll-margin-top: 1rem; }
+html.public-demo table { overflow-wrap: normal; }
+html.public-demo .trace-summary { min-width: 16rem; }
+html.public-demo #current-artifact { max-width: 100%; min-width: 0; }
+@media (max-width: 40rem) {
+  html.public-demo #decision-summary, html.public-demo #replay-panel, html.public-demo #evidence-context { padding: .85rem; }
+  html.public-demo #current-logic-selector { padding: .75rem; }
+  html.public-demo #decision-summary .fields { margin-block: .75rem; }
+  html.public-demo table.trace, html.public-demo table.trace tbody { display: block; }
+  html.public-demo table.trace caption { display: block; width: auto; max-width: none; }
+  html.public-demo table.trace thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  html.public-demo table.trace tr { display: grid; grid-template-columns: 2rem minmax(0, 1fr); padding: .85rem; border-top: 1px solid var(--pd-line); gap: .35rem; }
+  html.public-demo table.trace td { display: block; border: 0; padding: 0; min-width: 0; overflow-wrap: anywhere; }
+  html.public-demo table.trace .trace-index { grid-column: 1; color: var(--pd-muted); }
+  html.public-demo table.trace .trace-kind { grid-column: 2; }
+  html.public-demo table.trace .trace-summary { grid-column: 1 / -1; font-size: 1rem; margin-block: .15rem .5rem; }
+  html.public-demo table.trace .trace-source, html.public-demo table.trace .trace-occurred, html.public-demo table.trace .trace-recorded { grid-column: 1 / -1; font-size: .875rem; }
+  html.public-demo table.trace .trace-source { color: var(--pd-muted); }
+  html.public-demo table.trace time { white-space: normal; }
+}
+html.public-demo #account-query { max-width: 100%; min-width: 0; }

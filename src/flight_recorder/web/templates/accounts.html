@@ -25,7 +25,11 @@
 {% if canonical %}
 <p id="canonical-account">Canonical demo account: <a href="/accounts/{{ canonical.account_ref }}">{{ canonical.name }}</a></p>
 {% endif %}
-<form method="get" action="{{ "/demo" if request.app.state.public_demo else "/" }}" id="account-filter"><label for="account-query">Filter by account name</label> <input type="search" name="q" id="account-query" value="{{ query }}"> <button type="submit">Filter</button></form>
+<form method="get" action="{{ "/demo" if request.app.state.public_demo else "/" }}" id="account-filter"><label for="account-query">Filter by account name</label> <input type="search" name="q" id="account-query" value="{{ query }}"> <button type="submit"{% if request.app.state.public_demo %} formaction="/demo#account-results"{% endif %}>Filter</button></form>
+{% if request.app.state.public_demo %}
+{% if query %}<p><a href="/demo#account-results">Clear filter</a></p>{% endif %}
+<div id="account-results">
+{% endif %}
 <p id="account-count">Showing {{ shown }} of {{ total }} accounts{% if query %} matching “{{ query }}”{% endif %}</p>
 {% if accounts %}
 <ul class="account-list">
@@ -41,4 +45,5 @@
 {% else %}
 <p>No accounts have been recorded yet. Run <code>flight-recorder seed</code> or <code>flight-recorder seed-dataset</code>.</p>
 {% endif %}
+{% if request.app.state.public_demo %}</div>{% endif %}
 {% endblock %}

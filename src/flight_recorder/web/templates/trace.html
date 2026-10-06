@@ -5,27 +5,29 @@
 <h1>{{ account.name }} <span class="domain">{{ account.domain }}</span></h1>
 <p class="lede">Every recorded event for this account, in order of occurrence. Same-instant events keep their ingest order.</p>
 <div class="table-scroll" role="region" aria-label="Account trace table" tabindex="0">
-<table class="trace">
+<table class="trace"{% if request.app.state.public_demo %} role="table"{% endif %}>
   <caption>Account trace for {{ account.name }} ({{ rows | length }} events)</caption>
-  <thead>
-    <tr>
-      <th scope="col">#</th>
-      <th scope="col">Kind</th>
-      <th scope="col">Source</th>
-      <th scope="col">Occurred at</th>
-      <th scope="col">Recorded at</th>
-      <th scope="col">Summary</th>
+  <thead{% if request.app.state.public_demo %} role="rowgroup"{% endif %}>
+    <tr{% if request.app.state.public_demo %} role="row"{% endif %}>
+      <th scope="col"{% if request.app.state.public_demo %} id="trace-index-heading" role="columnheader"{% endif %}>#</th>
+      <th scope="col"{% if request.app.state.public_demo %} id="trace-kind-heading" role="columnheader"{% endif %}>Kind</th>
+      {% if request.app.state.public_demo %}<th scope="col" id="trace-summary-heading" role="columnheader">Summary</th>{% endif %}
+      <th scope="col"{% if request.app.state.public_demo %} id="trace-source-heading" role="columnheader"{% endif %}>Source</th>
+      <th scope="col"{% if request.app.state.public_demo %} id="trace-occurred-heading" role="columnheader"{% endif %}>Occurred at</th>
+      <th scope="col"{% if request.app.state.public_demo %} id="trace-recorded-heading" role="columnheader"{% endif %}>Recorded at</th>
+      {% if not request.app.state.public_demo %}<th scope="col">Summary</th>{% endif %}
     </tr>
   </thead>
-  <tbody>
+  <tbody{% if request.app.state.public_demo %} role="rowgroup"{% endif %}>
     {% for row in rows %}
-    <tr class="kind-{{ row.kind | lower }}">
-      <td>{{ loop.index }}</td>
-      <td><span class="kind">{{ row.kind }}</span></td>
-      <td>{{ row.source }}</td>
-      <td><span class="time-label">Occurred at:</span> <time datetime="{{ row.occurred_at }}">{{ row.occurred_at }}</time></td>
-      <td><span class="time-label">Recorded at:</span> <time datetime="{{ row.recorded_at }}">{{ row.recorded_at }}</time></td>
-      <td>{% if row.event_type == 'decision.recorded' %}<a href="/accounts/{{ account.account_ref }}/decisions/{{ row.event_id }}">{{ row.summary }}</a>{% elif row.event_type == 'outcome.attributed' and row.resolved_decision_event_id is not none %}<a href="/accounts/{{ account.account_ref }}/decisions/{{ row.resolved_decision_event_id }}#outcome-{{ row.outcome_event_id }}">{{ row.summary }}</a>{% else %}{{ row.summary }}{% endif %}</td>
+    <tr class="kind-{{ row.kind | lower }}"{% if request.app.state.public_demo %} role="row"{% endif %}>
+      <td{% if request.app.state.public_demo %} class="trace-index" role="cell" headers="trace-index-heading"{% endif %}>{{ loop.index }}</td>
+      <td{% if request.app.state.public_demo %} class="trace-kind" role="cell" headers="trace-kind-heading"{% endif %}><span class="kind">{{ row.kind }}</span></td>
+      {% if request.app.state.public_demo %}<td class="trace-summary" role="cell" headers="trace-summary-heading">{% if row.event_type == 'decision.recorded' %}<a href="/accounts/{{ account.account_ref }}/decisions/{{ row.event_id }}">{{ row.summary }}</a>{% elif row.event_type == 'outcome.attributed' and row.resolved_decision_event_id is not none %}<a href="/accounts/{{ account.account_ref }}/decisions/{{ row.resolved_decision_event_id }}#outcome-{{ row.outcome_event_id }}">{{ row.summary }}</a>{% else %}{{ row.summary }}{% endif %}</td>{% endif %}
+      <td{% if request.app.state.public_demo %} class="trace-source" role="cell" headers="trace-source-heading"{% endif %}>{{ row.source }}</td>
+      <td{% if request.app.state.public_demo %} class="trace-occurred" role="cell" headers="trace-occurred-heading"{% endif %}><span class="time-label">Occurred at:</span> <time datetime="{{ row.occurred_at }}">{{ row.occurred_at }}</time></td>
+      <td{% if request.app.state.public_demo %} class="trace-recorded" role="cell" headers="trace-recorded-heading"{% endif %}><span class="time-label">Recorded at:</span> <time datetime="{{ row.recorded_at }}">{{ row.recorded_at }}</time></td>
+      {% if not request.app.state.public_demo %}<td>{% if row.event_type == 'decision.recorded' %}<a href="/accounts/{{ account.account_ref }}/decisions/{{ row.event_id }}">{{ row.summary }}</a>{% elif row.event_type == 'outcome.attributed' and row.resolved_decision_event_id is not none %}<a href="/accounts/{{ account.account_ref }}/decisions/{{ row.resolved_decision_event_id }}#outcome-{{ row.outcome_event_id }}">{{ row.summary }}</a>{% else %}{{ row.summary }}{% endif %}</td>{% endif %}
     </tr>
     {% endfor %}
   </tbody>
