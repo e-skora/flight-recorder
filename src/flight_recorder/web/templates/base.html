@@ -54,7 +54,7 @@
   {%- if request.app.state.public_demo %}
   <footer id="site-footer" class="site-footer">
     <a id="footer-brand" class="brand-link" href="/"><img src="/static/brand/signal-bar.svg" width="24" height="24" alt="">GTM Flight Recorder</a>
-    <nav aria-label="Footer"><a href="/about">About</a> · <a href="{{ request.app.state.source_repository_url }}">Source code</a></nav>
+    <nav aria-label="Footer">{% if request.app.state.public_contact %}<a href="/#contact">Contact</a> · {% endif %}<a href="/about">About</a> · <a href="{{ request.app.state.source_repository_url }}">Source code</a></nav>
     <p id="site-attribution" class="site-attribution">Created by {{ request.app.state.created_by }} · <a href="{{ request.app.state.company_url }}">{{ request.app.state.company_name }}</a></p>
   </footer>
   {%- endif %}

@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}About · How Flight Recorder was built{% endblock %}
 {% block content %}
+<div class="about-content">
 <h1 id="about-headline">About Flight Recorder, and how it was built</h1>
 
 <section id="about-why" aria-labelledby="about-why-heading">
@@ -22,7 +23,7 @@
     <li><strong>An append-only ledger.</strong> Recorded decisions, their preserved context and their logic identity are never edited. Corrections, outcomes and new rules are appended beside them.</li>
     <li><strong>A deterministic evaluator.</strong> Scoring rules are declarative data identified by a content hash plus an evaluator version, so a decision can be re-verified exactly. A version label alone is not identity.</li>
     <li><strong>On-demand replay.</strong> A replay re-verifies the original decision, then evaluates the same preserved context under a selected rule version. The result is labelled a counterfactual and kept nowhere.</li>
-    <li><strong>Pages that only read.</strong> The public demo serves a fixed synthetic snapshot read-only: mutating requests are refused before routing, and the database itself is opened read-only.</li>
+    <li class="architecture-public"><strong>Pages that only read.</strong> The public demo serves a fixed synthetic snapshot read-only: mutating requests are refused before routing, and the database itself is opened read-only.</li>
   </ul>
 </section>
 
@@ -60,4 +61,5 @@
   <h2 id="about-attribution-heading">Attribution</h2>
   <p id="about-attribution-line">Created by {{ request.app.state.created_by }} · <a href="{{ request.app.state.company_url }}">{{ request.app.state.company_name }}</a></p>
 </section>
+</div>
 {% endblock %}

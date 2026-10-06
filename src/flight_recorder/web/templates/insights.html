@@ -46,6 +46,37 @@ no comparison: {% for name in missing.names %}{% if not loop.first %} and {% end
 </section>
 {% elif page.state == "ready" %}
 {% set result = page.result %}
+{% if request.app.state.public_demo %}
+<section id="insights-comparisons" class="insights-comparisons" aria-labelledby="insights-comparisons-heading">
+  <h2 id="insights-comparisons-heading">Signal and workflow comparisons</h2>
+  <p>Observed comparisons in synthetic data. These are demonstration checks, not causal findings.</p>
+  <div class="comparison-cards">
+    {% for row in result.signals %}
+    <div id="summary-signal-{{ row.id }}" class="comparison-card">
+      <h3><a href="#signal-{{ row.id }}-comparison"><code>{{ row.id }}</code></a></h3>
+      <p class="comparison-window">Observed {{ qualifying_period_days }}-day opportunity rate</p>
+      <dl>
+        {% for arm_word, arm in ((words.known_true, row.comparison.present), (words.known_false, row.comparison.absent)) %}
+        <dt>{{ word(arm_word) }}</dt><dd>{{ rate_line(arm) }}</dd>
+        {% endfor %}
+        <dt>Difference</dt><dd id="summary-signal-{{ row.id }}-difference">{{ difference(row.comparison, words.known_true, words.known_false, true) }}</dd>
+      </dl>
+    </div>
+    {% endfor %}
+    {% set compared = result.workflow_comparison %}
+    <div id="summary-workflow" class="comparison-card">
+      <h3><a href="#workflow-comparison">Workflow comparison</a></h3>
+      <p class="comparison-window">Observed {{ qualifying_period_days }}-day opportunity rate</p>
+      <dl>
+        {% for arm_id, version, arm in (("present", compared.workflow_version, compared.comparison.present), ("absent", compared.comparison_workflow_version, compared.comparison.absent)) %}
+        <dt><code>{{ version }}</code></dt><dd id="summary-workflow-{{ arm_id }}-rate">{{ rate_line(arm) }}{% if arm.cohort_total == 0 %} (no decisions recorded under this workflow version){% endif %}</dd>
+        {% endfor %}
+        <dt>Difference</dt><dd id="summary-workflow-difference">{{ difference(compared.comparison, compared.workflow_version, compared.comparison_workflow_version, false) }}</dd>
+      </dl>
+    </div>
+  </div>
+</section>
+{% endif %}
 <section id="insights-summary">
   <h2>Population</h2>
   <p class="lede">The population is every account-prioritization decision recorded by the cutoff for the accounts listed on this site. Every count below comes from the effective outcome versions and their effective attribution results at that cutoff, never from raw row counts.</p>
