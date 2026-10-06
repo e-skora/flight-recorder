@@ -2,7 +2,7 @@
 
 > The only live status record. Keep it short and current: current status, outstanding limitations, the next action. Not a backlog, roadmap, or branch log. Git history holds prior states of this file; `DECISIONS.md` holds ratified decisions; the git-ignored `.handoffs/` directory holds task files, packets and dispositions as historical evidence, never as current instructions.
 
-**Updated:** 2026-10-03 (the public website, demo and walkthrough are **live** at https://flight-recorder.app, deployed at `7cf71f5` from `release/public-site` on the user's direction and verified, launch steps complete; an About page copy change accepted at `d20aa4e` is **live** since 2026-10-03 (user's Manual Deploy); the MVP, D-016 and D-017 are complete and merged; `release/public-site` is not merged into `main`, and no merge is authorized; each further live change needs a reviewed commit and the user's own Manual Deploy of it)
+**Updated:** 2026-10-05 (the public website, demo and walkthrough are **live** at https://flight-recorder.app, running `d20aa4e` (About copy change, user's Manual Deploy, verified); `release/public-site` is merged into `main` (`ea4c2b8`, D-023) and live deploys are now of `main` commits by the user's Manual Deploy; Codex is the website's design builder (D-022, D-023, `CODEX.md`); the MVP, D-016 and D-017 are complete and merged)
 
 ## Phase
 
