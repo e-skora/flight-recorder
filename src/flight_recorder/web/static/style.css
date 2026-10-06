@@ -404,3 +404,26 @@ html.public-demo .contact-sent { border-top: 6px solid var(--pd-lime); padding: 
   html.public-demo .contact > summary { width: 100%; }
   html.public-demo .contact-sent { padding: var(--pd-space-4); }
 }
+
+/* Signal Bar: a compact public frame, with the disclosure always in view. */
+html.public-demo .brand-link { display: inline-flex; align-items: center; gap: .6rem; font-weight: 700; text-decoration: none; }
+html.public-demo .brand-link img { flex: none; }
+html.public-demo .context-header .brand-link { color: #f7f5ef; }
+html.public-demo .product::before { content: none; }
+html.public-demo .context-header { padding-block: .7rem; gap: .5rem 1.25rem; }
+html.public-demo .site-footer .brand-link { color: var(--pd-charcoal); }
+html.public-demo main > section, html.public-demo .account-list { box-shadow: none; }
+@media (max-width: 40rem) {
+  html.public-demo .context-header { padding: .6rem 1rem; gap: .35rem .65rem; }
+  html.public-demo .product { font-size: 1rem; }
+  html.public-demo .product img { width: 26px; height: 26px; }
+  html.public-demo .operating-company { line-height: 1.35; }
+  html.public-demo .public-demo-notice { padding: .4rem 1rem; }
+  html.public-demo .site-nav { padding: 0 .65rem; }
+  html.public-demo .site-nav a { padding: .55rem .45rem; font-size: .9rem; }
+}
+html.public-demo main, html.public-demo .site-footer, html.public-demo .context-header { overflow-wrap: anywhere; min-width: 0; }
+@media (max-width: 40rem) {
+  html.public-demo .site-nav a { font-size: .875rem; padding-inline: .35rem; }
+  html.public-demo .brand-link { min-width: 0; }
+}
