@@ -59,7 +59,7 @@ def test_icons_are_served_at_the_declared_dimensions(public):
         assert response.status_code == 200
         assert response.content[:8] == b"\x89PNG\r\n\x1a\n"
         assert struct.unpack(">II", response.content[16:24]) == (size, size)
-    for name in ("signal-bar.svg", "signal-bar-dark.svg", "signal-bar-mono.svg"):
+    for name in ("capsule.svg", "capsule-dark.svg", "capsule-mono.svg"):
         response = public.get(f"/static/brand/{name}")
         assert response.status_code == 200
         assert "<script" not in response.text and "<image" not in response.text
