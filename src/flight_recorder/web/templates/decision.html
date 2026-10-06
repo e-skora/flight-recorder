@@ -3,24 +3,35 @@
 {% block content %}
 {% set current_logic_text = comparison.current_logic.logic_version if comparison else (selected_option.logic_version if selected_option else "the selected current logic") %}
 
+{% macro decision_summary() %}
 <section id="decision-summary">
   <nav aria-label="Breadcrumb"><a href="{{ "/demo" if request.app.state.public_demo else "/" }}">Accounts</a> › <a href="/accounts/{{ account.account_ref }}">{{ account.name }}</a> › Decision</nav>
   <h1>{{ account.name }}: recorded {{ decision.decision_class }} decision</h1>
   <p class="lede">The recorded sections show stored decision data. The replay panel can compare that preserved context under selected logic without changing the record.</p>
   <dl class="fields">
-    <dt>Decision class</dt><dd>{{ decision.decision_class }}</dd>
+    {% if not request.app.state.public_demo %}<dt>Decision class</dt><dd>{{ decision.decision_class }}</dd>{% endif %}
     <dt>Output</dt><dd id="decision-output">{{ decision.output }}</dd>
     <dt>Score and threshold</dt><dd id="decision-score-threshold">score {{ decision.score }} / threshold {{ decision.threshold }}</dd>
+    {% if request.app.state.public_demo %}<dt>Logic version (label)</dt><dd>{{ decision.logic_version }}</dd>{% endif %}
     <dt>Decision boundary T(d)</dt><dd><time datetime="{{ decision.decision_boundary }}">{{ decision.decision_boundary }}</time></dd>
+    {% if request.app.state.public_demo %}
+  </dl>
+  <details class="recorded-metadata"><summary>Technical details</summary>
+  <dl class="fields">
+    <dt>Decision class</dt><dd>{{ decision.decision_class }}</dd>
+    {% endif %}
     <dt>Occurred at</dt><dd><time datetime="{{ decision.occurred_at }}">{{ decision.occurred_at }}</time></dd>
     <dt>Recorded at</dt><dd><time datetime="{{ decision.recorded_at }}">{{ decision.recorded_at }}</time></dd>
     <dt>Event source</dt><dd>{{ decision.source }}</dd>
     <dt>Workflow version</dt><dd>{{ decision.workflow_version }}</dd>
     <dt>Decision event id</dt><dd><code>{{ decision.decision_event_id }}</code></dd>
   </dl>
+  {% if request.app.state.public_demo %}</details>{% endif %}
   <p class="confidence">Confidence: not provided. No confidence value was recorded for this decision, so no number and no bar is shown for it.</p>
 </section>
+{% endmacro %}
 
+{% macro logic_identity() %}
 <section id="logic-identity">
   <h2>Historical logic identity</h2>
   <dl class="fields">
@@ -32,7 +43,9 @@
   </dl>
   <p>The version label is metadata. The artifact hash together with the evaluator version is the identity that makes this decision exactly replayable.</p>
 </section>
+{% endmacro %}
 
+{% macro render_ruleset() %}
 <section id="ruleset">
   <h2>Declarative ruleset as recorded</h2>
   {% if ruleset.available %}
@@ -63,9 +76,12 @@
   <p class="unavailable-state">{{ ruleset.unavailable_note }}</p>
   {% endif %}
 </section>
+{% endmacro %}
 
+{% macro evidence_context() %}
 <section id="evidence-context">
   <h2>Preserved historical context</h2>
+  {% if request.app.state.public_demo %}<p class="scroll-cue">Scroll sideways to see all columns.</p>{% endif %}
   <div class="table-scroll" role="region" aria-label="Preserved context table" tabindex="0">
   <table id="context-table" class="grid">
     <caption>The values and availability states preserved at the decision boundary. Evidence recorded after that boundary is not part of them and is not shown here.</caption>
@@ -100,7 +116,9 @@
   <p>Each state is a recorded fact: <strong>consumed</strong> means the historical logic referenced the input, <strong>available but ignored</strong> means it was present and no factor referenced it, <strong>unavailable</strong> means it was explicitly recorded as unavailable at the boundary, and <strong>absent</strong> means the historical logic references a key the preserved context has no entry for. A consumed input whose rule did not match contributes 0; every other state reads <em>not consumed</em> rather than 0.</p>
   {% if context_note %}<p class="unavailable-state">{{ context_note }}</p>{% endif %}
 </section>
+{% endmacro %}
 
+{% macro explanation() %}
 <section id="explanation">
   <h2>Explanation (recorded narrative, not evidence or logic)</h2>
   {% if decision.explanation %}
@@ -110,7 +128,9 @@
   {% endif %}
   <p>The explanation presents the recorded basis for this decision. It is not the authoritative record: the evidence, the input states, the ruleset, and the score above are. It is stored exactly as it was submitted and is never regenerated or rewritten here.</p>
 </section>
+{% endmacro %}
 
+{% macro actions() %}
 <section id="actions">
   <h2>Downstream action</h2>
   {% if action_rows %}
@@ -146,6 +166,7 @@
   <p>No action recorded for this decision.</p>
   {% endif %}
 </section>
+{% endmacro %}
 
 {# One observation of one outcome version, qualified by what a recorded `no`
    means for that version: only an open window turns it into "nothing
@@ -154,6 +175,7 @@
 {{ word }}: {{ state }} {% if state == "unknown" %}(the observation itself was not recorded){% elif state == "yes" %}(recorded){% elif row.observation_context == "open" %}(nothing recorded as of <time datetime="{{ row.observed_at }}">{{ row.observed_at }}</time>; the window is open){% else %}(recorded negative observation){% endif %}
 {%- endmacro %}
 
+{% macro outcomes() %}
 <section id="outcomes">
   <h2>Recorded account outcomes</h2>
   <p class="lede">These are outcomes recorded for this account. The attribution column shows, for each recorded outcome version, whether a policy-based link to a decision has been evaluated and what that evaluation recorded.{% if outcome_rows %} Details for each outcome version follow the table in the same order.{% endif %}</p>
@@ -358,7 +380,9 @@
   <p>No outcome recorded for this account. That is missing data, not a negative result and not a failure.</p>
   {% endif %}
 </section>
+{% endmacro %}
 
+{% macro replay_panel() %}
 <section id="replay-panel">
   <h2>Replay: the preserved historical context under selected current logic</h2>
   <p class="counterfactual-warning"><strong>Replay produces a counterfactual. This decision did not occur.</strong> Replay evaluates the historical context preserved at the decision boundary under a selected current logic artifact. No present-day evidence enters it, and a replay result is never stored: no table, column, event, or cache holds one.</p>
@@ -379,7 +403,7 @@
         <option value="{{ option.artifact_hash }}"{% if option.selected %} selected{% endif %}>{{ option.label }}{% if option.positive_weight_bound %} (positive weights total {{ option.positive_weight_bound.positive_weight_score_bound }}, below threshold {{ option.positive_weight_bound.threshold }}){% endif %}</option>
         {% endfor %}
       </select>
-      <button type="submit">Replay under this artifact</button>
+      <button type="submit"{% if request.app.state.public_demo %} formaction="/accounts/{{ account.account_ref }}/decisions/{{ decision.decision_event_id }}#replay-result"{% endif %}>Replay under this artifact</button>
     </form>
     {# One line per registered artifact whose threshold sits above its own
     positive-weight bound, named by that artifact and by no other. An artifact
@@ -411,6 +435,7 @@
     {% endif %}
   </div>
 
+  {% if request.app.state.public_demo %}<div id="replay-result">{% endif %}
   {% if comparison %}
   <div id="replay-comparison">
     <h3>Comparison</h3>
@@ -452,7 +477,8 @@
     </dl>
     <p id="output-changed">output changed: {{ "yes" if comparison.output_changed else "no" }}</p>
 
-    <div class="table-scroll" role="region" aria-label="Replay contributions table" tabindex="0">
+    {% if request.app.state.public_demo %}<p class="scroll-cue">Scroll sideways to see all columns.</p>{% endif %}
+  <div class="table-scroll" role="region" aria-label="Replay contributions table" tabindex="0">
     <table id="contributions-table" class="grid">
       <caption>Every input key either artifact references, and how each side treated it.</caption>
       <thead>
@@ -537,5 +563,29 @@
     <p>No replay was attempted. This is a selection state, not a replay failure. Choose a registered artifact above to run one against its exact hash.</p>
   </div>
   {% endif %}
+  {% if request.app.state.public_demo %}</div>{% endif %}
 </section>
+{% endmacro %}
+{{ decision_summary() }}
+{% if request.app.state.public_demo %}
+<nav id="decision-navigation" class="decision-navigation" aria-label="On this page">
+  <span>On this page</span>
+  <a href="#replay-panel">Replay</a><a href="#evidence-context">Evidence</a><a href="#ruleset">Rules</a><a href="#actions">Action</a><a href="#outcomes">Outcomes</a><a href="#logic-identity">Technical details</a>
+</nav>
+{{ replay_panel() }}
+{{ evidence_context() }}
+{{ render_ruleset() }}
+{{ explanation() }}
+{{ actions() }}
+{{ outcomes() }}
+{{ logic_identity() }}
+{% else %}
+{{ logic_identity() }}
+{{ render_ruleset() }}
+{{ evidence_context() }}
+{{ explanation() }}
+{{ actions() }}
+{{ outcomes() }}
+{{ replay_panel() }}
+{% endif %}
 {% endblock %}
