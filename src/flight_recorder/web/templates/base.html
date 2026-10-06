@@ -4,12 +4,19 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}GTM Flight Recorder{% endblock %}</title>
+  {% if request.app.state.public_demo %}
+  <link rel="icon" type="image/svg+xml" href="/static/brand/signal-bar.svg">
+  {% for size in (16, 32, 48) %}<link rel="icon" type="image/png" sizes="{{ size }}x{{ size }}" href="/static/brand/icon-{{ size }}.png">
+  {% endfor %}<link rel="apple-touch-icon" sizes="180x180" href="/static/brand/icon-180.png">
+  {% endif %}
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to main content</a>
   <header class="context-header">
-    <p class="product">GTM Flight Recorder</p>
+    {% if request.app.state.public_demo %}
+    <a id="header-brand" class="product brand-link" href="/"><img src="/static/brand/signal-bar-dark.svg" width="32" height="32" alt="">GTM Flight Recorder</a>
+    {% else %}<p class="product">GTM Flight Recorder</p>{% endif %}
     {%- if request.app.state.public_demo %}
     <p class="public-badge">Public demo · read-only</p>
     {%- endif %}
@@ -46,6 +53,7 @@
   </main>
   {%- if request.app.state.public_demo %}
   <footer id="site-footer" class="site-footer">
+    <a id="footer-brand" class="brand-link" href="/"><img src="/static/brand/signal-bar.svg" width="24" height="24" alt="">GTM Flight Recorder</a>
     <nav aria-label="Footer"><a href="/about">About</a> · <a href="{{ request.app.state.source_repository_url }}">Source code</a></nav>
     <p id="site-attribution" class="site-attribution">Created by {{ request.app.state.created_by }} · <a href="{{ request.app.state.company_url }}">{{ request.app.state.company_name }}</a></p>
   </footer>
