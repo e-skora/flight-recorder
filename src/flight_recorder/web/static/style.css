@@ -457,3 +457,36 @@ html.public-demo #current-artifact { max-width: 100%; min-width: 0; }
   html.public-demo table.trace time { white-space: normal; }
 }
 html.public-demo #account-query { max-width: 100%; min-width: 0; }
+
+/* Clear public introductions, using the existing request and Insights models. */
+html.public-demo .home-hero { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 2.5rem; align-items: center; }
+html.public-demo .home-hero h1 { font-size: clamp(2rem, 3.3vw, 3rem); max-width: 18ch; }
+html.public-demo .hero-comparison { display: grid; gap: .75rem; min-width: 0; }
+html.public-demo .hero-account { font-weight: 700; margin: 0; }
+html.public-demo .hero-comparison .replay-score { margin-top: .5rem; }
+html.public-demo .home-steps { list-style: none; padding: 0; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.5rem; }
+html.public-demo .home-steps li { border-top: 3px solid var(--pd-line-strong); padding-top: 1rem; }
+html.public-demo .home-steps strong { display: block; margin-bottom: .5rem; }
+html.public-demo .comparison-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.5rem; margin-top: 1.5rem; }
+html.public-demo .comparison-card { border-top: 3px solid var(--pd-lime); padding-top: .75rem; min-width: 0; overflow-wrap: anywhere; }
+html.public-demo .comparison-card h3 { margin: 0 0 .5rem; min-height: 3rem; }
+html.public-demo .comparison-window { font-size: .875rem; color: var(--pd-muted); }
+html.public-demo .comparison-card dt { font-size: .875rem; color: var(--pd-muted); margin-top: 1rem; }
+html.public-demo .comparison-card dd { margin: .3rem 0 0; font-weight: 650; font-variant-numeric: tabular-nums; }
+html.public-demo .about-content { max-width: 72ch; margin: 0 auto; }
+html.public-demo .about-content > section { margin-block: 2.5rem; padding-top: 1.5rem; border-top: 1px solid var(--pd-line); }
+html.public-demo .about-content p { line-height: 1.7; }
+html.public-demo .about-architecture { list-style: none; padding: 0; gap: 0; counter-reset: architecture; }
+html.public-demo .about-architecture li { position: relative; padding: 0 0 1.75rem 2.75rem; margin-left: 1rem; border-left: 2px solid var(--pd-line-strong); counter-increment: architecture; }
+html.public-demo .about-architecture li::before { content: counter(architecture); position: absolute; left: -1rem; top: 0; width: 2rem; height: 2rem; display: grid; place-items: center; background: var(--pd-surface); border: 1px solid var(--pd-line-strong); border-radius: 50%; font-weight: 700; }
+html.public-demo .about-architecture li.architecture-public { margin: .75rem 0 0; padding: 1.25rem; border: 2px dashed var(--pd-charcoal); border-radius: var(--pd-radius-sm); background: var(--pd-surface); }
+html.public-demo .about-architecture li.architecture-public::before { content: none; }
+html.public-demo .about-decisions { display: block; }
+html.public-demo .about-decisions dt { margin-top: 1.5rem; padding: 1rem 1.25rem .25rem; background: var(--pd-surface); border-left: 3px solid var(--pd-lime); }
+html.public-demo .about-decisions dd { margin: 0; padding: .25rem 1.25rem 1.25rem; background: var(--pd-surface); border-left: 3px solid var(--pd-lime); line-height: 1.65; }
+@media (max-width: 50rem) {
+  html.public-demo .home-hero { grid-template-columns: minmax(0, 1fr); gap: 1.5rem; }
+  html.public-demo .home-hero h1 { font-size: 2rem; }
+  html.public-demo .comparison-cards, html.public-demo .home-steps { grid-template-columns: minmax(0, 1fr); }
+  html.public-demo .comparison-card h3 { min-height: 0; }
+}

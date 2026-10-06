@@ -19,16 +19,37 @@
 {%- endmacro %}
 {% block content %}
 <section id="home-intro" class="home-hero" aria-labelledby="home-headline">
+  <div class="hero-purpose">
   <p class="start-eyebrow">Observability for automated revenue decisions</p>
-  <h1 id="home-headline">See why an automated decision was made, and what newer rules would have done.</h1>
-  <p id="home-lead" class="home-lead">Flight Recorder keeps the evidence and the exact rules behind automated account-prioritization decisions, so the person who owns that workflow can inspect a past decision and replay it under different rules without rewriting history.</p>
+  <h1 id="home-headline">See why an automated decision was made.</h1>
+  <p id="home-lead" class="home-lead">Inspect the evidence and rules behind an account-prioritization decision. Replay the same historical evidence under different rules, without rewriting the original decision.</p>
   <ul class="home-actions">
     <li><a id="try-the-demo" href="/demo" class="button button-primary">Try the demo</a></li>
     {%- if walkthrough %}
     <li><a id="watch-the-walkthrough" href="#walkthrough" class="button button-secondary">Watch the walkthrough</a></li>
     {%- endif %}
   </ul>
-  <p id="home-audience" class="home-audience">For GTM engineers, technical RevOps operators and revenue-systems owners responsible for automated prioritization logic.</p>
+  <p id="home-audience" class="home-audience">For GTM engineers, RevOps operators, and revenue-systems owners.</p>
+  </div>
+  <div id="hero-comparison" class="hero-comparison" role="group" aria-label="Replay result summary">
+    {% if account_name %}<p class="hero-account">{{ account_name }}</p>{% endif %}
+    <div class="replay-side replay-original">
+      <p class="replay-side-label">Original, recorded</p>
+      {% if recorded %}
+      <p class="replay-score"><span id="hero-original-score">{{ recorded.score }}</span> <span class="replay-threshold">against threshold {{ recorded.threshold }}</span></p>
+      <p class="replay-line">Logic <span>{{ recorded.logic_version }}</span></p>
+      <p class="replay-line">Output <span>{{ recorded.output }}</span></p>
+      {% else %}<p class="example-unavailable">{{ example_unavailable }}</p>{% endif %}
+    </div>
+    <div class="replay-side replay-counterfactual">
+      <p class="replay-side-label">Counterfactual, computed now, not recorded</p>
+      {% if comparison %}
+      <p class="replay-score"><span id="hero-counterfactual-score">{{ comparison.counterfactual_score }}</span> <span class="replay-threshold">against threshold {{ comparison.counterfactual_threshold }}</span></p>
+      <p class="replay-line">Logic <span>{{ comparison.current_logic.logic_version }}</span></p>
+      <p class="replay-line">Output <span id="hero-counterfactual-output">{{ comparison.counterfactual_output }}</span></p>
+      {% else %}<p class="example-unavailable">{{ example_unavailable }} <span class="diagnostic">{{ counterfactual_failure }}</span></p>{% endif %}
+    </div>
+  </div>
 </section>
 
 <section id="home-examples" aria-labelledby="home-examples-heading">
