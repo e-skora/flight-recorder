@@ -5,6 +5,28 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}GTM Flight Recorder{% endblock %}</title>
   {% if request.app.state.public_demo %}
+  {% set preview_description = "Inspect and replay account-prioritization decisions using preserved evidence and rules. Public read-only demo with synthetic data." %}
+  {% set preview_url = "https://flight-recorder.app" ~ request.url.path %}
+  {% set preview_image = "https://flight-recorder.app/static/brand/sharing-preview.png" %}
+  {% set preview_image_alt = "GTM Flight Recorder. See why an automated decision was made. Public read-only demo with synthetic data." %}
+  <meta name="description" content="{{ preview_description }}">
+  <link rel="canonical" href="{{ preview_url }}">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="GTM Flight Recorder">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:title" content="{{ self.title() | striptags }}">
+  <meta property="og:description" content="{{ preview_description }}">
+  <meta property="og:url" content="{{ preview_url }}">
+  <meta property="og:image" content="{{ preview_image }}">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="{{ preview_image_alt }}">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="{{ self.title() | striptags }}">
+  <meta name="twitter:description" content="{{ preview_description }}">
+  <meta name="twitter:image" content="{{ preview_image }}">
+  <meta name="twitter:image:alt" content="{{ preview_image_alt }}">
   <link rel="icon" type="image/svg+xml" href="/static/brand/capsule.svg">
   {% for size in (16, 32, 48) %}<link rel="icon" type="image/png" sizes="{{ size }}x{{ size }}" href="/static/brand/capsule-{{ size }}.png">
   {% endfor %}<link rel="apple-touch-icon" sizes="180x180" href="/static/brand/capsule-180.png">
