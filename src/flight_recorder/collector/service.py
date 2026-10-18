@@ -14,6 +14,7 @@ Steps 5 and 6 are ordered so that every check runs before the first write: a
 rejected or conflicting envelope leaves no event row and no projection row.
 """
 
+import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -21,6 +22,7 @@ from typing import Any
 from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 from flight_recorder.collector.canonical import canonical_hash, canonical_text
 from flight_recorder.collector.errors import CollectorError, ConflictError, RejectedError
@@ -96,43 +98,66 @@ class Collector:
         normalized = envelope.model_dump(mode="json")
         digest = canonical_hash(normalized)
 
-        with self.engine.begin() as conn:
-            existing = conn.execute(
-                select(events.c.canonical_hash).where(events.c.event_id == envelope.event_id)
-            ).first()
-            if existing is not None:
-                if existing.canonical_hash == digest:
-                    return IngestResult("duplicate", envelope.event_id, digest, 200)
-                raise ConflictError(
-                    {
-                        "status": "conflict",
-                        "reason": "event_id_reused_with_different_content",
-                        "event_id": envelope.event_id,
-                        "stored_hash": existing.canonical_hash,
-                        "submitted_hash": digest,
-                    }
-                )
+        from flight_recorder.collector.provenance import is_v2
 
-            self._check_account_rules(conn, envelope)
-            validate_references(conn, envelope, normalized)
+        try:
+            with self.engine.begin() as conn:
+                existing = conn.execute(
+                    select(events.c.canonical_hash).where(events.c.event_id == envelope.event_id)
+                ).first()
+                if existing is not None:
+                    if existing.canonical_hash == digest:
+                        return IngestResult("duplicate", envelope.event_id, digest, 200)
+                    raise ConflictError(
+                        {
+                            "status": "conflict",
+                            "reason": "event_id_reused_with_different_content",
+                            "event_id": envelope.event_id,
+                            "stored_hash": existing.canonical_hash,
+                            "submitted_hash": digest,
+                        }
+                    )
 
-            self._materialize_account(conn, envelope)
-            inserted = conn.execute(
-                events.insert().values(
-                    event_id=envelope.event_id,
-                    schema_version=normalized["schema_version"],
-                    event_type=normalized["event_type"],
-                    source=normalized["source"],
-                    account_ref=normalized["account_ref"],
-                    occurred_at=normalized["occurred_at"],
-                    recorded_at=normalized["recorded_at"],
-                    canonical_hash=digest,
-                    payload=canonical_text(normalized["payload"]),
+                self._check_account_rules(conn, envelope)
+                validate_references(conn, envelope, normalized)
+
+                self._materialize_account(conn, envelope)
+                inserted = conn.execute(
+                    events.insert().values(
+                        event_id=envelope.event_id,
+                        schema_version=normalized["schema_version"],
+                        event_type=normalized["event_type"],
+                        source=normalized["source"],
+                        account_ref=normalized["account_ref"],
+                        occurred_at=normalized["occurred_at"],
+                        recorded_at=normalized["recorded_at"],
+                        canonical_hash=digest,
+                        payload=canonical_text(normalized["payload"]),
+                    )
                 )
-            )
-            project(conn, normalized, inserted.inserted_primary_key[0])
-            if self.before_commit is not None:
-                self.before_commit(envelope)
+                project(conn, normalized, inserted.inserted_primary_key[0])
+                if self.before_commit is not None:
+                    self.before_commit(envelope)
+        except (IntegrityError, OperationalError) as exc:
+            # The context manager has already rolled back the entire call.
+            code = getattr(exc.orig, "sqlite_errorcode", None)
+            reason = None
+            if is_v2(normalized) and isinstance(code, int):
+                if isinstance(exc, OperationalError) and code & 255 in (
+                    sqlite3.SQLITE_BUSY,
+                    sqlite3.SQLITE_LOCKED,
+                ):
+                    reason = "v2_admission_contended"
+                elif isinstance(exc, IntegrityError) and code in (
+                    sqlite3.SQLITE_CONSTRAINT_UNIQUE,
+                    sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY,
+                ):
+                    reason = "v2_identity_conflict"
+            if reason is None:
+                raise
+            raise ConflictError(
+                {"status": "conflict", "reason": reason, "event_id": envelope.event_id}
+            ) from exc
 
         return IngestResult("created", envelope.event_id, digest, 201)
 

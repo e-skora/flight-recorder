@@ -435,6 +435,10 @@ def load_decision_row(conn, decision_event_id: str) -> DecisionRow:
         select(decisions).where(decisions.c.decision_event_id == decision_event_id)
     ).first()
     if row is None:
+        from flight_recorder.collector.provenance import v2_decision
+
+        row = v2_decision(conn, decision_event_id)
+    if row is None:
         raise DecisionNotFound(decision_event_id)
     return DecisionRow(
         decision_event_id=row.decision_event_id,
@@ -527,6 +531,20 @@ def load_context(conn, decision_event_id: str, decision_boundary: str) -> tuple[
     This verifies the sealed context; it does not rebuild it. Membership stays
     what the decision preserved and the supersession link is never followed.
     """
+    from flight_recorder.collector.provenance import load_v2_context, v2_decision
+
+    # No probe of new tables for a retained legacy decision.
+    legacy = conn.execute(
+        select(decisions.c.decision_event_id).where(
+            decisions.c.decision_event_id == decision_event_id
+        )
+    ).first()
+    if legacy is None:
+        v2 = v2_decision(conn, decision_event_id)
+        if v2 is not None:
+            if v2.decision_boundary != decision_boundary:
+                raise IntegrityFailure("decision_boundary", "v2 context boundary mismatch")
+            return load_v2_context(conn, v2)
     rows = conn.execute(
         select(decision_context)
         .where(decision_context.c.decision_event_id == decision_event_id)
@@ -563,10 +581,23 @@ def load_context(conn, decision_event_id: str, decision_boundary: str) -> tuple[
 
 
 def load_consumed_inputs(conn, decision_event_id: str) -> tuple[ConsumedInputRow, ...]:
+    table = decision_consumed_inputs
+    legacy = conn.execute(
+        select(decisions.c.decision_event_id).where(
+            decisions.c.decision_event_id == decision_event_id
+        )
+    ).first()
+    if legacy is None:
+        from flight_recorder.collector.provenance import v2_decision
+
+        if v2_decision(conn, decision_event_id) is not None:
+            from flight_recorder.ledger.schema import decision_consumed_inputs_v2
+
+            table = decision_consumed_inputs_v2
     rows = conn.execute(
-        select(decision_consumed_inputs)
-        .where(decision_consumed_inputs.c.decision_event_id == decision_event_id)
-        .order_by(decision_consumed_inputs.c.input_key)
+        select(table)
+        .where(table.c.decision_event_id == decision_event_id)
+        .order_by(table.c.input_key)
     ).all()
     return tuple(
         ConsumedInputRow(

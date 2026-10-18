@@ -546,6 +546,70 @@ class DecisionRecordedEnvelope(_EnvelopeBase):
         return self
 
 
+class HeadOfPlatformStartDateV2Evidence(_EvidenceItemBase):
+    evidence_type: Literal["head_of_platform_start_date"]
+    value: date
+    observed_at: None
+
+
+EvidenceItemV2 = Annotated[
+    EmployeeCountEvidence
+    | IndustryEvidence
+    | HeadquartersCountryEvidence
+    | FundingEventEvidence
+    | OpenPlatformEngineeringRolesEvidence
+    | HeadOfPlatformStartDateV2Evidence
+    | VerifiedIntegrationPressureEvidence,
+    Field(discriminator="evidence_type"),
+]
+
+
+class EvidenceRecordedV2Payload(EvidenceRecordedPayload):
+    items: list[EvidenceItemV2] = Field(min_length=1)
+    capture: dict
+    capture_hash: str
+
+
+class DecisionRecordedV2Payload(DecisionRecordedPayload):
+    capture: dict
+    capture_hash: str
+
+
+class EvidenceRecordedV2Envelope(_EnvelopeBase):
+    schema_version: Literal["2"]
+    event_type: Literal["evidence.recorded"]
+    source: Literal["hubspot-synthetic-capture"]
+    payload: EvidenceRecordedV2Payload
+
+    @model_validator(mode="after")
+    def _capture_contract(self):
+        from flight_recorder.collector.capture_contract import validate_wire
+
+        validate_wire(self.model_dump(mode="json"))
+        return self
+
+
+class DecisionRecordedV2Envelope(DecisionRecordedEnvelope):
+    schema_version: Literal["2"]
+    source: Literal["hubspot-synthetic-capture"]
+    payload: DecisionRecordedV2Payload
+
+    @model_validator(mode="after")
+    def _capture_contract(self):
+        from flight_recorder.collector.capture_contract import validate_wire
+
+        validate_wire(self.model_dump(mode="json"))
+        return self
+
+
+EvidenceRecordedEnvelopes = Annotated[
+    EvidenceRecordedEnvelope | EvidenceRecordedV2Envelope, Field(discriminator="schema_version")
+]
+DecisionRecordedEnvelopes = Annotated[
+    DecisionRecordedEnvelope | DecisionRecordedV2Envelope, Field(discriminator="schema_version")
+]
+
+
 class PersonaSelectedEnvelope(_EnvelopeBase):
     event_type: Literal["persona.selected"]
     payload: PersonaSelectedPayload
@@ -615,8 +679,8 @@ class OutcomeAttributedEnvelope(_EnvelopeBase):
 Envelope = Annotated[
     LogicArtifactRegisteredEnvelope
     | AccountDiscoveredEnvelope
-    | EvidenceRecordedEnvelope
-    | DecisionRecordedEnvelope
+    | EvidenceRecordedEnvelopes
+    | DecisionRecordedEnvelopes
     | PersonaSelectedEnvelope
     | ActionRecordedEnvelope
     | OutcomeEvaluatedEnvelopes
@@ -635,6 +699,8 @@ AnyEnvelope = (
     | ActionRecordedEnvelope
     | OutcomeEvaluatedEnvelope
     | OutcomeEvaluatedV2Envelope
+    | EvidenceRecordedV2Envelope
+    | DecisionRecordedV2Envelope
     | OutcomeAttributedEnvelope
 )
 

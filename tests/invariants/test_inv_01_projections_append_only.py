@@ -17,7 +17,21 @@ from tests.conftest import Harness, canonical_envelope_paths, seed_all, seed_and
 
 pytestmark = pytest.mark.invariant
 
-TABLE_IDS = [table.name for table in PROJECTION_TABLES]
+# Canonical v1 envelopes populate these original projections only. The separate
+# v2 suite seeds and protects its own five tables and checks registry coverage.
+LEGACY_TABLE_NAMES = {
+    "evidence_versions",
+    "logic_artifacts",
+    "decisions",
+    "decision_context",
+    "decision_consumed_inputs",
+    "persona_selections",
+    "actions",
+    "outcomes",
+    "outcome_attributions",
+}
+LEGACY_TABLES = tuple(t for t in PROJECTION_TABLES if t.name in LEGACY_TABLE_NAMES)
+TABLE_IDS = [table.name for table in LEGACY_TABLES]
 
 #: Each canonical envelope's index and the indices it must follow. The two
 #: registrations and discovery are independent; everything else has a real
@@ -40,7 +54,7 @@ def _first_writable_column(table):
     return next(c for c in table.columns if not c.primary_key)
 
 
-@pytest.mark.parametrize("table", PROJECTION_TABLES, ids=TABLE_IDS)
+@pytest.mark.parametrize("table", LEGACY_TABLES, ids=TABLE_IDS)
 def test_update_on_a_projection_table_is_refused(harness, table):
     seed_and_attribute(harness)
     before = harness.projection_rows()
@@ -51,7 +65,7 @@ def test_update_on_a_projection_table_is_refused(harness, table):
     assert harness.projection_rows() == before
 
 
-@pytest.mark.parametrize("table", PROJECTION_TABLES, ids=TABLE_IDS)
+@pytest.mark.parametrize("table", LEGACY_TABLES, ids=TABLE_IDS)
 def test_delete_on_a_projection_table_is_refused(harness, table):
     seed_and_attribute(harness)
     before = harness.projection_rows()

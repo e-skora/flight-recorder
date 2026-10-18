@@ -74,6 +74,11 @@ def stored_evidence_value(value_json: str) -> Any:
 
 def validate_references(conn, envelope, normalized: dict) -> None:
     """Check every cross-event reference the envelope makes. Writes nothing."""
+    from flight_recorder.collector.provenance import is_v2, validate_v2
+
+    if is_v2(normalized):
+        validate_v2(conn, normalized)
+        return
     match normalized["event_type"]:
         case "logic_artifact.registered":
             _validate_artifact_identity(conn, normalized)
@@ -624,6 +629,11 @@ def _validate_resolved_references(conn, payload: dict, account_ref: str) -> None
 
 def project(conn, normalized: dict, ingest_sequence: int) -> None:
     """Write the domain records this accepted event produces (PRODUCT.md §6)."""
+    from flight_recorder.collector.provenance import is_v2, project_v2
+
+    if is_v2(normalized):
+        project_v2(conn, normalized, ingest_sequence)
+        return
     match normalized["event_type"]:
         case "logic_artifact.registered":
             _project_artifact(conn, normalized)

@@ -41,6 +41,7 @@ The schema is created from this metadata by `flight-recorder reset`.
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Column,
     ForeignKey,
     ForeignKeyConstraint,
@@ -335,6 +336,98 @@ Index(
     sqlite_where=outcome_attributions.c.supersedes_attribution_event_id.is_(None),
 )
 
+# FR-V2-02A: separate append-only projections; legacy table columns stay exact.
+capture_contexts = Table(
+    "capture_contexts",
+    metadata,
+    Column("capture_hash", String, primary_key=True),
+    Column("account_ref", String, ForeignKey("accounts.account_ref"), nullable=False),
+    Column("unit_id", String, nullable=False, unique=True),
+    Column("capture_sequence", Integer, nullable=False),
+    Column("body_json", Text, nullable=False),
+    Column("source_event_id", String, ForeignKey("events.event_id"), nullable=False),
+    UniqueConstraint("account_ref", "capture_sequence"),
+    CheckConstraint("capture_sequence > 0"),
+)
+
+evidence_versions_v2 = Table(
+    "evidence_versions_v2",
+    metadata,
+    Column("evidence_version_id", String, primary_key=True),
+    Column("account_ref", String, ForeignKey("accounts.account_ref"), nullable=False),
+    Column("evidence_type", String, nullable=False),
+    Column("value_json", Text, nullable=False),
+    Column("source", String, nullable=False),
+    Column("observed_at", String, nullable=True),
+    Column("available_at", String, nullable=False),
+    Column("source_event_id", String, ForeignKey("events.event_id"), nullable=False),
+    Column(
+        "supersedes_evidence_version_id",
+        String,
+        ForeignKey("evidence_versions_v2.evidence_version_id"),
+        nullable=True,
+    ),
+    Column("capture_hash", String, ForeignKey("capture_contexts.capture_hash"), nullable=False),
+    Column("observation_json", Text, nullable=False),
+)
+
+decisions_v2 = Table(
+    "decisions_v2",
+    metadata,
+    Column("decision_event_id", String, ForeignKey("events.event_id"), primary_key=True),
+    Column("account_ref", String, ForeignKey("accounts.account_ref"), nullable=False),
+    Column("decision_class", String, nullable=False),
+    Column("decision_boundary", String, nullable=False),
+    Column("workflow_version", String, nullable=False),
+    Column("artifact_hash", String, ForeignKey("logic_artifacts.artifact_hash"), nullable=False),
+    Column("evaluator_version", String, nullable=False),
+    Column("logic_version", String, nullable=False),
+    Column("score", Integer, nullable=False),
+    Column("threshold", Integer, nullable=False),
+    Column("output", String, nullable=False),
+    Column("explanation", Text, nullable=True),
+    Column("ingest_sequence", Integer, nullable=False),
+    Column("unit_id", String, nullable=False, unique=True),
+    Column("logical_key", String, nullable=False),
+    Column("processing_version", String, nullable=False),
+    Column("capture_hash", String, ForeignKey("capture_contexts.capture_hash"), nullable=False),
+    Column("reprocesses", String, ForeignKey("decisions_v2.unit_id"), nullable=True),
+)
+
+decision_context_v2 = Table(
+    "decision_context_v2",
+    metadata,
+    Column(
+        "decision_event_id", String, ForeignKey("decisions_v2.decision_event_id"), primary_key=True
+    ),
+    Column("input_key", String, primary_key=True),
+    Column("availability", String, nullable=False),
+    Column("value_text", Text, nullable=True),
+    Column(
+        "evidence_version_id",
+        String,
+        ForeignKey("evidence_versions_v2.evidence_version_id"),
+        nullable=True,
+    ),
+)
+
+decision_consumed_inputs_v2 = Table(
+    "decision_consumed_inputs_v2",
+    metadata,
+    Column(
+        "decision_event_id", String, ForeignKey("decisions_v2.decision_event_id"), primary_key=True
+    ),
+    Column("input_key", String, primary_key=True),
+    Column("value_text", Text, nullable=False),
+    Column(
+        "evidence_version_id",
+        String,
+        ForeignKey("evidence_versions_v2.evidence_version_id"),
+        nullable=False,
+    ),
+    Column("contribution", Integer, nullable=False),
+)
+
 #: Every projected historical table, in dependency order (parents first).
 PROJECTION_TABLES = (
     evidence_versions,
@@ -346,6 +439,11 @@ PROJECTION_TABLES = (
     actions,
     outcomes,
     outcome_attributions,
+    capture_contexts,
+    evidence_versions_v2,
+    decisions_v2,
+    decision_context_v2,
+    decision_consumed_inputs_v2,
 )
 
 #: `events` plus the projections: everything INV-01 protects at the database.
