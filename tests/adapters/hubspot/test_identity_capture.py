@@ -602,3 +602,135 @@ def test_rule_identity_requires_exact_lowercase_sha256(artifact_hash):
     a = api()
     with pytest.raises(ValueError):
         a["contracts"].RuleIdentity(artifact_hash, "supplied-synthetic-evaluator")
+
+
+@pytest.mark.invariant
+@pytest.mark.parametrize(
+    "available_fold,boundary_fold,refused",
+    [(0, 1, False), (1, 0, True), (0, 0, False), (1, 1, False)],
+)
+def test_dst_fold_availability_orders_absolute_instants(
+    tmp_path, available_fold, boundary_fold, refused
+):
+    from zoneinfo import ZoneInfo
+
+    a = api()
+    zone = ZoneInfo("America/New_York")
+    available = datetime(2026, 11, 1, 1, 30, tzinfo=zone, fold=available_fold)
+    boundary = datetime(2026, 11, 1, 1, 30, tzinfo=zone, fold=boundary_fold)
+    store = a["store"].CaptureStore(tmp_path / "capture.sqlite")
+    u = unit(a)
+    kwargs = dict(
+        observe=lambda owner: observation(a, available_at={"fr_integration_pressure": available}),
+        clock=lambda: boundary,
+    )
+    if refused:
+        with pytest.raises(a["contracts"].CaptureRefused, match="after the capture boundary"):
+            capture(a, store, u, **kwargs)
+        assert store.load_capture(u) is None
+    else:
+        assert capture(a, store, u, **kwargs).document["capture_boundary"] == boundary.astimezone(
+            UTC
+        ).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+
+@pytest.mark.invariant
+@pytest.mark.parametrize(
+    "folds,refused", [((1, 0, 1), True), ((0, 1, 0), True), ((0, 1, 1), False)]
+)
+def test_dst_fold_read_interval_orders_absolute_instants(tmp_path, folds, refused):
+    from zoneinfo import ZoneInfo
+
+    a = api()
+    times = iter(
+        datetime(2026, 11, 1, 1, 30, tzinfo=ZoneInfo("America/New_York"), fold=fold)
+        for fold in folds
+    )
+    store = a["store"].CaptureStore(tmp_path / "capture.sqlite")
+    u = unit(a)
+    if refused:
+        with pytest.raises(a["contracts"].CaptureRefused, match="invalid read interval"):
+            capture(a, store, u, clock=lambda: next(times))
+        assert store.load_capture(u) is None
+    else:
+        assert capture(a, store, u, clock=lambda: next(times)).document["capture_sequence"] == 1
+
+
+@pytest.mark.invariant
+def test_direct_freeze_refuses_incomplete_capture_without_releasing_owner(tmp_path):
+    a = api()
+    store = a["store"].CaptureStore(tmp_path / "capture.sqlite")
+    u = unit(a)
+    owner = a["store"].acquire_capture(store, u)
+    before = store.progress(u)
+    with pytest.raises(a["contracts"].CaptureRefused, match="capture"):
+        a["store"].freeze_once(
+            store, owner, a["contracts"].FrozenCapture.from_document({"unit_id": u.unit_id})
+        )
+    assert store.load_capture(u) is None
+    assert store.progress(u) == before
+    with pytest.raises(a["contracts"].CaptureRefused, match="busy"):
+        capture(a, store, u, observe=lambda owner: pytest.fail("incomplete capture released owner"))
+    store.abandon_capture(owner, known_abandoned=True)
+    assert capture(a, store, u).document["capture_sequence"] == 1
+
+
+@pytest.mark.invariant
+@pytest.mark.parametrize(
+    "field,replacement",
+    [
+        ("company", {"portal_id": 71, "company_id": 999}),
+        ("logical_key", "other"),
+        ("processing_version", "other"),
+        ("mapping_identity", "other"),
+        ("selection_identity", "other"),
+        ("adapter_identity", "other"),
+        ("ownership_generation", 999),
+        ("raw_notification_ref", "missing"),
+        ("notification", {}),
+        ("inputs", {}),
+        ("input_provenance", {}),
+        ("capture_sequence", 42),
+        ("rule_hash", "invalid"),
+        ("capture_boundary", "2026-10-17T00:00:00Z"),
+        ("observation", {"properties": {}, "ignored": [], "unavailable": [], "available_at": {}}),
+        ("scope", "real CRM decision"),
+    ],
+)
+def test_direct_freeze_validates_complete_registered_capture(
+    tmp_path, monkeypatch, field, replacement
+):
+    a = api()
+    store = a["store"].CaptureStore(tmp_path / "capture.sqlite")
+    u = unit(a)
+    pending = []
+    original_freeze = store.freeze
+
+    def crash_before_publication(owner, candidate):
+        pending.append((owner, candidate))
+        raise RuntimeError("synthetic crash before publication")
+
+    monkeypatch.setattr(store, "freeze", crash_before_publication)
+    with pytest.raises(RuntimeError, match="before publication"):
+        capture(a, store, u)
+    monkeypatch.setattr(store, "freeze", original_freeze)
+    owner, candidate = pending[0]
+    document = candidate.document
+    document[field] = replacement
+    before = store.progress(u)
+    with pytest.raises(a["contracts"].CaptureRefused, match="capture"):
+        a["store"].freeze_once(store, owner, a["contracts"].FrozenCapture.from_document(document))
+    assert store.load_capture(u) is None
+    assert store.progress(u) == before
+    winner = a["store"].freeze_once(store, owner, candidate)
+    assert winner.document["capture_sequence"] == 1
+    assert (
+        capture(
+            a,
+            store,
+            u,
+            observe=lambda owner: pytest.fail("retry read"),
+            select_logic=lambda: pytest.fail("retry selected"),
+        ).canonical_bytes
+        == winner.canonical_bytes
+    )

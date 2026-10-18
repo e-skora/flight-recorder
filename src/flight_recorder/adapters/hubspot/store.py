@@ -44,6 +44,8 @@ from flight_recorder.adapters.hubspot.contracts import (
     CaptureRefused,
     FrozenCapture,
     ProcessingUnit,
+    SourceNotification,
+    strict_json_loads,
 )
 
 metadata = MetaData()
@@ -267,8 +269,11 @@ class CaptureStore:
         """Publish the unit's one immutable winner if `owner` is still current."""
         if not isinstance(owner, CaptureOwnership) or not isinstance(candidate, FrozenCapture):
             raise CaptureRefused("identity conflict: freeze needs CaptureOwnership and capture")
-        document = candidate.document
-        if document.get("unit_id") != owner.unit_id:
+        try:
+            document = candidate.document
+        except (TypeError, ValueError) as error:
+            raise CaptureRefused(f"invalid capture: {error}") from error
+        if not isinstance(document, dict) or document.get("unit_id") != owner.unit_id:
             raise CaptureRefused("identity conflict: candidate names a different unit")
         with self._engine.begin() as conn:
             if not _is_current(conn, owner):
@@ -277,9 +282,7 @@ class CaptureStore:
                     f"{owner.company_key} is no longer the current owner; nothing committed"
                 )
             unit_row = conn.execute(
-                select(processing_units.c.company_key).where(
-                    processing_units.c.unit_id == owner.unit_id
-                )
+                select(processing_units).where(processing_units.c.unit_id == owner.unit_id)
             ).first()
             if unit_row is None or unit_row.company_key != owner.company_key:
                 raise CaptureRefused("identity conflict: ownership does not match the unit")
@@ -287,6 +290,47 @@ class CaptureStore:
             if existing is not None:
                 _release(conn, owner)
                 return existing
+            # The public freeze API enforces the same complete capture contract
+            # as capture_once, inside the ownership/publication transaction.
+            from flight_recorder.adapters.hubspot.capture import validate_pending_capture
+
+            try:
+                raw_ref = document["raw_notification_ref"]
+                if not isinstance(raw_ref, str):
+                    raise ValueError("raw notification reference must be text")
+                raw = conn.execute(
+                    select(raw_notifications.c.raw_body).where(
+                        raw_notifications.c.raw_ref == raw_ref
+                    )
+                ).first()
+                if raw is None:
+                    raise ValueError("raw notification reference is not registered")
+                notification = SourceNotification.from_payload(
+                    strict_json_loads(bytes(raw.raw_body)), raw_body=bytes(raw.raw_body)
+                )
+                unit = ProcessingUnit(
+                    notification,
+                    unit_row.mapping_identity,
+                    unit_row.selection_identity,
+                    unit_row.adapter_identity,
+                    unit_row.reprocesses,
+                )
+                semantic = conn.execute(
+                    select(source_identities.c.semantic_json).where(
+                        source_identities.c.logical_key == unit_row.logical_key
+                    )
+                ).first()
+                if (
+                    unit.unit_id != owner.unit_id
+                    or unit.company_key != owner.company_key
+                    or unit.processing_version != unit_row.processing_version
+                    or semantic is None
+                    or notification.semantic_json != semantic.semantic_json
+                ):
+                    raise ValueError("raw notification differs from registered unit")
+                validate_pending_capture(unit, owner, raw_ref, candidate)
+            except (KeyError, TypeError, ValueError) as error:
+                raise CaptureRefused(f"invalid capture: {error}") from error
             previous = conn.execute(
                 select(func.max(captures.c.capture_sequence)).where(
                     captures.c.company_key == owner.company_key

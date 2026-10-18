@@ -202,7 +202,8 @@ def _utc_text(value: datetime) -> str:
 def _aware(value, what: str) -> datetime:
     if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
         raise CaptureRefused(f"{what} time must be a timezone-aware datetime")
-    return value
+    # Compare instants, including repeated local wall times during a DST fold.
+    return value.astimezone(UTC)
 
 
 def _available_times(result: ReadResult, boundary: datetime) -> dict:
@@ -279,6 +280,41 @@ def _build_candidate(unit, owner, raw_ref, observe, select_logic, clock) -> Froz
         "input_provenance": provenance,
     }
     return FrozenCapture.from_document(document)
+
+
+def validate_pending_capture(unit, owner, raw_ref, candidate: FrozenCapture) -> None:
+    """Check a complete pending document against registered identity and mapping.
+
+    Reconstruct only from preserved candidate data; no external read or logic
+    selection occurs. Exact canonical comparison also refuses missing/extra fields,
+    altered input states/provenance and a caller-assigned publication sequence.
+    """
+    try:
+        document = candidate.document
+        if unit.mapping_identity != MAPPING_IDENTITY:
+            raise ValueError("unsupported mapping identity")
+        supplied = document["observation"]
+        result = ReadResult(
+            supplied["properties"],
+            ignored=supplied["ignored"],
+            unavailable=supplied["unavailable"],
+            available_at={
+                name: datetime.fromisoformat(value)
+                for name, value in supplied["available_at"].items()
+            },
+        )
+        rule = RuleIdentity(document["rule_hash"], document["evaluator_version"])
+        times = iter(
+            datetime.fromisoformat(document[name])
+            for name in ("read_started_at", "read_finished_at", "capture_boundary")
+        )
+        expected = _build_candidate(
+            unit, owner, raw_ref, lambda _: result, lambda: rule, lambda: next(times)
+        )
+        if expected.canonical_bytes != candidate.canonical_bytes:
+            raise ValueError("document differs from complete registered capture")
+    except (KeyError, TypeError, ValueError, AttributeError) as error:
+        raise CaptureRefused(f"invalid capture: {error}") from error
 
 
 def capture_once(store, unit, *, observe, select_logic, clock) -> FrozenCapture:
