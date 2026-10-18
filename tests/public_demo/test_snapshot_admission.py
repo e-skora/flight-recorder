@@ -24,11 +24,11 @@ import flight_recorder.fixtures as fixtures_module
 from flight_recorder.cli import (
     cmd_build_demo_snapshot,
     cmd_register_current_logic,
-    cmd_reset,
     cmd_seed,
     cmd_seed_dataset,
     main,
 )
+from flight_recorder.ledger.database import reset_database
 from flight_recorder.public_demo import (
     DEMO_DB_ENV_VAR,
     CanonicalDecisionMissing,
@@ -136,7 +136,7 @@ def canonical_only(tmp_path_factory):
     """`seed` then `register-current-logic`: the canonical decision and `v5.2`
     are present, but it is not the release snapshot."""
     path = tmp_path_factory.mktemp("canonical-only") / "canonical.db"
-    assert cmd_reset(path) == 0
+    reset_database(path, include_v2=False).dispose()
     assert cmd_seed(path) == 0
     assert cmd_register_current_logic(path) == 0
     return path
@@ -145,7 +145,7 @@ def canonical_only(tmp_path_factory):
 @pytest.fixture(scope="module")
 def dataset_without_overlay(tmp_path_factory):
     path = tmp_path_factory.mktemp("no-overlay") / "dataset.db"
-    assert cmd_reset(path) == 0
+    reset_database(path, include_v2=False).dispose()
     assert cmd_seed_dataset(path) == 0
     return path
 
@@ -165,7 +165,7 @@ def test_a_dataset_without_the_overlay_fails_on_the_v5_2_check(dataset_without_o
 
 def test_the_overlay_alone_fails_on_the_canonical_decision_check(tmp_path):
     path = tmp_path / "overlay-only.db"
-    assert cmd_reset(path) == 0
+    reset_database(path, include_v2=False).dispose()
     assert cmd_register_current_logic(path) == 0
     error = refused_without_writing(path, CanonicalDecisionMissing)
     assert "evt-novasignal-04-decision-recorded" in str(error)
@@ -322,3 +322,16 @@ def test_a_failed_build_leaves_no_snapshot_and_no_temporary_file(
     assert cmd_build_demo_snapshot(out) == 1
     assert "no snapshot written" in capsys.readouterr().err
     assert list(tmp_path.iterdir()) == [], [p.name for p in tmp_path.iterdir()]
+
+
+def test_local_v2_tables_are_refused_not_hidden_by_public_admission(built_snapshot, tmp_path):
+    from flight_recorder.ledger.database import make_engine
+    from flight_recorder.ledger.schema import create_schema
+    from flight_recorder.public_demo import SnapshotTablesMismatch
+
+    path = owned_copy(built_snapshot, tmp_path)
+    engine = make_engine(path)
+    create_schema(engine)
+    engine.dispose()
+    error = refused_without_writing(path, SnapshotTablesMismatch)
+    assert "capture_contexts" in str(error)

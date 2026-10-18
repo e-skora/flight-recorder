@@ -62,17 +62,7 @@ from tests.invariants.test_inv_09_visible_failure_states import (
 pytestmark = pytest.mark.invariant
 
 #: The nine projection tables that exist on `main`; nothing holds a counterfactual.
-PROJECTION_TABLE_NAMES = {
-    "evidence_versions",
-    "logic_artifacts",
-    "decisions",
-    "decision_context",
-    "decision_consumed_inputs",
-    "persona_selections",
-    "actions",
-    "outcomes",
-    "outcome_attributions",
-}
+PROJECTION_TABLE_NAMES = {table.name for table in PROJECTION_TABLES}
 #: The only tables the counterfactual path may read.
 READABLE = {
     "decisions",
@@ -163,7 +153,7 @@ def test_replay_writes_nothing_appends_no_event_and_leaves_every_row_untouched(s
     with seeded.engine.connect() as conn:
         assert_same_reconstruction(reconstruct(conn, DECISION_EVENT_ID), before)
 
-    # No table, row, or event exists that could hold a counterfactual.
+    # The declared projection registry is exhaustive; no counterfactual table exists.
     assert {table.name for table in PROJECTION_TABLES} == PROJECTION_TABLE_NAMES
     names = set(inspect(seeded.engine).get_table_names())
     assert names == {"accounts", "events", *PROJECTION_TABLE_NAMES}

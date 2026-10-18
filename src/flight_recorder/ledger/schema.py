@@ -429,7 +429,7 @@ decision_consumed_inputs_v2 = Table(
 )
 
 #: Every projected historical table, in dependency order (parents first).
-PROJECTION_TABLES = (
+LEGACY_PROJECTION_TABLES = (
     evidence_versions,
     logic_artifacts,
     decisions,
@@ -439,12 +439,17 @@ PROJECTION_TABLES = (
     actions,
     outcomes,
     outcome_attributions,
+)
+
+V2_PROJECTION_TABLES = (
     capture_contexts,
     evidence_versions_v2,
     decisions_v2,
     decision_context_v2,
     decision_consumed_inputs_v2,
 )
+
+PROJECTION_TABLES = (*LEGACY_PROJECTION_TABLES, *V2_PROJECTION_TABLES)
 
 #: `events` plus the projections: everything INV-01 protects at the database.
 APPEND_ONLY_TABLES = (events, *PROJECTION_TABLES)
@@ -484,8 +489,11 @@ APPEND_ONLY_TRIGGERS = tuple(
 )
 
 
-def create_schema(engine: Engine) -> None:
-    """Create every table and the append-only triggers.
+def create_schema(engine: Engine, *, include_v2: bool = True) -> None:
+    """Create local tables and their append-only triggers.
+
+    A newly built public snapshot explicitly selects the original schema with
+    include_v2=False. This never drops/converts tables in an existing database.
 
     Tables are created explicitly in a fixed order because `accounts` and
     `events` reference each other; SQLite accepts a forward reference in
@@ -495,7 +503,9 @@ def create_schema(engine: Engine) -> None:
     with engine.begin() as conn:
         accounts.create(conn, checkfirst=True)
         events.create(conn, checkfirst=True)
-        for table in PROJECTION_TABLES:
+        tables = PROJECTION_TABLES if include_v2 else LEGACY_PROJECTION_TABLES
+        for table in tables:
             table.create(conn, checkfirst=True)
-        for ddl in APPEND_ONLY_TRIGGERS:
-            conn.exec_driver_sql(ddl)
+        for table in (events, *tables):
+            for ddl in _append_only_triggers(table.name):
+                conn.exec_driver_sql(ddl)

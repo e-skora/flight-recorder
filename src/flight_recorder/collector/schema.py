@@ -1,13 +1,8 @@
-"""Collector envelope schema: version "1" for every event type, plus version "2"
-of `outcome.evaluated`.
+"""Collector envelopes: immutable v1 shapes and separately dispatched v2 forms.
 
-**Versions (D-013).** Every event type is schema version "1" (`_EnvelopeBase`),
-with one exception: `outcome.evaluated` also accepts version "2". The envelope
-union is discriminated on `event_type`, so that one member is itself a union
-discriminated on `schema_version` (`OutcomeEvaluatedEnvelopes`). Version "1"'s
-model, validation and canonical serialization are untouched, so every stored v1
-hash is unchanged; a new version, rather than new defaulted fields on v1, is
-what keeps them unchanged, because identity is the validated model dump.
+Outcome v2 implements D-013. Synthetic evidence and decision v2 implement the
+separately reviewed D-025 capture contract. The outer event-type union nests
+schema-version unions; no v1 field/default/canonical identity changes.
 
 Every model forbids unknown fields. Acceptance is decided by validating the raw
 JSON request body in strict JSON mode (`validate_envelope_json`), so `"184"`
@@ -626,7 +621,7 @@ class OutcomeEvaluatedEnvelope(_EnvelopeBase):
 
 
 class OutcomeEvaluatedV2Envelope(_EnvelopeBase):
-    """`outcome.evaluated`, schema version "2". The only envelope not on "1"."""
+    """`outcome.evaluated`, schema version "2". A separately versioned outcome envelope."""
 
     schema_version: Literal["2"]
     event_type: Literal["outcome.evaluated"]

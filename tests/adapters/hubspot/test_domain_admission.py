@@ -223,3 +223,105 @@ def test_unrelated_database_errors_propagate_without_duplicate_success(
     with pytest.raises(OperationalError):
         collector.ingest_json(json.dumps(case["evidence"]))
     assert harness.snapshot() == before
+
+
+@pytest.mark.parametrize("change", ["semantic", "basis", "source_time", "read_interval"])
+def test_coherent_changed_observation_cannot_reuse_old_evidence_id(harness, tmp_path, change):
+    from datetime import datetime, timedelta
+
+    old = make_case(tmp_path)
+    admit(harness, old, decision=False)
+    directory = tmp_path / "different-observation"
+    directory.mkdir()
+    properties = copy.deepcopy(old["capture"]["observation"]["properties"])
+    options = {}
+    key = "employee_count"
+    if change == "semantic":
+        properties["numberofemployees"] += 1
+    elif change == "basis":
+        key = "verified_integration_pressure"
+        properties["fr_integration_pressure"]["basis"] += " synthetic correction"
+    elif change == "source_time":
+        options["available_at"] = {
+            "numberofemployees": datetime.fromisoformat(old["capture"]["capture_boundary"])
+        }
+    elif change == "read_interval":
+        options["clock_times"] = [
+            datetime.fromisoformat(old["capture"][k]) - timedelta(microseconds=1)
+            for k in ("read_started_at", "read_finished_at", "capture_boundary")
+        ]
+    new = make_case(directory, properties=properties, **options)
+    original = next(i for i in old["evidence"]["payload"]["items"] if i["evidence_type"] == key)
+    changed = next(i for i in new["evidence"]["payload"]["items"] if i["evidence_type"] == key)
+    assert changed["evidence_version_id"] != original["evidence_version_id"]
+    changed["evidence_version_id"] = original["evidence_version_id"]
+    before = harness.snapshot()
+    response = harness.post(new["evidence"])
+    assert response.status_code == 422, response.json()
+    assert response.json()["reason"] == "invalid_envelope"
+    assert harness.snapshot() == before
+
+
+def test_distinct_observation_appends_new_id_without_changing_original(harness, tmp_path):
+    first = make_case(tmp_path)
+    admit(harness, first)
+    properties = copy.deepcopy(first["capture"]["observation"]["properties"])
+    properties["numberofemployees"] += 1
+    second = make_case(
+        tmp_path,
+        selection="new-observation",
+        reprocesses=first["unit"].unit_id,
+        properties=properties,
+    )
+    oldids = {
+        i["evidence_type"]: i["evidence_version_id"] for i in first["evidence"]["payload"]["items"]
+    }
+    newitems = second["evidence"]["payload"]["items"]
+    changed = [i for i in newitems if i["evidence_version_id"] != oldids[i["evidence_type"]]]
+    assert [i["evidence_type"] for i in changed] == ["employee_count"]
+    second["evidence"]["payload"]["items"] = changed
+    assert harness.post(second["evidence"]).status_code == 201
+    assert harness.post(second["decision"]).status_code == 201
+    with harness.engine.connect() as conn:
+        assert reconstruct(conn, first["decision"]["event_id"]).result == first["result"]
+        assert reconstruct(conn, second["decision"]["event_id"]).result == second["result"]
+
+
+def test_decision_stage_fault_rolls_back_every_new_projection(harness, tmp_path):
+    import json
+
+    case = make_case(tmp_path)
+    admit(harness, case, decision=False)
+    second = make_case(tmp_path, selection="new-without-predecessor")
+    collector = Collector(harness.engine)
+
+    def crash(envelope):
+        raise RuntimeError("decision precommit fault")
+
+    collector.before_commit = crash
+    before = harness.snapshot()
+    with pytest.raises(RuntimeError, match="decision precommit"):
+        collector.ingest_json(json.dumps(second["decision"]))
+    assert harness.snapshot() == before
+
+
+def test_zero_actual_consumption_refuses_fabricated_nonempty_submission(harness, tmp_path):
+    case = make_case(tmp_path, properties={"fr_head_of_platform_start": "2026-01-01"})
+    admit(harness, case, decision=False)
+    # This capture has a usable owned value; the pinned original artifact has
+    # no factor for it. A fabricated nonempty list must not bypass the gate.
+    assert case["decision"]["payload"]["consumed_inputs"] == []
+    entry = case["decision"]["payload"]["historical_context"][0]
+    case["decision"]["payload"]["consumed_inputs"] = [
+        dict(
+            input_key=entry["input_key"],
+            value=entry["value"],
+            evidence_version_id=entry["evidence_version_id"],
+            contribution=0,
+        )
+    ]
+    before = harness.snapshot()
+    response = harness.post(case["decision"])
+    assert response.status_code == 422
+    assert "no usable consumed" in response.json()["detail"]
+    assert harness.snapshot() == before

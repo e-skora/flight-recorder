@@ -208,11 +208,12 @@ def test_v2_rejects_a_v1_shaped_payload(harness):
     [
         ("outcome.evaluated", "3"),
         ("action.recorded", "2"),
-        ("decision.recorded", "2"),
+        ("decision.recorded", "3"),
+        ("evidence.recorded", "3"),
         ("account.discovered", "2"),
     ],
 )
-def test_only_outcome_evaluated_accepts_schema_version_2(harness, event_type, schema_version):
+def test_unsupported_event_schema_versions_are_refused(harness, event_type, schema_version):
     for response in seed_all(harness):
         assert response.status_code == 201
     envelope = copy.deepcopy(canonical_by_type(event_type))

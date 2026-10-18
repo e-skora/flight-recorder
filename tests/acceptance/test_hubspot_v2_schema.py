@@ -64,8 +64,12 @@ def test_invalid_v2_binding_rejects_without_writes(harness, tmp_path, change):
         cap["capture_boundary"] = cap["read_started_at"]
     if change != "hash":
         env["payload"]["capture_hash"] = canonical_hash(cap)
+    assert harness.post(case["account"]).status_code == 201
+    assert harness.post(case["artifact"]).status_code == 201
     before = harness.snapshot()
-    assert harness.post(env).status_code == 422
+    response = harness.post(env)
+    assert response.status_code == 422
+    assert response.json()["reason"] == "invalid_envelope"
     assert harness.snapshot() == before
 
 
@@ -111,3 +115,57 @@ def test_legacy_canonical_dumps_and_nine_hashes_unchanged():
         canonical_hash(validate_envelope_json(json.dumps(e)).model_dump(mode="json"))
         for e in canonical_envelopes()
     ] == expected
+
+
+def test_legacy_creation_profile_never_drops_or_converts_existing_tables(tmp_path):
+    from sqlalchemy import inspect
+
+    from flight_recorder.ledger.database import make_engine
+    from flight_recorder.ledger.schema import (
+        LEGACY_PROJECTION_TABLES,
+        V2_PROJECTION_TABLES,
+        create_schema,
+    )
+
+    engine = make_engine(tmp_path / "owned-profile.db")
+    create_schema(engine, include_v2=False)
+    with engine.connect() as conn:
+        before = {
+            row[0]: row[1]
+            for row in conn.exec_driver_sql(
+                "SELECT name, sql FROM sqlite_master "
+                "WHERE type IN ('table','trigger') AND name NOT LIKE 'sqlite_%'"
+            )
+        }
+    assert set(inspect(engine).get_table_names()) == {
+        "accounts",
+        "events",
+        *(t.name for t in LEGACY_PROJECTION_TABLES),
+    }
+    assert sum(name.endswith(("_no_update", "_no_delete")) for name in before) == 20
+    create_schema(engine)
+    create_schema(engine, include_v2=False)
+    assert {t.name for t in V2_PROJECTION_TABLES} <= set(inspect(engine).get_table_names())
+    with engine.connect() as conn:
+        after = {
+            row[0]: row[1]
+            for row in conn.exec_driver_sql(
+                "SELECT name, sql FROM sqlite_master "
+                "WHERE type IN ('table','trigger') AND name NOT LIKE 'sqlite_%'"
+            )
+        }
+    assert {key: after[key] for key in before} == before
+    engine.dispose()
+
+
+def test_legacy_shape_cannot_be_relabeled_as_capture_v2(harness):
+    from tests.conftest import canonical_by_type
+
+    for event_type in ("evidence.recorded", "decision.recorded"):
+        env = canonical_by_type(event_type)
+        env.update(schema_version="2", source="hubspot-synthetic-capture")
+        before = harness.snapshot()
+        response = harness.post(env)
+        assert response.status_code == 422
+        assert "capture" in json.dumps(response.json())
+        assert harness.snapshot() == before

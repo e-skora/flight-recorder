@@ -38,7 +38,7 @@ def make_engine(db_path: Path | str) -> Engine:
     return engine
 
 
-def reset_database(db_path: Path | str) -> Engine:
+def reset_database(db_path: Path | str, *, include_v2: bool = True) -> Engine:
     """Delete the SQLite file (if any) and recreate the schema."""
     from flight_recorder.ledger.schema import create_schema
 
@@ -48,5 +48,5 @@ def reset_database(db_path: Path | str) -> Engine:
         if candidate.exists():
             candidate.unlink()
     engine = make_engine(path)
-    create_schema(engine)
+    create_schema(engine, include_v2=include_v2)
     return engine

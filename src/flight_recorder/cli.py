@@ -238,7 +238,8 @@ def _build_snapshot_into(path: Path) -> None:
     # temporary file, so there is nothing to delete.
     engine = make_engine(path)
     try:
-        create_schema(engine)
+        # The public release keeps its exact original table/content contract.
+        create_schema(engine, include_v2=False)
     finally:
         engine.dispose()
 
