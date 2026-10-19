@@ -320,6 +320,129 @@ def test_reprocessing_reuses_only_verified_complete_observations(tmp_path, harne
         )
 
 
+@pytest.mark.parametrize("lineage_change", ["dropped", "added", "substituted"])
+def test_capture_lineage_mismatch_refuses_before_freeze(
+    tmp_path, harness, monkeypatch, lineage_change
+):
+    from flight_recorder.collector.capture_contract import validate_capture
+
+    submit, contracts, store, first, _, _ = setup_case(tmp_path, harness)
+    assert submit.resume_submission(store, harness.collector, first["unit"]).state == "complete"
+    predecessor = first["unit"].unit_id
+    if lineage_change == "substituted":
+        prior = make_case(tmp_path, selection="other-prior", reprocesses=predecessor)
+        prereqs = contracts.SubmissionPrerequisites(
+            canonical_bytes(prior["account"]),
+            canonical_bytes(prior["artifact"]),
+            prior["decision"]["recorded_at"],
+            b"{}",
+        )
+        submit.freeze_submission(store, harness.collector, prior["unit"], prerequisites=prereqs)
+        assert submit.resume_submission(store, harness.collector, prior["unit"]).state == "complete"
+        predecessor = prior["unit"].unit_id
+    case = make_case(
+        tmp_path,
+        selection="lineage-under-test",
+        reprocesses=None if lineage_change == "added" else predecessor,
+    )
+    unit = case["unit"]
+    changed = copy.deepcopy(case["capture"])
+    changed["reprocesses"] = None if lineage_change == "dropped" else first["unit"].unit_id
+    assert {k for k in changed if changed[k] != case["capture"][k]} == {"reprocesses"}
+    checked = validate_capture(changed, canonical_hash(changed))
+    assert checked.unit_id == unit.unit_id and checked.reprocesses != unit.reprocesses
+    tables = (
+        "submission_target",
+        "frozen_submissions",
+        "submission_attempts",
+        "submission_observations",
+    )
+    with sqlite3.connect(store.path) as conn:
+        assert conn.execute(
+            "SELECT reprocesses FROM processing_units WHERE unit_id=?", (unit.unit_id,)
+        ).fetchone() == (unit.reprocesses,)
+        # Only this disposable capture is corrupted; the registered unit remains intact.
+        conn.execute("DROP TRIGGER captures_no_update")
+        conn.execute(
+            "UPDATE captures SET body_json=? WHERE unit_id=?",
+            (canonical_bytes(changed).decode(), unit.unit_id),
+        )
+        before = {t: conn.execute(f"SELECT * FROM {t} ORDER BY rowid").fetchall() for t in tables}
+    domain_before = harness.snapshot()
+    with harness.engine.connect() as conn:
+        events_before = conn.execute(select(events).order_by(events.c.event_id)).all()
+    calls = []
+    ingest = harness.collector.ingest_json
+
+    def record(body):
+        calls.append(body)
+        return ingest(body)
+
+    monkeypatch.setattr(harness.collector, "ingest_json", record)
+    prereqs = contracts.SubmissionPrerequisites(
+        canonical_bytes(case["account"]),
+        canonical_bytes(case["artifact"]),
+        case["decision"]["recorded_at"],
+        b"{}",
+    )
+    with pytest.raises(contracts.SubmissionError, match="capture_unit_mismatch"):
+        submit.freeze_submission(store, harness.collector, unit, prerequisites=prereqs)
+    assert calls == []
+    assert harness.snapshot() == domain_before
+    with harness.engine.connect() as conn:
+        assert conn.execute(select(events).order_by(events.c.event_id)).all() == events_before
+    with sqlite3.connect(store.path) as conn:
+        assert (
+            conn.execute(
+                "SELECT * FROM frozen_submissions WHERE unit_id=?", (unit.unit_id,)
+            ).fetchall()
+            == []
+        )
+        assert {
+            t: conn.execute(f"SELECT * FROM {t} ORDER BY rowid").fetchall() for t in tables
+        } == before
+        assert conn.execute(
+            "SELECT reprocesses FROM processing_units WHERE unit_id=?", (unit.unit_id,)
+        ).fetchone() == (unit.reprocesses,)
+
+
+def test_delivery_attempt_metadata_reuses_frozen_reprocessing(tmp_path, harness):
+    from flight_recorder.adapters.hubspot.contracts import SourceNotification
+
+    submit, contracts, store, first, _, _ = setup_case(tmp_path, harness)
+    assert submit.resume_submission(store, harness.collector, first["unit"]).state == "complete"
+    second = make_case(tmp_path, selection="delivery-retry", reprocesses=first["unit"].unit_id)
+    unit = second["unit"]
+    payload = json.loads(unit.notification.raw_body)
+    payload.update(attemptNumber=9, messageId="different-delivery", messageType="delivery")
+    retry = replace(
+        unit,
+        notification=SourceNotification.from_payload(payload, raw_body=canonical_bytes(payload)),
+    )
+    assert retry.unit_id == unit.unit_id
+    assert retry.notification.raw_body != unit.notification.raw_body
+    prereqs = contracts.SubmissionPrerequisites(
+        canonical_bytes(second["account"]),
+        canonical_bytes(second["artifact"]),
+        second["decision"]["recorded_at"],
+        b"{}",
+    )
+    frozen = submit.freeze_submission(store, harness.collector, retry, prerequisites=prereqs)
+    assert frozen.document["stages"][-1]["envelope"]["payload"]["capture"] == second["capture"]
+    assert {s["stage"] for s in frozen.document["stages"]} == {"account", "artifact", "decision"}
+    assert submit.resume_submission(store, harness.collector, retry).state == "complete"
+    assert store.load(unit).canonical_bytes == frozen.canonical_bytes
+    with harness.engine.connect() as conn:
+        assert (
+            conn.execute(
+                select(decisions_v2.c.reprocesses).where(decisions_v2.c.unit_id == unit.unit_id)
+            ).scalar_one()
+            == first["unit"].unit_id
+        )
+    assert count(harness, decisions_v2) == 2
+    assert count(harness, evidence_versions_v2) == len(first["evidence"]["payload"]["items"])
+
+
 def test_post_freeze_mint_race_is_permanent_without_rewriting_plan(tmp_path, harness):
     from tests.adapters.hubspot.domain_cases import admit
 

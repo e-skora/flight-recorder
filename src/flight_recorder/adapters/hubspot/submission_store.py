@@ -94,7 +94,7 @@ class SubmissionStore:
             "SELECT * FROM processing_units WHERE unit_id=?", (unit.unit_id,)
         ).fetchone()
         require(row is not None, "missing_processing_unit")
-        for key in (
+        identity_fields = (
             "logical_key",
             "processing_version",
             "company_key",
@@ -102,7 +102,8 @@ class SubmissionStore:
             "selection_identity",
             "adapter_identity",
             "reprocesses",
-        ):
+        )
+        for key in identity_fields:
             require(typed_equal(row[key], getattr(unit, key)), "processing_identity_mismatch")
         semantic = conn.execute(
             "SELECT semantic_json FROM source_identities WHERE logical_key=?", (unit.logical_key,)
@@ -124,6 +125,11 @@ class SubmissionStore:
             raise SubmissionError("invalid_capture") from exc
         require(
             checked.unit_id == unit.unit_id
+            and all(
+                typed_equal(getattr(checked, key), getattr(unit, key)) for key in identity_fields
+            )
+            # Delivery-attempt metadata may differ; semantic identity and lineage may not.
+            and typed_equal(checked.notification.semantic_body(), unit.notification.semantic_body())
             and cap["company"]
             == {
                 "portal_id": unit.notification.portal_id,
