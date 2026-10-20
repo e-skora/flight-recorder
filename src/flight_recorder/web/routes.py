@@ -38,6 +38,7 @@ from flight_recorder.replay.counterfactual import (
     replay,
 )
 from flight_recorder.replay.reconstruct import ReconstructionError, reconstruct
+from flight_recorder.web import hubspot_decision_view
 from flight_recorder.web.decision_view import (
     ORIGIN_RECORDED_LOGIC,
     ORIGIN_SELECTED_ARTIFACT,
@@ -251,6 +252,47 @@ def decision_detail(
         ).first()
         if account is None:
             raise HTTPException(status_code=404, detail="unknown account")
+
+        # Dispatch only by local own-account event identity. Legacy/public readers
+        # never enter the new loader or require its projection tables.
+        if not getattr(request.app.state, "public_demo", False):
+            incoming = conn.execute(
+                select(events.c.event_id).where(
+                    events.c.event_id == decision_event_id,
+                    events.c.account_ref == account_ref,
+                    events.c.schema_version == "2",
+                    events.c.event_type == "decision.recorded",
+                )
+            ).first()
+            if incoming is not None:
+                incoming_page = hubspot_decision_view.load_hubspot_decision_page(
+                    conn, account_ref, decision_event_id, current
+                )
+                incoming_hash, incoming_message = current, None
+                incoming_options = ()
+                if incoming_page.original is not None:
+                    decision_class = incoming_page.recorded["decision_class"]
+                    if current is None:
+                        incoming_hash, incoming_message = _default_current_artifact(
+                            conn, decision_class
+                        )
+                        if incoming_hash is not None:
+                            incoming_page = hubspot_decision_view.load_hubspot_decision_page(
+                                conn, account_ref, decision_event_id, incoming_hash
+                            )
+                    incoming_options = artifact_options(conn, decision_class, incoming_hash)
+                return templates.TemplateResponse(
+                    request,
+                    "hubspot_decision.html",
+                    {
+                        "account": account,
+                        "operating_company": OPERATING_COMPANY,
+                        "page": incoming_page,
+                        "artifact_options": incoming_options,
+                        "current_hash": incoming_hash,
+                        "no_selection_message": incoming_message,
+                    },
+                )
 
         page = load_decision_page(conn, decision_event_id)
         if page is None:

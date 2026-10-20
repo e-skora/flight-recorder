@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Incoming decision · GTM Flight Recorder{% endblock %}
+{% macro facts(values) %}<dl class="fields">{% for fact in values %}<dt>{{ fact.label }}</dt><dd><code class="hash">{{ fact.value }}</code></dd>{% endfor %}</dl>{% endmacro %}
+{% block content %}
+<nav aria-label="Breadcrumb"><a href="/">Accounts</a> / <a href="/accounts/{{ account.account_ref }}">{{ account.name }}</a> / Incoming decision</nav>
+<h1>Inspect an incoming synthetic decision</h1>
+<nav aria-label="Decision sections"><a href="#v2-original">Original</a> · <a href="#v2-historical-ruleset">Rules</a> · <a href="#v2-context-table">Evidence</a> · <a href="#v2-replay">Replay</a> · <a href="#v2-capture-provenance">Capture</a></nav>
+<p>The supplied follow-up response was observed across a read interval, not an atomic vendor snapshot or an event-time reconstruction. No live CRM is connected.</p>
+<section id="v2-recorded-decision"><h2>Recorded decision</h2>
+<p>{% if page.original %}Recorded facts; exact original verified below.{% else %}<strong>Recorded and unverified.</strong>{% endif %}</p>
+<dl class="fields">{% for key, value in page.event.items() %}<dt>{{ key }}</dt><dd><code class="hash">{{ value }}</code></dd>{% endfor %}
+{% for key, value in page.recorded.items() if key != 'explanation' %}<dt>{{ key }}</dt><dd><code class="hash">{{ value }}</code></dd>{% endfor %}</dl>
+<p>Confidence was not provided. This slice records no downstream execution or buyer outcome for this decision.</p></section>
+<section id="v2-original"><h2>Original reconstruction</h2>
+{% if page.original %}<p><strong>Verified original</strong>: {{ page.original.result.score }} / threshold {{ page.original.result.threshold }} · {{ page.original.result.output }}</p><p>Preserved artifact <code class="hash">{{ page.original.artifact_hash }}</code>, {{ page.original.evaluator_version }}. Only the sealed historical context was used.</p>
+{% else %}<p class="unavailable-state">Exact reconstruction unavailable: {{ page.original_failure }}</p>{% endif %}</section>
+<section id="v2-historical-ruleset"><h2>Verified historical declarative ruleset</h2>
+{% if page.rules %}
+<p>Preserved artifact <code class="hash">{{ page.original.artifact_hash }}</code> · schema {{ page.rules.artifact_schema_version }} · {{ page.rules.evaluator_version }} · {{ page.rules.logic_version }}</p>
+<div class="table-scroll" role="region" aria-label="Historical rules table" tabindex="0"><table class="grid"><caption>Immutable historical factors, including nonmatches</caption><thead><tr><th>Input</th><th>Exact declarative rule</th><th>Configured weight</th></tr></thead><tbody>{% for factor in page.rules.factors %}<tr><th>{{ factor.key }}</th><td><code class="hash">{{ factor.rule }}</code></td><td>{{ factor.weight }}</td></tr>{% endfor %}</tbody></table></div>
+<dl class="fields"><dt>Threshold</dt><dd>{{ page.rules.threshold }}</dd><dt>Output at or above threshold</dt><dd>{{ page.rules.output_mapping.at_or_above_threshold }}</dd><dt>Output below threshold</dt><dd>{{ page.rules.output_mapping.below_threshold }}</dd><dt>Missing-value behavior</dt><dd><code class="hash">{{ page.rules.missing_value_behavior }}</code></dd></dl>
+{% if page.bound_note %}<p class="positive-weight-bound">{{ page.bound_note.text }} This is the recorded artifact's upper bound, not proof of an attainable maximum or successful replay.</p>{% endif %}
+{% else %}<p class="unavailable-state">Historical ruleset unavailable: {{ page.original_failure }}. No unchecked or current rules have been substituted.</p>{% endif %}</section>
+<section id="v2-context-table"><h2>Preserved evidence and actual consumption</h2>
+{% if page.original %}<div class="table-scroll" role="region" aria-label="Historical context table" tabindex="0"><table class="grid"><caption>Actual consumption, available but ignored, unavailable and absent stay distinct</caption><thead><tr><th>Input</th><th>Preserved value</th><th>State</th><th>Contribution</th><th>Provenance</th></tr></thead><tbody>
+{% for row in page.context_rows %}<tr><th>{{ row.key }}</th><td><code class="hash">{{ row.value }}</code></td><td>{{ row.state }}</td><td>{% if row.contribution is not none %}{{ row.contribution }}{% else %}not consumed{% endif %}</td><td>{{ facts(row.facts) }}{% if row.facts %}{% for fact in row.facts if fact.label == 'Source availability' and fact.value == 'null' %}<p>Source availability time not provided</p>{% endfor %}{% endif %}</td></tr>{% endfor %}</tbody></table></div>
+{% else %}<p>Verified context and provenance unavailable: {{ page.original_failure }}</p>{% endif %}</section>
+<section id="v2-capture-provenance"><h2>Capture and separate time boundaries</h2>
+{% if page.original %}{{ facts(page.capture_facts) }}<p>Notification time describes the notification, not when the scored follow-up values were observed. Capture sequence records local ordering, not latest vendor truth. Ownership generation and the raw notification reference are recorded metadata, not proof of source-signature verification.</p>
+{% else %}<p>Capture provenance unavailable: {{ page.original_failure }}</p>{% endif %}</section>
+<section id="v2-reprocessing"><h2>Processing lineage</h2>
+{% if not page.original %}<p>Lineage unavailable: {{ page.original_failure }}</p>{% elif page.predecessor %}<p>Recorded predecessor unit <code class="hash">{{ page.predecessor.unit_id }}</code>: <a href="/accounts/{{ account.account_ref }}/decisions/{{ page.predecessor.decision_event_id }}">Inspect that original decision</a>. This is a separate processing result, not a duplicate retry.</p>{% else %}<p>No predecessor recorded</p>{% endif %}</section>
+<section id="v2-vendor-observation"><h2>Optional external vendor observation</h2>
+{% if page.original %}{{ facts(page.vendor) }}<p>Upstream score is not replayable. A present observation is ignored by owned rules and is not an original or counterfactual score.</p>{% else %}<p>Verified vendor observation unavailable: {{ page.original_failure }}</p>{% endif %}</section>
+<section id="v2-explanation"><h2>Recorded explanation</h2><p>Explanation is narrative, not authoritative evidence or logic.</p>
+{% if page.recorded.explanation %}<p>{{ page.recorded.explanation }}</p>{% else %}<p>{% if page.original %}No explanation recorded{% else %}Recorded explanation unavailable or unverified{% endif %}</p>{% endif %}</section>
+<section id="v2-replay"><h2>Replay the same historical context</h2>
+{% if page.original %}<div id="current-logic-selector"><form method="get"><label for="current-artifact">Current logic artifact</label><select id="current-artifact" name="current" required><option value="" disabled{% if not current_hash %} selected{% endif %}>Select a registered artifact</option>{% for option in artifact_options %}<option value="{{ option.artifact_hash }}"{% if option.artifact_hash == current_hash %} selected{% endif %}>{{ option.label }}</option>{% endfor %}</select><button type="submit">Compare historical context</button></form></div>
+{% for option in artifact_options if option.positive_weight_bound %}<p class="positive-weight-bound"><code class="hash">{{ option.artifact_hash }}</code>: {{ option.positive_weight_bound.text }} This bound is not a replay-success claim.</p>{% endfor %}
+{% if page.comparison %}<p><strong>Ephemeral counterfactual</strong>. This did not occur and is never stored.</p><section id="v2-comparison"><h3>Original and counterfactual</h3>
+{% set comparison = page.comparison %}
+<dl class="fields"><dt>Historical logic</dt><dd>{{ comparison.historical_logic.logic_version }} · <code class="hash">{{ comparison.historical_logic.artifact_hash }}</code> · {{ comparison.historical_logic.evaluator_version }}</dd><dt>Selected current logic</dt><dd>{{ comparison.current_logic.logic_version }} · <code class="hash">{{ comparison.current_logic.artifact_hash }}</code> · {{ comparison.current_logic.evaluator_version }}</dd>
+<dt>Original score / threshold / output</dt><dd>{{ comparison.original_score }} / {{ comparison.original_threshold }} / {{ comparison.original_output }}</dd><dt>Counterfactual score / threshold / output</dt><dd>{{ comparison.counterfactual_score }} / {{ comparison.counterfactual_threshold }} / {{ comparison.counterfactual_output }}</dd><dt>Score change</dt><dd>{{ comparison.score_delta | signed }}</dd></dl>
+<div class="table-scroll" role="region" aria-label="Contribution comparison" tabindex="0"><table class="grid"><caption>Changes computed by the existing replay engine</caption><thead><tr><th>Input</th><th>Change</th><th>Historical state</th><th>Current state</th><th>Original contribution</th><th>Counterfactual contribution</th><th>Difference</th></tr></thead><tbody>{% for row in comparison.contributions %}<tr><th>{{ row.key }}</th><td>{{ row.change }}</td><td>{{ row.original_state | state_word }}</td><td>{{ row.counterfactual_state | state_word }}</td><td>{{ row.original_contribution }}</td><td>{{ row.counterfactual_contribution }}</td><td>{{ row.contribution_delta | signed }}</td></tr>{% endfor %}</tbody></table></div>
+{% if comparison.missing_inputs %}<h4>Historically missing inputs required by current logic</h4><ul>{% for row in comparison.missing_inputs %}<li>{{ row.key }}: {{ row.state | state_word }}. No current value was substituted.</li>{% endfor %}</ul>{% endif %}
+</section>
+{% else %}<p class="unavailable-state">Counterfactual unavailable: {{ page.current_failure or no_selection_message or 'No current artifact selected' }}</p>{% endif %}
+{% else %}<p>Counterfactual unavailable because the original could not be verified: {{ page.original_failure }}</p>{% endif %}</section>
+{% endblock %}
