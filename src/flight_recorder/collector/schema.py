@@ -53,6 +53,7 @@ EVENT_TYPES = (
     "action.recorded",
     "outcome.evaluated",
     "outcome.attributed",
+    "external_operation.observed",
 )
 
 #: The `source` of every `outcome.attributed` envelope: the internal attribution
@@ -671,6 +672,94 @@ class OutcomeAttributedEnvelope(_EnvelopeBase):
         return self
 
 
+# Task4 is a separately versioned simulated operation, never a buyer outcome.
+class WriteProperties(StrictModel):
+    fr_score: int
+    fr_output: Literal["PRIORITIZE", "DO_NOT_PRIORITIZE"]
+    fr_logic_version: NonEmptyStr
+    fr_decision_ref: NonEmptyStr
+    fr_op_id: Sha256Hex
+    fr_op_rev: Annotated[int, Field(ge=1)]
+
+
+class OperationIntent(StrictModel):
+    format_version: Annotated[int, Field(ge=1, le=1)]
+    company_key: NonEmptyStr
+    unit_id: Sha256Hex
+    capture_hash: Sha256Hex
+    capture_sequence: Annotated[int, Field(ge=1)]
+    decision_event_id: NonEmptyStr
+    artifact_hash: Sha256Hex
+    evaluator_version: NonEmptyStr
+    revision: Annotated[int, Field(ge=1)]
+    created_at: Timestamp
+    intended: WriteProperties
+    operation_id: Sha256Hex
+
+    @model_validator(mode="after")
+    def _intent_identity(self):
+        from flight_recorder.collector.operation_contract import intent_digest
+
+        if (
+            self.operation_id != intent_digest(self.model_dump(mode="json"))
+            or self.intended.fr_op_id != self.operation_id
+            or self.intended.fr_op_rev != self.revision
+        ):
+            raise ValueError("operation intent identity/tuple mismatch")
+        return self
+
+
+class ExternalOperationPayload(StrictModel):
+    intent: OperationIntent
+    observation_sequence: Annotated[int, Field(ge=1)]
+    observed_at: Timestamp
+    state: Literal[
+        "prepared",
+        "refused",
+        "superseded",
+        "unknown",
+        "observed_applied_at_t",
+        "observed_not_applied_at_t",
+    ]
+    reason: NonEmptyStr
+    observed_properties: dict[str, ScalarValue] | None
+    settled_operation_ids: list[Sha256Hex]
+    pending_operation_ids: list[Sha256Hex]
+    not_applied_operation_ids: list[Sha256Hex]
+
+    @model_validator(mode="after")
+    def _proof_sets(self):
+        for values in (
+            self.settled_operation_ids,
+            self.pending_operation_ids,
+            self.not_applied_operation_ids,
+        ):
+            if values != sorted(set(values)):
+                raise ValueError("operation proof IDs must be sorted and unique")
+        if set(self.settled_operation_ids) & set(self.pending_operation_ids) or not set(
+            self.not_applied_operation_ids
+        ) <= set(self.settled_operation_ids):
+            raise ValueError("contradictory operation disposition proof")
+        if self.observed_at < self.intent.created_at:
+            raise ValueError("observation before intent creation")
+        return self
+
+
+class ExternalOperationEnvelope(_EnvelopeBase):
+    schema_version: Literal["1"]
+    event_type: Literal["external_operation.observed"]
+    source: Literal["hubspot-synthetic-writer"]
+    payload: ExternalOperationPayload
+
+    @model_validator(mode="after")
+    def _observation_identity(self):
+        p = self.payload
+        expected = f"fr-write-observation-v1-{p.intent.operation_id}-{p.observation_sequence}"
+        if self.event_id != expected or self.occurred_at != p.observed_at:
+            raise ValueError("operation observation event ID/time mismatch")
+        return self
+
+
 Envelope = Annotated[
     LogicArtifactRegisteredEnvelope
     | AccountDiscoveredEnvelope
@@ -679,7 +768,8 @@ Envelope = Annotated[
     | PersonaSelectedEnvelope
     | ActionRecordedEnvelope
     | OutcomeEvaluatedEnvelopes
-    | OutcomeAttributedEnvelope,
+    | OutcomeAttributedEnvelope
+    | ExternalOperationEnvelope,
     Field(discriminator="event_type"),
 ]
 
@@ -697,6 +787,7 @@ AnyEnvelope = (
     | EvidenceRecordedV2Envelope
     | DecisionRecordedV2Envelope
     | OutcomeAttributedEnvelope
+    | ExternalOperationEnvelope
 )
 
 

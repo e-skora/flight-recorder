@@ -13,6 +13,7 @@ KIND_LABELS = {
     "action.recorded": "ACTION",
     "outcome.evaluated": "OUTCOME",
     "outcome.attributed": "ATTRIBUTION",
+    "external_operation.observed": "OPERATION",
 }
 
 
@@ -48,6 +49,11 @@ def _observation(flag: bool | None, word: str, state: str) -> str:
 
 def summarize(event_type: str, payload: dict, schema_version: str = "1") -> str:
     match event_type:
+        case "external_operation.observed":
+            return (
+                f"Simulated operation observation: {payload['state']} "
+                f"at {payload['observed_at']} ({payload['reason']})"
+            )
         case "account.discovered":
             return f"Account discovered: {payload['name']} ({payload['domain']})"
         case "evidence.recorded":

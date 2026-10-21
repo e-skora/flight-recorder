@@ -153,6 +153,17 @@ class Collector:
                     sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY,
                 ):
                     reason = "v2_identity_conflict"
+            if normalized["event_type"] == "external_operation.observed" and isinstance(code, int):
+                if isinstance(exc, OperationalError) and code & 255 in (
+                    sqlite3.SQLITE_BUSY,
+                    sqlite3.SQLITE_LOCKED,
+                ):
+                    reason = "operation_admission_contended"
+                elif isinstance(exc, IntegrityError) and code in (
+                    sqlite3.SQLITE_CONSTRAINT_UNIQUE,
+                    sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY,
+                ):
+                    reason = "operation_identity_conflict"
             if reason is None:
                 raise
             raise ConflictError(

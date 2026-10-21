@@ -76,6 +76,11 @@ def validate_references(conn, envelope, normalized: dict) -> None:
     """Check every cross-event reference the envelope makes. Writes nothing."""
     from flight_recorder.collector.provenance import is_v2, validate_v2
 
+    if normalized["event_type"] == "external_operation.observed":
+        from flight_recorder.collector.operation_contract import validate_operation
+
+        validate_operation(conn, normalized)
+        return
     if is_v2(normalized):
         validate_v2(conn, normalized)
         return
@@ -631,6 +636,8 @@ def project(conn, normalized: dict, ingest_sequence: int) -> None:
     """Write the domain records this accepted event produces (PRODUCT.md §6)."""
     from flight_recorder.collector.provenance import is_v2, project_v2
 
+    if normalized["event_type"] == "external_operation.observed":
+        return  # Its immutable domain observation is the event itself.
     if is_v2(normalized):
         project_v2(conn, normalized, ingest_sequence)
         return
