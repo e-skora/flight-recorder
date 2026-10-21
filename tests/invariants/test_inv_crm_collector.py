@@ -456,3 +456,65 @@ def test_replace_cannot_delete_history_through_a_secondary_unique_key(domain, co
     finally:
         connection.close()
     assert snapshot(domain[0]) == before
+
+
+@pytest.mark.parametrize("sequence", [2**63, 10**100])
+def test_oversized_sequence_has_named_atomic_refusal(domain, sequence):
+    case = make_case(capture_sequence=sequence)
+    prepare(domain, case)
+    before = snapshot(domain[0])
+    with pytest.raises(CollectorError) as exc:
+        submit(domain[1], case["evidence"])
+    assert exc.value.body["reason"] == "invalid_envelope"
+    assert snapshot(domain[0]) == before
+
+
+def numeric_case(mode, value):
+    case = make_case()
+    registration = copy.deepcopy(case["artifact"])
+    artifact = registration["payload"]["artifact"]
+    artifact.update(artifact_id="numeric-boundary-test", logic_version="numeric-test")
+    if mode == "threshold":
+        artifact["threshold"] = value
+    else:
+        for factor in artifact["factors"]:
+            factor["weight"] = 0
+        artifact["factors"][0]["weight"] = value
+        if mode == "contribution":
+            artifact["factors"][1]["weight"] = -value
+    registration["event_id"] = "numeric-test-" + canonical_hash(artifact)
+    cap = case["capture"]
+    cap["rule_hash"] = canonical_hash(artifact)
+    return envelopes(seal(cap), registration)
+
+
+@pytest.mark.parametrize("mode", ["threshold", "score", "contribution"])
+@pytest.mark.parametrize("value", [2**63, -(2**63) - 1])
+def test_matching_evaluator_result_cannot_overflow_sqlite(domain, mode, value):
+    case = numeric_case(mode, value)
+    prepare(domain, case)
+    submit(domain[1], case["evidence"])
+    before = snapshot(domain[0])
+    with pytest.raises(CollectorError) as exc:
+        submit(domain[1], case["decision"])
+    assert exc.value.body["reason"] == "invalid_envelope"
+    assert snapshot(domain[0]) == before
+
+
+@pytest.mark.parametrize("mode", ["threshold", "score"])
+@pytest.mark.parametrize("value", [2**63 - 1, -(2**63)])
+def test_signed_sqlite_result_boundaries_are_accepted(domain, mode, value):
+    case = numeric_case(mode, value)
+    accept_case(domain, case)
+    with domain[0].connect() as conn:
+        assert conn.exec_driver_sql("SELECT " + mode + " FROM crm_decisions").scalar_one() == value
+
+
+def test_largest_positive_capture_sequence_is_accepted(domain):
+    case = make_case(capture_sequence=2**63 - 1, ownership_generation=2**63 - 1)
+    accept_case(domain, case)
+    with domain[0].connect() as conn:
+        assert (
+            conn.exec_driver_sql("SELECT capture_sequence FROM crm_captures").scalar_one()
+            == 2**63 - 1
+        )

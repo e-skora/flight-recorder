@@ -15,12 +15,13 @@ from pydantic import (
 )
 
 from flight_recorder.adapters.crm.contracts import CRMTarget, require
-from flight_recorder.adapters.crm.mapping import FIELDS, MAPPING_HASH, map_inputs
+from flight_recorder.adapters.crm.mapping import FIELDS, MAPPING_HASH, MAX_INTEGER, map_inputs
 from flight_recorder.collector.canonical import canonical_hash, canonical_text
 
 Hash = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 Text = Annotated[str, Field(min_length=1)]
-Positive = Annotated[int, Field(gt=0)]
+Positive = Annotated[int, Field(gt=0, le=MAX_INTEGER)]
+SQLiteInteger = Annotated[int, Field(ge=-MAX_INTEGER - 1, le=MAX_INTEGER)]
 
 
 def _utc(value):
@@ -284,6 +285,8 @@ def validate_wire(n):
 def build_envelopes():
     """Called after legacy types exist, avoiding a CRM/legacy import cycle."""
     from flight_recorder.collector.schema import (
+        ConsumedInput,
+        DecisionResult,
         DecisionRecordedEnvelope,
         DecisionRecordedPayload,
         EvidenceItemV2,
@@ -291,12 +294,21 @@ def build_envelopes():
         EvidenceRecordedPayload,
     )
 
+    class CRMConsumedInput(ConsumedInput):
+        contribution: SQLiteInteger
+
+    class CRMDecisionResult(DecisionResult):
+        score: SQLiteInteger
+        threshold: SQLiteInteger
+
     class EvidenceRecordedV3Payload(EvidenceRecordedPayload):
         items: list[EvidenceItemV2] = Field(min_length=1)
         capture: CaptureDocument
         capture_hash: Hash
 
     class DecisionRecordedV3Payload(DecisionRecordedPayload):
+        consumed_inputs: list[CRMConsumedInput] = Field(min_length=1)
+        result: CRMDecisionResult
         capture: CaptureDocument
         capture_hash: Hash
 

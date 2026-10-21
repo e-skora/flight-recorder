@@ -208,8 +208,8 @@ def test_v2_rejects_a_v1_shaped_payload(harness):
     [
         ("outcome.evaluated", "3"),
         ("action.recorded", "2"),
-        ("decision.recorded", "3"),
-        ("evidence.recorded", "3"),
+        ("decision.recorded", "4"),
+        ("evidence.recorded", "4"),
         ("account.discovered", "2"),
     ],
 )
@@ -223,6 +223,21 @@ def test_unsupported_event_schema_versions_are_refused(harness, event_type, sche
     response = harness.post(envelope)
     assert response.status_code == 422
     assert "schema_version" in validation_messages(response.json())
+    assert harness.snapshot() == before
+
+
+@pytest.mark.parametrize("event_type", ["decision.recorded", "evidence.recorded"])
+def test_live_v3_refuses_a_relabelled_legacy_payload(harness, event_type):
+    for response in seed_all(harness):
+        assert response.status_code == 201
+    envelope = copy.deepcopy(canonical_by_type(event_type))
+    envelope.update(schema_version="3", event_id="evt-test-relabelled-v3")
+    before = harness.snapshot()
+    response = harness.post(envelope)
+    assert response.status_code == 422
+    assert response.json()["reason"] == "invalid_envelope"
+    assert "capture" in validation_messages(response.json())
+    assert "source" in validation_messages(response.json())
     assert harness.snapshot() == before
 
 
