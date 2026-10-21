@@ -1,5 +1,6 @@
 """Private local credentials only: all token values in this file are fictional."""
 
+import errno
 import importlib
 import json
 import os
@@ -683,4 +684,79 @@ def test_close_io_error_is_named_without_secret_cause(api, tmp_path, monkeypatch
     if stage == "lock_close":
         with pytest.raises(CRMRefused, match="^secret_store_paused$"):
             store.load("fictional", "a" * 64)
+    store.close()
+
+
+@pytest.mark.parametrize("which", ["lock", "token"])
+def test_open_io_uncertainty_pauses_store_and_preserves_retained_file(
+    api, private_dir, monkeypatch, which
+):
+    store, _ = installed(api, private_dir)
+    path = filename(private_dir)
+    before = path.read_bytes()
+    original = api.os.open
+    target = ".lock" if which == "lock" else path.name
+
+    def uncertain_open(name, *args, **kwargs):
+        if name == target:
+            raise OSError(errno.EIO, "fictional-refresh-one must never leak")
+        return original(name, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(api.os, "open", uncertain_open)
+        refuses("secret_persistence_uncertain", lambda: store.load(CONNECTION, BINDING))
+    refuses("secret_store_paused", lambda: store.load(CONNECTION, BINDING))
+    refuses("secret_store_paused", lambda: store.status(CONNECTION, BINDING))
+    assert path.read_bytes() == before
+    store.close()
+
+
+def test_failed_constructor_cleanup_close_error_is_named_and_not_retried(
+    api, private_dir, monkeypatch
+):
+    import traceback
+
+    private_dir.chmod(0o755)
+    original = api.os.close
+    attempts = 0
+
+    def uncertain_close(fd):
+        nonlocal attempts
+        attempts += 1
+        original(fd)
+        raise OSError(errno.EIO, "fictional-refresh-one must never leak")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(api.os, "close", uncertain_close)
+        with pytest.raises(CRMRefused) as caught:
+            api.TokenStore(private_dir)
+        assert caught.value.reason in {"secret_boundary_invalid", "secret_persistence_uncertain"}
+        assert "fictional-refresh-one" not in "".join(traceback.format_exception(caught.value))
+        assert caught.value.__suppress_context__
+    assert attempts == 1
+    assert private_dir.stat().st_mode & 0o777 == 0o755
+    assert list(private_dir.iterdir()) == []
+
+
+@pytest.mark.parametrize("number", [errno.ELOOP, errno.EACCES, errno.EPERM, errno.ENOENT])
+@pytest.mark.parametrize("which", ["lock", "token"])
+def test_recognized_open_boundary_errors_remain_named_refusals(
+    api, private_dir, monkeypatch, number, which
+):
+    store, _ = installed(api, private_dir)
+    path = filename(private_dir)
+    before = path.read_bytes()
+    original = api.os.open
+    target = ".lock" if which == "lock" else path.name
+
+    def unsafe_open(name, *args, **kwargs):
+        if name == target:
+            raise OSError(number, "fictional-refresh-one must never leak")
+        return original(name, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(api.os, "open", unsafe_open)
+        refuses("secret_boundary_invalid", lambda: store.load(CONNECTION, BINDING))
+    assert path.read_bytes() == before
+    assert store.load(CONNECTION, BINDING) == material(api)
     store.close()

@@ -5,6 +5,7 @@ It is not a sandbox against a hostile process running as the same user or root.
 There is no network, automatic refresh retry, reauthorization or recovery here.
 """
 
+import errno
 import fcntl
 import json
 import os
@@ -24,6 +25,14 @@ from flight_recorder.collector.canonical import canonical_hash, canonical_text
 _FLAGS = os.O_NOFOLLOW | os.O_CLOEXEC
 _LIMIT = 1024 * 1024
 _BINDING = re.compile(r"[a-f0-9]{64}", re.ASCII)
+_BOUNDARY_ERRNOS = {
+    errno.ELOOP,
+    errno.EACCES,
+    errno.EPERM,
+    errno.ENOENT,
+    errno.ENOTDIR,
+    errno.EISDIR,
+}
 
 
 def _text(value, limit, reason):
@@ -237,10 +246,20 @@ class TokenStore:
             self._dirfd = os.open(self._directory, os.O_RDONLY | os.O_DIRECTORY | _FLAGS)
             self._identity = os.fstat(self._dirfd)
             self._check_directory()
-        except (OSError, ValueError, TypeError):
+        except (OSError, ValueError, TypeError) as error:
+            reason = "secret_boundary_invalid"
+            if isinstance(error, OSError) and error.errno not in _BOUNDARY_ERRNOS:
+                reason = "secret_persistence_uncertain"
+            self._closed = True
             if self._dirfd is not None:
-                os.close(self._dirfd)
-            raise CRMRefused("secret_boundary_invalid") from None
+                fd = self._dirfd
+                self._dirfd = None
+                try:
+                    os.close(fd)
+                except OSError:
+                    # A failed close may already have released this descriptor; never retry it.
+                    reason = "secret_persistence_uncertain"
+            raise CRMRefused(reason) from None
 
     def _check_components(self):
         for path in [*reversed(self._directory.parents), self._directory]:
@@ -289,8 +308,10 @@ class TokenStore:
                     fd = os.open(".lock", os.O_RDWR | _FLAGS, dir_fd=self._dirfd)
             else:
                 fd = os.open(".lock", os.O_RDWR | _FLAGS, dir_fd=self._dirfd)
-        except OSError:
-            raise CRMRefused("secret_boundary_invalid") from None
+        except OSError as error:
+            if error.errno in _BOUNDARY_ERRNOS:
+                raise CRMRefused("secret_boundary_invalid") from None
+            raise
         try:
             _private_file(os.fstat(fd))
             require(
@@ -360,8 +381,10 @@ class TokenStore:
             return None
         try:
             fd = os.open(name, os.O_RDONLY | _FLAGS, dir_fd=self._dirfd)
-        except OSError:
-            raise CRMRefused("secret_boundary_invalid") from None
+        except OSError as error:
+            if error.errno in _BOUNDARY_ERRNOS:
+                raise CRMRefused("secret_boundary_invalid") from None
+            raise
         try:
             require(_signature(original) == _signature(os.fstat(fd)), "secret_boundary_invalid")
             require(original.st_size <= _LIMIT, "secret_store_unrecognized")
