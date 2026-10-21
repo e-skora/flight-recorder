@@ -72,6 +72,11 @@ def capture_observation(store, owner, observed_read, config, *, selection_identi
         and target.record_id in config.record_ids,
         "target_not_allowlisted",
     )
+    now = utc_now(clock)
+    require(
+        observed_read.read_finished_at <= now and observed_read.source_updated_at <= now,
+        "observation_after_clock",
+    )
     inputs = map_inputs(observed_read.properties, observed_read.unavailable_fields)
     digest = canonical_hash(dict(mapping_hash=config.mapping_hash, inputs=inputs))
     state = store.polling_state(target)
@@ -91,7 +96,7 @@ def capture_observation(store, owner, observed_read, config, *, selection_identi
             data_origin="fictional_records_real_crm",
             **observed_read.document,
             connection_id=config.connection_id,
-            capture_boundary=format_utc(utc_now(clock)),
+            capture_boundary=format_utc(now),
             inputs=inputs,
             **processing,
             capture_sequence=store.next_capture_sequence(owner),

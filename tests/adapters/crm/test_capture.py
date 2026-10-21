@@ -252,3 +252,67 @@ def test_unchanged_observation_restarts_and_retries_without_clock(tmp_path):
     with pytest.raises(CRMRefused, match="capture_claim_conflict"):
         freeze(resumed, second, read(seconds=20), clock=forbidden)
     resumed.close()
+
+
+@pytest.mark.parametrize("count", [184, 185])
+@pytest.mark.parametrize("clock_kind", ["future_read", "naive", "invalid"])
+def test_fresh_read_requires_valid_current_clock_before_any_observation_write(
+    tmp_path, count, clock_kind
+):
+    import sqlite3
+
+    store = store2(tmp_path / "store.sqlite")
+    first = store.acquire(target(), "a" * 64)
+    freeze(store, first)
+    store.release(first)
+    second = store.acquire(target(), "b" * 64)
+    before = store.polling_state(target())
+    with sqlite3.connect(store.path) as conn:
+        counts = {
+            name: conn.execute(f"SELECT count(*) FROM {name}").fetchone()[0]
+            for name in [
+                "crm_frozen_captures",
+                "crm_read_observations",
+                "crm_source_versions",
+                "crm_polling_state",
+            ]
+        }
+    now = datetime.fromisoformat(capture().document["capture_boundary"])
+    if clock_kind == "naive":
+        now = now.replace(tzinfo=None)
+    if clock_kind == "invalid":
+        now = "not-a-clock"
+    calls = []
+
+    def clock():
+        calls.append("called")
+        return now
+
+    with pytest.raises(CRMRefused):
+        freeze(store, second, read(seconds=20, count=count), clock=clock)
+    assert calls == ["called"]
+    assert store.polling_state(target()) == before
+    with sqlite3.connect(store.path) as conn:
+        assert {
+            name: conn.execute(f"SELECT count(*) FROM {name}").fetchone()[0] for name in counts
+        } == counts
+    store.close()
+
+
+@pytest.mark.parametrize("count", [184, 185])
+def test_each_fresh_capture_or_unchanged_observation_uses_one_clock_value(tmp_path, count):
+    store = store2(tmp_path / "store.sqlite")
+    first = store.acquire(target(), "a" * 64)
+    freeze(store, first)
+    store.release(first)
+    second = store.acquire(target(), "b" * 64)
+    calls = []
+
+    def clock():
+        calls.append("called")
+        return datetime.fromisoformat(capture(seconds=100).document["capture_boundary"])
+
+    result = freeze(store, second, read(seconds=20, count=count), clock=clock)
+    assert calls == ["called"]
+    assert result.state == ("captured" if count == 185 else "scoring_inputs_unchanged")
+    store.close()
