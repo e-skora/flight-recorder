@@ -396,7 +396,14 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="recompute outcomes that already have a result; append only changed results",
     )
+    for name in ("crm-init", "crm-serve"):
+        crm = sub.add_parser(name, help="explicit local CRM runtime command")
+        crm.add_argument("--config", type=Path, required=True)
     args = parser.parse_args(argv)
+    if args.command in ("crm-init", "crm-serve"):
+        from flight_recorder.adapters.crm.cli import command
+
+        return command(args.command, args.config)
 
     # Dispatched before `--db` and FLIGHT_RECORDER_DB are resolved: the snapshot
     # build never reads either.

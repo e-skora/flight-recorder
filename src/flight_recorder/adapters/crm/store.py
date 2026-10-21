@@ -48,27 +48,33 @@ def _sql(text):
 
 
 class CRMStore:
-    def __init__(self, path: Path | str, *, format_version=1):
+    def __init__(self, path: Path | str, *, format_version=1, create=True):
         require(
-            type(format_version) is int and format_version in (1, 2, 3),
+            type(format_version) is int and format_version in (1, 2, 3, 4),
             "operational_store_unrecognized",
         )
+        require(type(create) is bool, "operational_store_unrecognized")
         self._format_version = format_version
         schema = _SCHEMA
-        if format_version in (2, 3):
+        if format_version in (2, 3, 4):
             from flight_recorder.adapters.crm.operational_schema import capture_schema
 
             schema = capture_schema(_SCHEMA)
-            if format_version == 3:
+            if format_version in (3, 4):
                 from flight_recorder.adapters.crm.submission_schema import submission_schema
 
                 schema = submission_schema(schema)
+                if format_version == 4:
+                    from flight_recorder.adapters.crm.poll_schema import poll_schema
+
+                    schema = poll_schema(schema)
         self.path = Path(path).resolve()
         self._closed = False
         require(
             self.path.parent.is_dir() and not self.path.is_dir(), "operational_store_unrecognized"
         )
         existed = self.path.exists()
+        require(existed or create, "operational_store_unrecognized")
         try:
             if not existed:
                 # Exclusive creation prevents a race from initializing a foreign existing file.
@@ -229,7 +235,7 @@ class CRMStore:
 
     @contextmanager
     def _capture_transaction(self):
-        require(self._format_version in (2, 3), "capture_store_uninitialized")
+        require(self._format_version in (2, 3, 4), "capture_store_uninitialized")
         try:
             with self.transaction() as conn:
                 yield conn
@@ -699,7 +705,7 @@ class CRMStore:
 
     @contextmanager
     def _submission_transaction(self):
-        require(self._format_version == 3, "submission_store_uninitialized")
+        require(self._format_version in (3, 4), "submission_store_uninitialized")
         with self._capture_transaction() as conn:
             yield conn
 

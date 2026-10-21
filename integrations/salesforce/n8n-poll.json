@@ -1,0 +1,80 @@
+{
+  "name": "Flight Recorder Salesforce polling (inactive)",
+  "active": false,
+  "nodes": [
+    {
+      "id": "fcaf7d3a-ccde-4e65-89e1-adbc60c74968",
+      "name": "Every minute",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "f690bfae-5abc-4de7-a630-37be6a4d1766",
+      "name": "Queue observed poll",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REVIEWED_LOCAL_INGRESS_CREDENTIAL",
+          "name": "Flight Recorder local ingress"
+        }
+      },
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8768/api/internal/crm/poll",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ { connection_id: 'REVIEWED_CONNECTION_ID', tick_id: $workflow.id + ':' + $execution.id } }}",
+        "options": {
+          "timeout": 30000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          }
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Every minute": {
+      "main": [
+        [
+          {
+            "node": "Queue observed poll",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "UTC"
+  }
+}
