@@ -286,9 +286,9 @@ def build_envelopes():
     """Called after legacy types exist, avoiding a CRM/legacy import cycle."""
     from flight_recorder.collector.schema import (
         ConsumedInput,
-        DecisionResult,
         DecisionRecordedEnvelope,
         DecisionRecordedPayload,
+        DecisionResult,
         EvidenceItemV2,
         EvidenceRecordedEnvelope,
         EvidenceRecordedPayload,
