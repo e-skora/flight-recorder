@@ -161,8 +161,9 @@ class SalesforceClient:
         )
         response = self._http.get(url, current.material.access_token)
         try:
-            text = response.body.decode("utf-8")
-            require(not text.startswith("\ufeff"), "invalid_provider_response")
+            # Validate strict UTF-8 JSON before the legacy lossless byte decoder.
+            # Merely decoding UTF-16 ASCII bytes as UTF-8 leaves NULs unvalidated.
+            response.json()
             properties = decode_salesforce_record(response.body)
         except (ValueError, TypeError, RecursionError):
             raise CRMRefused("invalid_provider_response") from None

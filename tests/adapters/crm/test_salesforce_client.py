@@ -437,7 +437,10 @@ def test_identity_revocation_is_not_refreshed_or_retried_implicitly(tmp_path):
     store.close()
 
 
-@pytest.mark.parametrize("encoding", ["utf-16", "utf-32", "utf-8-sig"])
+@pytest.mark.parametrize(
+    "encoding",
+    ["utf-16", "utf-32", "utf-8-sig", "utf-16-le", "utf-16-be", "utf-32-le", "utf-32-be"],
+)
 def test_selected_record_requires_utf8_even_for_other_valid_json_encodings(tmp_path, encoding):
     record = dict(
         Id=ACCOUNT,
