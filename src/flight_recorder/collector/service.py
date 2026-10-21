@@ -98,10 +98,13 @@ class Collector:
         normalized = envelope.model_dump(mode="json")
         digest = canonical_hash(normalized)
 
+        from flight_recorder.collector.crm_provenance import ensure_crm_schema, is_crm
         from flight_recorder.collector.provenance import is_v2
 
         try:
             with self.engine.begin() as conn:
+                if is_crm(normalized):
+                    ensure_crm_schema(conn)
                 existing = conn.execute(
                     select(events.c.canonical_hash).where(events.c.event_id == envelope.event_id)
                 ).first()
@@ -142,6 +145,17 @@ class Collector:
             # The context manager has already rolled back the entire call.
             code = getattr(exc.orig, "sqlite_errorcode", None)
             reason = None
+            if is_crm(normalized) and isinstance(code, int):
+                if isinstance(exc, OperationalError) and code & 255 in (
+                    sqlite3.SQLITE_BUSY,
+                    sqlite3.SQLITE_LOCKED,
+                ):
+                    reason = "crm_admission_contended"
+                elif isinstance(exc, IntegrityError) and code in (
+                    sqlite3.SQLITE_CONSTRAINT_UNIQUE,
+                    sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY,
+                ):
+                    reason = "crm_identity_conflict"
             if is_v2(normalized) and isinstance(code, int):
                 if isinstance(exc, OperationalError) and code & 255 in (
                     sqlite3.SQLITE_BUSY,

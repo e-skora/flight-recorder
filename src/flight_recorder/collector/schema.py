@@ -37,6 +37,7 @@ from pydantic import (
     model_validator,
 )
 
+from flight_recorder.collector.crm_schema import build_envelopes
 from flight_recorder.ledger.schema import SYSTEM_ACCOUNT_REF
 
 SCHEMA_VERSION = "1"
@@ -598,11 +599,15 @@ class DecisionRecordedV2Envelope(DecisionRecordedEnvelope):
         return self
 
 
+EvidenceRecordedV3Envelope, DecisionRecordedV3Envelope = build_envelopes()
+
 EvidenceRecordedEnvelopes = Annotated[
-    EvidenceRecordedEnvelope | EvidenceRecordedV2Envelope, Field(discriminator="schema_version")
+    EvidenceRecordedEnvelope | EvidenceRecordedV2Envelope | EvidenceRecordedV3Envelope,
+    Field(discriminator="schema_version"),
 ]
 DecisionRecordedEnvelopes = Annotated[
-    DecisionRecordedEnvelope | DecisionRecordedV2Envelope, Field(discriminator="schema_version")
+    DecisionRecordedEnvelope | DecisionRecordedV2Envelope | DecisionRecordedV3Envelope,
+    Field(discriminator="schema_version"),
 ]
 
 
@@ -786,6 +791,8 @@ AnyEnvelope = (
     | OutcomeEvaluatedV2Envelope
     | EvidenceRecordedV2Envelope
     | DecisionRecordedV2Envelope
+    | EvidenceRecordedV3Envelope
+    | DecisionRecordedV3Envelope
     | OutcomeAttributedEnvelope
     | ExternalOperationEnvelope
 )

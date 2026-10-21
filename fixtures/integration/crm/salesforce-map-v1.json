@@ -1,0 +1,54 @@
+{
+  "format_version": 1,
+  "mapping_id": "salesforce-map-v1",
+  "provider": "salesforce",
+  "object_type": "Account",
+  "inputs": {
+    "employee_count": [
+      "NumberOfEmployees"
+    ],
+    "industry": [
+      "FR_Industry_Segment__c"
+    ],
+    "headquarters_country": [
+      "BillingCountry"
+    ],
+    "funding_event": [
+      "FR_Funding_Stage__c",
+      "FR_Funding_Observed_On__c"
+    ],
+    "open_platform_engineering_roles": [
+      "FR_Open_Platform_Roles__c"
+    ],
+    "head_of_platform_start_date": [
+      "FR_Head_Of_Platform_Start__c"
+    ],
+    "verified_integration_pressure": [
+      "FR_Integration_Pressure__c",
+      "FR_Integration_Pressure_Basis__c"
+    ]
+  },
+  "outputs": {
+    "fr_score": "FR_Score__c",
+    "fr_output": "FR_Output__c",
+    "fr_logic_version": "FR_Logic_Version__c",
+    "fr_decision_ref": "FR_Decision_Ref__c",
+    "fr_op_id": "FR_Operation_Id__c",
+    "fr_op_rev": "FR_Operation_Revision__c"
+  },
+  "identity_field": "Id",
+  "display_fields": [
+    "Name",
+    "Website"
+  ],
+  "source_time_field": "LastModifiedDate",
+  "number_mapping": {
+    "format": "lossless-json-number-v1",
+    "max_token_length": 128,
+    "max_absolute_exponent": 128,
+    "minimum": 0,
+    "maximum": 9223372036854775807,
+    "revision_minimum": 1,
+    "negative_zero": "refused"
+  }
+}

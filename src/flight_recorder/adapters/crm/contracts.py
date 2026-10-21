@@ -1,5 +1,6 @@
 """Canonical target identities and immutable operational ownership values."""
 
+import json
 import re
 from dataclasses import dataclass
 
@@ -103,3 +104,37 @@ class Ownership:
         validate_unit_id(self.unit_id)
         require(type(self.target_key) is str and bool(self.target_key), "invalid_target")
         require(type(self.generation) is int and self.generation > 0, "stale_ownership")
+
+
+@dataclass(frozen=True)
+class CRMCapture:
+    canonical_bytes: bytes
+
+    def __post_init__(self):
+        from flight_recorder.collector.crm_schema import CaptureDocument
+
+        require(type(self.canonical_bytes) is bytes, "invalid_crm_capture")
+        model = CaptureDocument.model_validate_json(self.canonical_bytes, strict=True)
+        require(
+            self.canonical_bytes == canonical_text(model.model_dump(mode="json")).encode(),
+            "invalid_crm_capture",
+        )
+
+    @classmethod
+    def from_document(cls, document):
+        from flight_recorder.collector.crm_schema import CaptureDocument
+
+        model = CaptureDocument.model_validate_json(canonical_text(document), strict=True)
+        return cls(canonical_text(model.model_dump(mode="json")).encode())
+
+    @property
+    def document(self):
+        return json.loads(self.canonical_bytes)
+
+    @property
+    def capture_hash(self):
+        return canonical_hash(self.document)
+
+    @property
+    def unit_id(self):
+        return self.document["unit_id"]
