@@ -314,7 +314,7 @@ def test_polling_pointer_cannot_rewind_to_an_older_valid_observation(tmp_path):
     store.close()
 
 
-@pytest.mark.parametrize("value", [True, False, None, "2", 2.0, 0, 3])
+@pytest.mark.parametrize("value", [True, False, None, "2", 2.0, 0, 4])
 def test_invalid_format_never_creates_file(tmp_path, value):
     path = tmp_path / "store.sqlite"
     with pytest.raises(CRMRefused):

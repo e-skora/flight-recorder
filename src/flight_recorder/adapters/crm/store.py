@@ -50,15 +50,19 @@ def _sql(text):
 class CRMStore:
     def __init__(self, path: Path | str, *, format_version=1):
         require(
-            type(format_version) is int and format_version in (1, 2),
+            type(format_version) is int and format_version in (1, 2, 3),
             "operational_store_unrecognized",
         )
         self._format_version = format_version
         schema = _SCHEMA
-        if format_version == 2:
+        if format_version in (2, 3):
             from flight_recorder.adapters.crm.operational_schema import capture_schema
 
             schema = capture_schema(_SCHEMA)
+            if format_version == 3:
+                from flight_recorder.adapters.crm.submission_schema import submission_schema
+
+                schema = submission_schema(schema)
         self.path = Path(path).resolve()
         self._closed = False
         require(
@@ -225,7 +229,7 @@ class CRMStore:
 
     @contextmanager
     def _capture_transaction(self):
-        require(self._format_version == 2, "capture_store_uninitialized")
+        require(self._format_version in (2, 3), "capture_store_uninitialized")
         try:
             with self.transaction() as conn:
                 yield conn
@@ -692,3 +696,302 @@ class CRMStore:
                 (self._fact_key(owner), owner.target_key),
             )
             return fact
+
+    @contextmanager
+    def _submission_transaction(self):
+        require(self._format_version == 3, "submission_store_uninitialized")
+        with self._capture_transaction() as conn:
+            yield conn
+
+    def _load_submission(self, conn, owner):
+        from flight_recorder.adapters.crm.submission_contracts import CRMSubmission
+
+        row = conn.execute(
+            "SELECT unit_id,submission_hash,target_key,claim_id,generation,body "
+            "FROM crm_frozen_submissions "
+            "WHERE target_key=? AND claim_id=? AND generation=?",
+            (owner.target_key, owner.unit_id, owner.generation),
+        ).fetchone()
+        if row is None:
+            return None
+        frozen = CRMSubmission(row[5])
+        d = frozen.document
+        require(
+            row[:5]
+            == (
+                d["unit_id"],
+                frozen.submission_hash,
+                d["target_key"],
+                d["claim_id"],
+                d["ownership_generation"],
+            ),
+            "submission_integrity",
+        )
+        cap = self._load_capture(conn, d["unit_id"])
+        require(
+            cap is not None
+            and cap.capture_hash == d["capture_hash"]
+            and hashlib.sha256(cap.canonical_bytes).hexdigest() == d["capture_bytes_sha256"],
+            "submission_integrity",
+        )
+        binding = conn.execute(
+            "SELECT claim_id,generation FROM crm_frozen_captures WHERE unit_id=?", (cap.unit_id,)
+        ).fetchone()
+        require(binding == (owner.unit_id, owner.generation), "submission_integrity")
+        domain = conn.execute(
+            "SELECT domain_path FROM crm_submission_domain WHERE singleton=1"
+        ).fetchone()
+        require(domain == (d["domain_path"],), "submission_domain_mismatch")
+        return frozen
+
+    def load_submission(self, owner):
+        with self._submission_transaction() as conn:
+            self.assert_owner(conn, owner)
+            return self._load_submission(conn, owner)
+
+    def freeze_submission(self, owner, submission):
+        from flight_recorder.adapters.crm.submission_contracts import CRMSubmission
+
+        require(type(submission) is CRMSubmission, "invalid_frozen_submission")
+        submission = CRMSubmission(submission.canonical_bytes)
+        d = submission.document
+        with self._submission_transaction() as conn:
+            self.assert_owner(conn, owner)
+            require(
+                (d["target_key"], d["claim_id"], d["ownership_generation"])
+                == (owner.target_key, owner.unit_id, owner.generation),
+                "stale_ownership",
+            )
+            saved = self._load_submission(conn, owner)
+            if saved is not None:
+                require(saved == submission, "submission_plan_conflict")
+                return saved
+            cap = self._load_capture(conn, d["unit_id"])
+            require(
+                cap is not None and cap.capture_hash == d["capture_hash"],
+                "submission_capture_mismatch",
+            )
+            binding = conn.execute(
+                "SELECT claim_id,generation FROM crm_frozen_captures WHERE unit_id=?",
+                (cap.unit_id,),
+            ).fetchone()
+            require(binding == (owner.unit_id, owner.generation), "submission_capture_mismatch")
+            domain = conn.execute(
+                "SELECT domain_path FROM crm_submission_domain WHERE singleton=1"
+            ).fetchone()
+            require(domain is None or domain == (d["domain_path"],), "submission_domain_mismatch")
+            if domain is None:
+                conn.execute("INSERT INTO crm_submission_domain VALUES (1,?)", (d["domain_path"],))
+            conn.execute(
+                "INSERT INTO crm_frozen_submissions VALUES (?,?,?,?,?,?)",
+                (
+                    d["unit_id"],
+                    submission.submission_hash,
+                    owner.target_key,
+                    owner.unit_id,
+                    owner.generation,
+                    submission.canonical_bytes,
+                ),
+            )
+            return submission
+
+    def _submission_attempt(self, conn, frozen, attempt_id):
+        row = conn.execute(
+            "SELECT attempt_id,unit_id,stage,ordinal,body,body_sha256 "
+            "FROM crm_submission_attempts WHERE attempt_id=?",
+            (attempt_id,),
+        ).fetchone()
+        require(row is not None, "submission_attempt_missing")
+        d = json.loads(row[4])
+        plan = frozen.document
+        require(
+            type(row[4]) is bytes
+            and canonical_bytes(d) == row[4]
+            and hashlib.sha256(row[4]).hexdigest() == row[5]
+            and set(d)
+            == {
+                "format_version",
+                "unit_id",
+                "submission_hash",
+                "target_key",
+                "claim_id",
+                "generation",
+                "stage",
+                "ordinal",
+                "event_id",
+                "canonical_hash",
+            },
+            "submission_attempt_integrity",
+        )
+        require(
+            type(d["format_version"]) is int
+            and d["format_version"] == 1
+            and type(d["ordinal"]) is int
+            and d["ordinal"] > 0
+            and type(d["generation"]) is int,
+            "submission_attempt_integrity",
+        )
+        stage = next((x for x in plan["stages"] if x["stage"] == d["stage"]), None)
+        require(
+            stage is not None
+            and row[:4] == (canonical_hash(d), plan["unit_id"], d["stage"], d["ordinal"])
+            and d["submission_hash"] == frozen.submission_hash
+            and (d["target_key"], d["claim_id"], d["generation"])
+            == (plan["target_key"], plan["claim_id"], plan["ownership_generation"])
+            and (d["event_id"], d["canonical_hash"])
+            == (stage["event_id"], stage["canonical_hash"]),
+            "submission_attempt_integrity",
+        )
+        return d
+
+    def submission_history(self, conn, frozen):
+        accepted = set()
+        failure = None
+        latest = None
+        attempts = conn.execute(
+            "SELECT attempt_id FROM crm_submission_attempts WHERE unit_id=? ORDER BY stage,ordinal",
+            (frozen.document["unit_id"],),
+        ).fetchall()
+        observations = []
+        for (attempt_id,) in attempts:
+            attempt = self._submission_attempt(conn, frozen, attempt_id)
+            row = conn.execute(
+                "SELECT disposition,body,body_sha256 FROM crm_submission_observations "
+                "WHERE attempt_id=?",
+                (attempt_id,),
+            ).fetchone()
+            if row is None:
+                continue
+            d = json.loads(row[1])
+            require(
+                type(row[1]) is bytes
+                and canonical_bytes(d) == row[1]
+                and hashlib.sha256(row[1]).hexdigest() == row[2]
+                and set(d) == {"format_version", "attempt_id", "disposition", "details"}
+                and type(d["format_version"]) is int
+                and d["format_version"] == 1
+                and (d["attempt_id"], d["disposition"]) == (attempt_id, row[0]),
+                "submission_observation_integrity",
+            )
+            require(
+                row[0]
+                in {
+                    "accepted_created",
+                    "accepted_duplicate",
+                    "retryable",
+                    "rejected",
+                    "unknown",
+                    "not_sent_stage_already_accepted",
+                    "not_sent_prior_failure",
+                },
+                "submission_observation_integrity",
+            )
+            require(type(d["details"]) is dict, "submission_observation_integrity")
+            if row[0] in {"accepted_created", "accepted_duplicate"}:
+                expected = dict(
+                    status=row[0].removeprefix("accepted_"),
+                    http_status=201 if row[0] == "accepted_created" else 200,
+                    event_id=attempt["event_id"],
+                    canonical_hash=attempt["canonical_hash"],
+                )
+                require(
+                    canonical_bytes(d["details"]) == canonical_bytes(expected),
+                    "submission_observation_integrity",
+                )
+                accepted.add(attempt["stage"])
+            else:
+                require(
+                    set(d["details"]) == {"reason"} and type(d["details"]["reason"]) is str,
+                    "submission_observation_integrity",
+                )
+            if row[0] == "rejected":
+                failure = (attempt["stage"], d["details"]["reason"])
+            observations.append((attempt, row[0], d["details"]))
+        ordered = [s["stage"] for s in frozen.document["stages"]]
+        require(accepted == set(ordered[: len(accepted)]), "submission_stage_order_integrity")
+        pending = next((name for name in ordered if name not in accepted), None)
+        applicable = [x for x in observations if x[0]["stage"] == pending]
+        if applicable:
+            latest = max(applicable, key=lambda x: x[0]["ordinal"])
+        return accepted, failure, latest
+
+    def read_submission_history(self, owner, frozen):
+        with self._submission_transaction() as conn:
+            self.assert_owner(conn, owner)
+            require(self._load_submission(conn, owner) == frozen, "submission_integrity")
+            return self.submission_history(conn, frozen)
+
+    def start_submission_attempt(self, owner, frozen, stage):
+        with self._submission_transaction() as conn:
+            self.assert_owner(conn, owner)
+            require(
+                self._load_submission(conn, owner) == frozen and stage in frozen.document["stages"],
+                "submission_integrity",
+            )
+            accepted, failure, _ = self.submission_history(conn, frozen)
+            require(failure is None, "submission_failed")
+            require(
+                all(
+                    s["stage"] in accepted
+                    for s in frozen.document["stages"][: frozen.document["stages"].index(stage)]
+                ),
+                "submission_stage_order_integrity",
+            )
+            ordinal = conn.execute(
+                "SELECT coalesce(max(ordinal),0)+1 FROM crm_submission_attempts "
+                "WHERE unit_id=? AND stage=?",
+                (frozen.document["unit_id"], stage["stage"]),
+            ).fetchone()[0]
+            d = dict(
+                format_version=1,
+                unit_id=frozen.document["unit_id"],
+                submission_hash=frozen.submission_hash,
+                target_key=owner.target_key,
+                claim_id=owner.unit_id,
+                generation=owner.generation,
+                stage=stage["stage"],
+                ordinal=ordinal,
+                event_id=stage["event_id"],
+                canonical_hash=stage["canonical_hash"],
+            )
+            body = canonical_bytes(d)
+            key = canonical_hash(d)
+            conn.execute(
+                "INSERT INTO crm_submission_attempts VALUES (?,?,?,?,?,?)",
+                (key, d["unit_id"], d["stage"], ordinal, body, hashlib.sha256(body).hexdigest()),
+            )
+            return key
+
+    @contextmanager
+    def submission_delivery(self, owner, frozen, attempt_id):
+        # The prior attempt is already committed. This fence covers ONLY local SQL.
+        with self._submission_transaction() as conn:
+            self.assert_owner(conn, owner)
+            require(self._load_submission(conn, owner) == frozen, "submission_integrity")
+            self._submission_attempt(conn, frozen, attempt_id)
+            yield conn
+
+    def observe_submission(self, conn, owner, frozen, attempt_id, disposition, details):
+        self.assert_owner(conn, owner)
+        self._submission_attempt(conn, frozen, attempt_id)
+        require(
+            disposition
+            in {
+                "accepted_created",
+                "accepted_duplicate",
+                "retryable",
+                "rejected",
+                "unknown",
+                "not_sent_stage_already_accepted",
+                "not_sent_prior_failure",
+            },
+            "invalid_submission_observation",
+        )
+        body = canonical_bytes(
+            dict(format_version=1, attempt_id=attempt_id, disposition=disposition, details=details)
+        )
+        conn.execute(
+            "INSERT INTO crm_submission_observations VALUES (?,?,?,?)",
+            (attempt_id, disposition, body, hashlib.sha256(body).hexdigest()),
+        )
+        self.submission_history(conn, frozen)
