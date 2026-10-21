@@ -435,3 +435,109 @@ def test_identity_revocation_is_not_refreshed_or_retried_implicitly(tmp_path):
     assert store.status(config.connection_id, config.binding).generation == 1
     http.close()
     store.close()
+
+
+@pytest.mark.parametrize("encoding", ["utf-16", "utf-32", "utf-8-sig"])
+def test_selected_record_requires_utf8_even_for_other_valid_json_encodings(tmp_path, encoding):
+    record = dict(
+        Id=ACCOUNT,
+        Name="Fictional Company",
+        Website=None,
+        LastModifiedDate="2026-10-21T20:59:00Z",
+        NumberOfEmployees=120,
+    )
+    config, clock, store, http, requests, client, _ = ready_client(
+        tmp_path, body=json.dumps(record).encode(encoding)
+    )
+    client.verify_connection()
+    try:
+        with pytest.raises(CRMRefused):
+            client.read_selected(CRMTarget("salesforce", ORG, "Account", ACCOUNT))
+        assert len(requests) == 3
+    finally:
+        http.close()
+        store.close()
+
+
+@pytest.mark.parametrize(
+    "body", [b"\xfffictional-private-response", b'{"unknown":"fictional-private-response"}']
+)
+def test_selected_decode_errors_have_no_printable_raw_response_chain(tmp_path, body):
+    import traceback
+
+    config, clock, store, http, requests, client, _ = ready_client(tmp_path, body=body)
+    client.verify_connection()
+    try:
+        with pytest.raises(CRMRefused) as caught:
+            client.read_selected(CRMTarget("salesforce", ORG, "Account", ACCOUNT))
+        rendered = "".join(traceback.format_exception(caught.value))
+        assert "fictional-private-response" not in rendered
+        assert caught.value.__cause__ is None
+        assert caught.value.__suppress_context__ or caught.value.__context__ is None
+        assert len(requests) == 3
+    finally:
+        http.close()
+        store.close()
+
+
+@pytest.mark.parametrize(
+    "retry_after,expected",
+    [
+        ("2", 2),
+        ("120", 60),
+        ("Wed, 21 Oct 2026 21:00:07 GMT", 7),
+        ("Wed, 21 Oct 2026 20:59:59 GMT", 0),
+        ("invalid", 0.01),
+        ("-1", 0.01),
+    ],
+)
+def test_transient_get_honors_retry_after_with_sixty_second_cap(monkeypatch, retry_after, expected):
+    import flight_recorder.adapters.crm.http as owned_http
+
+    requests, delays = [], []
+
+    def handler(request):
+        requests.append(request)
+        if len(requests) == 1:
+            return httpx.Response(429, headers={"Retry-After": retry_after})
+        return httpx.Response(200, json={})
+
+    monkeypatch.setattr(owned_http.time, "sleep", delays.append)
+    http = owned_http.OwnedHTTP(
+        configuration(), transport=httpx.MockTransport(handler), clock=Clock()
+    )
+    try:
+        assert http.get(f"{LOGIN}/id/{ORG}/{USER}", "fictional-access").json() == {}
+        assert len(requests) == 2
+        assert delays == [expected]
+    finally:
+        http.close()
+
+
+@pytest.mark.parametrize("suffix,expected", [("2", 2), ("120", 60), ("", 0)])
+def test_retry_after_handles_arbitrarily_padded_decimal_without_int_conversion_error(
+    monkeypatch, suffix, expected
+):
+    import flight_recorder.adapters.crm.http as owned_http
+
+    delays = []
+    monkeypatch.setattr(owned_http.time, "sleep", delays.append)
+    count = 0
+
+    def handler(request):
+        nonlocal count
+        count += 1
+        return (
+            httpx.Response(429, headers={"Retry-After": "0" * 5000 + suffix})
+            if count == 1
+            else httpx.Response(200, json={})
+        )
+
+    http = owned_http.OwnedHTTP(
+        configuration(), transport=httpx.MockTransport(handler), clock=Clock()
+    )
+    try:
+        assert http.get(f"{LOGIN}/id/{ORG}/{USER}", "fictional-access").json() == {}
+        assert delays == [expected]
+    finally:
+        http.close()

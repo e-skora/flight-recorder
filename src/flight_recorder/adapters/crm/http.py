@@ -7,6 +7,7 @@ import threading
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 import httpx
@@ -66,6 +67,27 @@ def strict_json(body):
         )
     except (ValueError, TypeError, RecursionError):
         raise CRMRefused("invalid_provider_response") from None
+
+
+def _retry_delay(response, attempt, clock):
+    fallback = 0.01 * (attempt + 1)
+    if response is None:
+        return fallback
+    values = response.headers.get_list("Retry-After")
+    if len(values) != 1:
+        return fallback
+    value = values[0].strip()
+    if re.fullmatch(r"[0-9]+", value, re.ASCII):
+        # Bound before conversion, including arbitrarily long decimal headers.
+        significant = value.lstrip("0") or "0"
+        return 60 if len(significant) > 2 else min(int(significant), 60)
+    try:
+        until = parsedate_to_datetime(value)
+        if until.utcoffset() is None:
+            return fallback
+        return min(60, max(0, (until - utc_now(clock)).total_seconds()))
+    except (ValueError, TypeError, OverflowError):
+        return fallback
 
 
 @dataclass(frozen=True, repr=False)
@@ -193,6 +215,7 @@ class OwnedHTTP:
             for attempt in range(attempts):
                 response = None
                 retry = False
+                delay = 0.01 * (attempt + 1)
                 try:
                     headers = {"Accept": "application/json"}
                     if method == "GET":
@@ -210,6 +233,7 @@ class OwnedHTTP:
                     if response.status_code != 200:
                         if method == "GET" and response.status_code in _TRANSIENT and attempt < 2:
                             retry = True
+                            delay = _retry_delay(response, attempt, self._clock)
                         else:
                             reason = (
                                 "provider_auth_refused"
@@ -242,7 +266,7 @@ class OwnedHTTP:
                     except Exception:
                         raise CRMRefused("provider_transport_uncertain") from None
                 if retry:
-                    time.sleep(0.01 * (attempt + 1))
+                    time.sleep(delay)
             raise CRMRefused("provider_transport_uncertain")
 
     def get(self, url, access_token):

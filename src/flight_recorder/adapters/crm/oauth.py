@@ -75,6 +75,16 @@ class OAuthSessionStore:
             )
             return pending.verifier
 
+    def _discard(self, states):
+        references = {
+            hashlib.sha256(state.encode("ascii")).hexdigest()
+            for state in states
+            if type(state) is str and re.fullmatch(r"[A-Za-z0-9_-]{43}", state, re.ASCII)
+        }
+        with self._mutex:
+            for reference in references:
+                self._pending.pop(reference, None)
+
 
 def begin_oauth(config, session_store, clock):
     require(type(config) is ConnectionConfig, "invalid_connection_config")
@@ -149,12 +159,14 @@ def finish_oauth(config, session_store, token_store, callback, http, clock, *, c
         for item in items
         if type(item) in (tuple, list) and len(item) == 2 and item[0] == "state"
     ]
-    require(
+    unambiguous = (
         bool(states)
         and type(states[0]) is str
-        and all(type(state) is str and state == states[0] for state in states),
-        "invalid_oauth_callback",
+        and all(type(state) is str and state == states[0] for state in states)
     )
+    if not unambiguous:
+        session_store._discard(states)
+        raise CRMRefused("invalid_oauth_callback") from None
     verifier = session_store._take(config, states[0], clock)
     require(
         all(

@@ -667,3 +667,63 @@ def test_initial_token_save_failure_cannot_return_connected_or_reexchange(tmp_pa
     assert not list((tmp_path / "private-tokens").glob("*.json"))
     http.close()
     store.close()
+
+
+@pytest.mark.parametrize("shape", ["unknown_first", "unknown_last", "two_pending", "bad_type"])
+def test_ambiguous_state_callback_burns_every_matching_pending_session(tmp_path, shape):
+    config, clock = configuration(), Clock()
+    store = private_store(tmp_path)
+    sessions, _, query = start(config, clock)
+    first = query["state"][0]
+    second = parse_qs(urlsplit(feature("oauth", "begin_oauth")(config, sessions, clock).url).query)[
+        "state"
+    ][0]
+    other = second if shape == "two_pending" else None if shape == "bad_type" else "x" * 43
+    states = [other, first] if shape == "unknown_first" else [first, other]
+    callback = [("state", value) for value in states] + [("code", "fictional-code")]
+    http, requests = fake_provider(clock)
+    try:
+        with pytest.raises(CRMRefused, match="invalid_oauth_callback"):
+            finish(config, sessions, store, callback, http, clock)
+        for state in [first, second] if shape == "two_pending" else [first]:
+            with pytest.raises(CRMRefused, match="oauth_state_invalid"):
+                finish(
+                    config, sessions, store, {"state": state, "code": "fictional-code"}, http, clock
+                )
+        assert requests == []
+    finally:
+        http.close()
+        store.close()
+
+
+def test_concurrent_valid_and_malformed_callback_cannot_reuse_consumed_state(tmp_path):
+    config, clock = configuration(), Clock()
+    store = private_store(tmp_path)
+    sessions, _, query = start(config, clock)
+    state = query["state"][0]
+    http, requests = fake_provider(clock)
+    barrier = threading.Barrier(2)
+
+    def call(malformed):
+        callback = (
+            [("state", state), ("state", "x" * 43), ("code", "fictional-code")]
+            if malformed
+            else {"state": state, "code": "fictional-code"}
+        )
+        barrier.wait(timeout=5)
+        try:
+            finish(config, sessions, store, callback, http, clock)
+            return "connected"
+        except CRMRefused:
+            return "refused"
+
+    try:
+        with ThreadPoolExecutor(2) as pool:
+            results = list(pool.map(call, [False, True]))
+        assert results[1] == "refused"
+        assert sum(r.method == "POST" for r in requests) <= 1
+        with pytest.raises(CRMRefused, match="oauth_state_invalid"):
+            finish(config, sessions, store, {"state": state, "code": "fictional-code"}, http, clock)
+    finally:
+        http.close()
+        store.close()

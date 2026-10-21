@@ -160,7 +160,12 @@ class SalesforceClient:
             + urlencode({"fields": ",".join(SELECTED_FIELDS)})
         )
         response = self._http.get(url, current.material.access_token)
-        properties = decode_salesforce_record(response.body)
+        try:
+            text = response.body.decode("utf-8")
+            require(not text.startswith("\ufeff"), "invalid_provider_response")
+            properties = decode_salesforce_record(response.body)
+        except (ValueError, TypeError, RecursionError):
+            raise CRMRefused("invalid_provider_response") from None
         raw_time = properties.get("LastModifiedDate")
         try:
             require(type(raw_time) is str, "invalid_observed_read")
