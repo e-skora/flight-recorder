@@ -207,3 +207,37 @@ def test_sqlite_contention_is_a_named_refusal_without_target_claim(tmp_path):
     assert second.owner(target()) is None
     first.close()
     second.close()
+
+
+@pytest.mark.parametrize("command", ["REPLACE", "INSERT OR REPLACE"])
+@pytest.mark.parametrize("through_store", [False, True])
+def test_replacement_insert_cannot_overwrite_receipt(tmp_path, command, through_store):
+    path = tmp_path / "ops.sqlite"
+    s = store(path)
+    saved = s.record_receipt("sf", "tick", b"original")
+    connection = s.transaction() if through_store else sqlite3.connect(path)
+    with connection as conn, pytest.raises(sqlite3.IntegrityError):
+        conn.execute(
+            f"{command} INTO crm_receipts VALUES (?,?,?,?)",
+            ("sf", "tick", b"changed", hashlib.sha256(b"changed").hexdigest()),
+        )
+    assert s.receipt_count() == 1
+    assert s.record_receipt("sf", "tick", b"original") == saved
+    s.close()
+
+
+@pytest.mark.parametrize("alias", ["rowid", "_rowid_", "oid"])
+def test_receipt_has_no_replaceable_hidden_row_identifier(tmp_path, alias):
+    path = tmp_path / "ops.sqlite"
+    s = store(path)
+    saved = s.record_receipt("sf", "tick", b"original")
+    with sqlite3.connect(path) as conn, pytest.raises(sqlite3.DatabaseError):
+        conn.execute(
+            f"INSERT OR REPLACE INTO crm_receipts ({alias},"
+            "connection_id,receipt_id,body,body_sha256) "
+            "VALUES (1,?,?,?,?)",
+            ("sf", "other-tick", b"changed", hashlib.sha256(b"changed").hexdigest()),
+        )
+    assert s.receipt_count() == 1
+    assert s.record_receipt("sf", "tick", b"original") == saved
+    s.close()

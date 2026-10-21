@@ -20,7 +20,7 @@ _SCHEMA = {
     ("table", "crm_receipts"): """CREATE TABLE crm_receipts (
         connection_id TEXT NOT NULL, receipt_id TEXT NOT NULL,
         body BLOB NOT NULL, body_sha256 TEXT NOT NULL,
-        PRIMARY KEY(connection_id,receipt_id))""",
+        PRIMARY KEY(connection_id,receipt_id)) WITHOUT ROWID""",
     ("table", "crm_target_ownership"): """CREATE TABLE crm_target_ownership (
         target_key TEXT PRIMARY KEY NOT NULL, unit_id TEXT NOT NULL,
         generation INTEGER NOT NULL CHECK(generation>0),
@@ -30,6 +30,11 @@ _SCHEMA = {
         SELECT RAISE(ABORT, 'INV-01: CRM receipts are append-only'); END""",
     ("trigger", "crm_receipts_no_delete"): """CREATE TRIGGER crm_receipts_no_delete
         BEFORE DELETE ON crm_receipts BEGIN
+        SELECT RAISE(ABORT, 'INV-01: CRM receipts are append-only'); END""",
+    ("trigger", "crm_receipts_no_replace"): """CREATE TRIGGER crm_receipts_no_replace
+        BEFORE INSERT ON crm_receipts WHEN EXISTS (
+        SELECT 1 FROM crm_receipts WHERE connection_id=NEW.connection_id
+        AND receipt_id=NEW.receipt_id) BEGIN
         SELECT RAISE(ABORT, 'INV-01: CRM receipts are append-only'); END""",
 }
 
