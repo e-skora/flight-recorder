@@ -149,6 +149,13 @@ def freeze_submission(store, collector, owner, *, prerequisites):
             canonical_bytes(saved.document["prerequisite_binding"]) == canonical_bytes(pri),
             "submission_prerequisite_conflict",
         )
+        try:
+            history = store.read_submission_history(owner, saved)
+            _verify_domain(collector, saved, history[0])
+        except CRMRefused as exc:
+            raise CRMRefused(exc.reason) from None
+        except Exception:
+            raise CRMRefused("submission_preparation_refused") from None
         return saved
     cap = store.capture_for_owner(owner)
     require(cap is not None, "missing_frozen_capture")

@@ -283,9 +283,16 @@ class CRMSubmission:
             )
             registration = stages[1]["envelope"]
             require(
-                registration["event_type"] == "logic_artifact.registered"
+                registration["schema_version"] == "1"
+                and registration["event_type"] == "logic_artifact.registered"
+                and stages[0]["envelope"]["schema_version"] == "1"
                 and stages[0]["envelope"]["event_type"] == "account.discovered"
-                and stages[0]["envelope"]["account_ref"] == target.account_ref,
+                and stages[0]["envelope"]["account_ref"] == target.account_ref
+                and stages[0]["envelope"]["source"] == "salesforce-test-account"
+                and pri["account"]["account_ref"] == target.account_ref
+                and pri["account"]["source"] == "salesforce-test-account"
+                and canonical_bytes(pri["artifact"]["payload"]["artifact"])
+                == canonical_bytes(registration["payload"]["artifact"]),
                 "invalid_frozen_submission",
             )
             items, context, consumed, result = original_evaluation(
@@ -294,7 +301,15 @@ class CRMSubmission:
             require(
                 canonical_bytes((context, consumed, result))
                 == canonical_bytes((p["historical_context"], p["consumed_inputs"], p["result"]))
-                and p["logic_artifact"]["artifact_hash"] == c["rule_hash"]
+                and p["logic_artifact"]
+                == dict(
+                    artifact_hash=c["rule_hash"],
+                    **{
+                        key: registration["payload"]["artifact"][key]
+                        for key in ["artifact_id", "logic_version", "evaluator_version"]
+                    },
+                )
+                and p["decision_class"] == "account_prioritization"
                 and p["workflow_version"] == c["processing_version"]
                 and p["explanation"] is None,
                 "invalid_frozen_submission",

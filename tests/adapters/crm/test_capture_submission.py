@@ -726,3 +726,116 @@ def test_frozen_plan_load_names_a_runtime_rule_failure_without_exposing_rule_dat
     assert rows(engine, "events") == []
     store.close()
     engine.dispose()
+
+
+@pytest.mark.parametrize(
+    "part",
+    [
+        "artifact_id",
+        "logic_version",
+        "prerequisite_target",
+        "prerequisite_source",
+        "prerequisite_artifact",
+    ],
+)
+def test_forged_logic_or_original_prerequisite_refuses_before_any_persistence(tmp_path, part):
+    store, owner, cap, engine, collector, prerequisites = setup(tmp_path)
+    persist = store.freeze_submission
+    store.freeze_submission = lambda owner_, submission: submission
+    frozen = prepare(store, collector, owner, prerequisites)
+    store.freeze_submission = persist
+    d = _forge_submission_identity(frozen.document, part)
+    with pytest.raises(CRMRefused):
+        persist(owner, feature("submission_contracts", "CRMSubmission").from_document(d))
+    with store._read() as conn:
+        for table in [
+            "crm_submission_domain",
+            "crm_frozen_submissions",
+            "crm_submission_attempts",
+            "crm_submission_observations",
+        ]:
+            assert conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
+    assert rows(engine, "events") == [] and store.capture_for_owner(owner) == cap
+    store.close()
+    engine.dispose()
+
+
+def _forge_submission_identity(d, part):
+    if part in ("artifact_id", "logic_version"):
+        stage = d["stages"][-1]
+        stage["envelope"]["payload"]["logic_artifact"][part] = "foreign-frozen-label"
+        stage["canonical_hash"] = canonical_hash(stage["envelope"])
+    else:
+        pri = d["prerequisite_binding"]
+        if part == "prerequisite_target":
+            pri["account"]["account_ref"] = "fr-crm-account-v1-" + "b" * 64
+        elif part == "prerequisite_source":
+            pri["account"]["source"] = "foreign-prerequisite-source"
+        else:
+            pri["artifact"]["payload"]["artifact"]["artifact_id"] = "foreign-prerequisite-artifact"
+        d["prerequisite_hash"] = canonical_hash(pri)
+    return d
+
+
+@pytest.mark.parametrize(
+    "part",
+    [
+        "artifact_id",
+        "logic_version",
+        "prerequisite_target",
+        "prerequisite_source",
+        "prerequisite_artifact",
+    ],
+)
+def test_loading_self_consistent_forged_plan_is_a_named_integrity_hold(tmp_path, part):
+    import sqlite3
+
+    store, owner, cap, engine, collector, prerequisites = setup(tmp_path)
+    frozen = prepare(store, collector, owner, prerequisites)
+    d = _forge_submission_identity(frozen.document, part)
+    with sqlite3.connect(store.path) as conn:
+        ddl = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE name='crm_frozen_submissions_no_update'"
+        ).fetchone()[0]
+        conn.execute("DROP TRIGGER crm_frozen_submissions_no_update")
+        conn.execute(
+            "UPDATE crm_frozen_submissions SET body=?,submission_hash=?",
+            (canonical_bytes(d), canonical_hash(d)),
+        )
+        conn.execute(ddl)
+    with pytest.raises(CRMRefused):
+        store.load_submission(owner)
+    assert rows(engine, "events") == []
+    store.close()
+    engine.dispose()
+
+
+@pytest.mark.parametrize("damage", ["schema", "accepted_context"])
+def test_repeated_freeze_rechecks_bound_domain_without_repair_or_new_attempt(tmp_path, damage):
+    store, owner, cap, engine, collector, prerequisites = setup(tmp_path)
+    frozen = prepare(store, collector, owner, prerequisites)
+    if damage == "accepted_context":
+        assert resume(store, collector, owner).state == "complete"
+        with engine.begin() as conn:
+            ddl = conn.exec_driver_sql(
+                "SELECT sql FROM sqlite_master WHERE name='crm_decision_context_no_delete'"
+            ).scalar_one()
+            conn.exec_driver_sql("DROP TRIGGER crm_decision_context_no_delete")
+            conn.exec_driver_sql("DELETE FROM crm_decision_context")
+            conn.exec_driver_sql(ddl)
+    else:
+        with engine.begin() as conn:
+            conn.exec_driver_sql("DROP TABLE crm_decision_context")
+    before = rows(engine, "events")
+    with store._read() as conn:
+        attempts = conn.execute("SELECT count(*) FROM crm_submission_attempts").fetchone()[0]
+    with pytest.raises(CRMRefused):
+        prepare(store, collector, owner, prerequisites)
+    assert rows(engine, "events") == before
+    assert store.load_submission(owner) == frozen
+    with store._read() as conn:
+        assert (
+            conn.execute("SELECT count(*) FROM crm_submission_attempts").fetchone()[0] == attempts
+        )
+    store.close()
+    engine.dispose()
