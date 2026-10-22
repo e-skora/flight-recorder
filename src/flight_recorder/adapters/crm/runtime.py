@@ -195,6 +195,7 @@ class CRMRuntime:
         self._thread = None
         self._closed = False
         self.background_reason = None
+        self._confirmed_connection = None
 
     def __repr__(self):
         return "CRMRuntime(<local owned work>)"
@@ -252,8 +253,9 @@ class CRMRuntime:
 
     def verify_for_read(self, client):
         try:
-            client.verify_connection()
+            self._confirmed_connection = client.verify_connection()
         except CRMRefused as exc:
+            self._confirmed_connection = None
             if self._client_factory is not None or exc.reason not in (
                 "token_expired",
                 "connection_confirmation_stale",
@@ -262,7 +264,7 @@ class CRMRuntime:
             from flight_recorder.adapters.crm.oauth import refresh_connection
 
             refresh_connection(self.config.connection, self._tokens, self._http, self.clock)
-            client.verify_connection()
+            self._confirmed_connection = client.verify_connection()
 
     def run_pending(self):
         from flight_recorder.adapters.crm.poll import _capture_and_submit_owned

@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}CRM connection status · GTM Flight Recorder{% endblock %}
+{% block content %}
+<h1>CRM connection status</h1>
+<p>This page reads retained local facts. It does not contact Salesforce, open credentials, refresh tokens or start a poll.</p>
+<dl class="fields"><dt>Provider</dt><dd>{{ status.provider }}</dd><dt>Expected organization</dt><dd><code class="hash">{{ status.instance_id }}</code></dd>
+<dt>Identity</dt><dd>{% if status.confirmation_at %}Identity last confirmed at {{ status.confirmation_at }} · {{ status.confirmation_origin }}{% else %}Identity not checked in this process{% endif %}</dd>
+<dt>Last saved observation</dt><dd>{% if status.last_observed_at %}{{ status.last_observed_at }} · {{ status.observation_origin }}{% else %}No verified saved observation{% endif %}</dd>
+<dt>CRM writes</dt><dd>Disabled</dd><dt>Atomic source guard</dt><dd>Not qualified</dd><dt>Reason</dt><dd><code class="hash">{{ status.reason }}</code></dd></dl>
+<p>A previous identity confirmation or archived observation does not establish current authorization or health. Fictional fixtures and injected transport tests are not real network proof. Live account readiness and conditional-write qualification remain separate.</p>
+<p><a href="/">Inspect saved accounts</a></p>
+{% endblock %}

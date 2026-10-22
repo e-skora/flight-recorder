@@ -48,6 +48,17 @@ def _observation(flag: bool | None, word: str, state: str) -> str:
 
 
 def summarize(event_type: str, payload: dict, schema_version: str = "1") -> str:
+    if schema_version == "3" and event_type in ("decision.recorded", "evidence.recorded"):
+        from flight_recorder.adapters.crm.status import SOURCE_LABELS
+
+        origin = SOURCE_LABELS[payload["capture"]["observation_origin"]]
+        if event_type == "decision.recorded":
+            result = payload["result"]
+            return (
+                f"{origin}: prioritization {result['output']}, score {result['score']} "
+                f"/ threshold {result['threshold']}; preserved CRM evidence"
+            )
+        return f"{origin}: captured CRM evidence; {len(payload['items'])} preserved inputs"
     match event_type:
         case "external_operation.observed":
             return (

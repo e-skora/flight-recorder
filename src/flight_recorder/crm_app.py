@@ -7,6 +7,7 @@ from flight_recorder.adapters.crm.oauth import OAuthSessionStore
 from flight_recorder.adapters.crm.routes import crm_router, ingress_secret
 from flight_recorder.adapters.crm.runtime import CRMRuntime
 from flight_recorder.app import create_app
+from flight_recorder.web.crm_decision_view import crm_status_router
 
 
 def create_crm_app(config, *, runtime=None, background=True):
@@ -21,8 +22,13 @@ def create_crm_app(config, *, runtime=None, background=True):
     app.state.collector = runtime.collector
     unused_engine.dispose()
     app.state.crm_runtime = runtime
+    app.state.crm_mode = True
+    app.description = (
+        "Local CRM history for fictional test records. Each observation names its origin."
+    )
     app.state.oauth_sessions = OAuthSessionStore()
     app.include_router(crm_router())
+    app.include_router(crm_status_router())
 
     @asynccontextmanager
     async def lifespan(app):

@@ -38,7 +38,7 @@ from flight_recorder.replay.counterfactual import (
     replay,
 )
 from flight_recorder.replay.reconstruct import ReconstructionError, reconstruct
-from flight_recorder.web import hubspot_decision_view
+from flight_recorder.web import crm_decision_view, hubspot_decision_view
 from flight_recorder.web.decision_view import (
     ORIGIN_RECORDED_LOGIC,
     ORIGIN_SELECTED_ARTIFACT,
@@ -256,6 +256,40 @@ def decision_detail(
         # Dispatch only by local own-account event identity. Legacy/public readers
         # never enter the new loader or require its projection tables.
         if not getattr(request.app.state, "public_demo", False):
+            crm = conn.execute(
+                select(events.c.event_id).where(
+                    events.c.event_id == decision_event_id,
+                    events.c.account_ref == account_ref,
+                    events.c.schema_version == "3",
+                    events.c.event_type == "decision.recorded",
+                )
+            ).first()
+            if crm is not None:
+                crm_page = crm_decision_view.load_crm_decision_page(
+                    conn, account_ref, decision_event_id, current
+                )
+                crm_hash, crm_message, crm_options = current, None, ()
+                if crm_page.original is not None:
+                    decision_class = crm_page.recorded["decision_class"]
+                    if current is None:
+                        crm_hash, crm_message = _default_current_artifact(conn, decision_class)
+                        if crm_hash is not None:
+                            crm_page = crm_decision_view.load_crm_decision_page(
+                                conn, account_ref, decision_event_id, crm_hash
+                            )
+                    crm_options = artifact_options(conn, decision_class, crm_hash)
+                return templates.TemplateResponse(
+                    request,
+                    "crm_decision.html",
+                    {
+                        "account": account,
+                        "operating_company": OPERATING_COMPANY,
+                        "page": crm_page,
+                        "artifact_options": crm_options,
+                        "current_hash": crm_hash,
+                        "no_selection_message": crm_message,
+                    },
+                )
             incoming = conn.execute(
                 select(events.c.event_id).where(
                     events.c.event_id == decision_event_id,

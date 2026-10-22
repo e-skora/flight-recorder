@@ -439,6 +439,10 @@ def load_decision_row(conn, decision_event_id: str) -> DecisionRow:
 
         row = v2_decision(conn, decision_event_id)
     if row is None:
+        from flight_recorder.replay.crm_context import crm_decision
+
+        row = crm_decision(conn, decision_event_id)
+    if row is None:
         raise DecisionNotFound(decision_event_id)
     return DecisionRow(
         decision_event_id=row.decision_event_id,
@@ -545,6 +549,13 @@ def load_context(conn, decision_event_id: str, decision_boundary: str) -> tuple[
             if v2.decision_boundary != decision_boundary:
                 raise IntegrityFailure("decision_boundary", "v2 context boundary mismatch")
             return load_v2_context(conn, v2)
+        from flight_recorder.replay.crm_context import crm_decision, load_crm_context
+
+        crm = crm_decision(conn, decision_event_id)
+        if crm is not None:
+            if crm.decision_boundary != decision_boundary:
+                raise IntegrityFailure("decision_boundary", "CRM context boundary mismatch")
+            return load_crm_context(conn, decision_event_id)
     rows = conn.execute(
         select(decision_context)
         .where(decision_context.c.decision_event_id == decision_event_id)
@@ -594,6 +605,15 @@ def load_consumed_inputs(conn, decision_event_id: str) -> tuple[ConsumedInputRow
             from flight_recorder.ledger.schema import decision_consumed_inputs_v2
 
             table = decision_consumed_inputs_v2
+        else:
+            from flight_recorder.replay.crm_context import crm_decision, verified_crm_history
+
+            if crm_decision(conn, decision_event_id) is not None:
+                _, _, _, used, _ = verified_crm_history(conn, decision_event_id)
+                return tuple(
+                    ConsumedInputRow(x["input_key"], x["evidence_version_id"], x["contribution"])
+                    for x in used
+                )
     rows = conn.execute(
         select(table)
         .where(table.c.decision_event_id == decision_event_id)
@@ -616,10 +636,22 @@ def reconstruct(conn, decision_event_id: str) -> Reconstruction:
     """Reproduce one recorded decision from the projection tables alone.
 
     Raises rather than returning anything that differs from the record. Writes
-    nothing; reads no `events` and no `accounts` row.
+    nothing and reads no current account state. CRM v3 also verifies immutable
+    minting events against its complete preserved projections.
     """
     decision_row = load_decision_row(conn, decision_event_id)
-    artifact_row = load_artifact_row(conn, decision_row.artifact_hash)
+    from sqlalchemy.exc import SQLAlchemyError
+
+    try:
+        artifact_row = load_artifact_row(conn, decision_row.artifact_hash)
+    except SQLAlchemyError as error:
+        from flight_recorder.replay.crm_context import crm_event
+
+        if crm_event(conn, decision_event_id) is not None:
+            raise IntegrityFailure(
+                "crm_artifact", "historical artifact storage unavailable"
+            ) from error
+        raise
     verified = verify_artifact(artifact_row, decision_row)
 
     boundary = parse_boundary(decision_row.decision_boundary)

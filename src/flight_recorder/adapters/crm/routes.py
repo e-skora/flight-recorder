@@ -239,6 +239,7 @@ def crm_router():
                 runtime.clock,
                 client_secret=client_secret,
             )
+            runtime._confirmed_connection = confirmed
             return {
                 "state": "connected",
                 "provider": confirmed.provider,
@@ -246,6 +247,7 @@ def crm_router():
                 "observation_origin": confirmed.observation_origin,
             }
         except Exception:
+            runtime._confirmed_connection = None
             raise HTTPException(400, "oauth_callback_refused") from None
 
     return router
