@@ -265,7 +265,7 @@ class CRMRuntime:
             client.verify_connection()
 
     def run_pending(self):
-        from flight_recorder.adapters.crm.poll import capture_and_submit
+        from flight_recorder.adapters.crm.poll import _capture_and_submit_owned
 
         self.authority.assert_held()
         require(not self._closed and not self._stop.is_set(), "runtime_closed")
@@ -281,7 +281,7 @@ class CRMRuntime:
                     report = self.queue.report(tick)
                     member = next(m for m in report.members if m.target_key == target.key)
                     if member.state not in ("complete", "refused", "scoring_inputs_unchanged"):
-                        capture_and_submit(self, target, tick, clock=self.clock)
+                        _capture_and_submit_owned(self, target, tick, clock=self.clock)
                 if self.queue.report(tick).disposition != "complete":
                     break
         finally:

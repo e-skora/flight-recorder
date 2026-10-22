@@ -680,3 +680,52 @@ def test_exact_three_record_allowlist_yields_two_originals_and_one_missing_input
         )
     finally:
         runtime.close()
+
+
+@pytest.mark.parametrize("first_entry", ["runner", "direct"])
+def test_direct_capture_shares_runner_and_shutdown_exclusion(tmp_path, first_entry):
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    runtime, provider = harness(tmp_path)
+    entered, release = threading.Event(), threading.Event()
+    original = provider.read_selected
+
+    def paused(target):
+        if not entered.is_set():
+            entered.set()
+            assert release.wait(10)
+        return original(target)
+
+    provider.read_selected = paused
+    dispatch(runtime, "direct-work")
+    work = feature("poll", "capture_and_submit")
+    with ThreadPoolExecutor(2) as pool:
+        first = (
+            pool.submit(runtime.run_pending)
+            if first_entry == "runner"
+            else pool.submit(
+                work, runtime, runtime.config.targets[0], "direct-work", clock=runtime.clock
+            )
+        )
+        assert entered.wait(5)
+        second = pool.submit(
+            work, runtime, runtime.config.targets[0], "direct-work", clock=runtime.clock
+        )
+        try:
+            with pytest.raises(CRMRefused, match="poll_runner_busy"):
+                second.result(timeout=2)
+            with pytest.raises(CRMRefused, match="runtime_shutdown_pending"):
+                runtime.close()
+            assert runtime.authority._fd is not None
+            from tests.adapters.crm.test_crm_runtime import _other_process
+
+            assert _other_process(runtime.config, tmp_path) == ("runtime_already_owned", False)
+        finally:
+            release.set()
+            try:
+                first.result(timeout=10)
+            except CRMRefused:
+                pass
+            runtime.close()
+    assert provider.calls == 1

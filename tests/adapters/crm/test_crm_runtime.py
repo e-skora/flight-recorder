@@ -460,3 +460,179 @@ def test_store_creation_option_requires_an_actual_boolean_without_creating_files
     with pytest.raises(CRMRefused):
         CRMStore(path, create=invalid)
     assert not path.exists()
+
+
+def test_init_refuses_foreign_operational_file_appearing_after_preflight(tmp_path, monkeypatch):
+    import flight_recorder.adapters.crm.cli as cli
+    from flight_recorder.adapters.crm.store import CRMStore
+
+    cfg = config(tmp_path)
+    retained = {}
+    original = cli.CRMStore
+
+    def race(path, **kwargs):
+        foreign = CRMStore(path, format_version=4)
+        foreign.record_receipt("foreign-owner", "foreign-receipt", b"preserved fictional bytes")
+        foreign.close()
+        retained.update(hashes([path]))
+        return original(path, **kwargs)
+
+    monkeypatch.setattr(cli, "CRMStore", race)
+    with pytest.raises(CRMRefused, match="crm_init_incomplete"):
+        cli.initialize(cfg)
+    assert hashes([cfg.operational_path]) == retained
+    assert not cfg.operational_path.with_name(cfg.operational_path.name + ".runtime-lock").exists()
+
+
+@pytest.mark.parametrize("suffix", ["-wal", "-shm", "-journal"])
+@pytest.mark.parametrize("direction", ["domain", "operational", "ingress", "lock"])
+def test_init_rejects_overlapping_sqlite_file_families_before_creation(tmp_path, suffix, direction):
+    from pathlib import Path
+
+    cfg = config(tmp_path)
+    d = cfg.document
+    if direction == "domain":
+        d["domain_path"] = d["operational_path"] + suffix
+    elif direction == "operational":
+        d["operational_path"] = d["domain_path"] + suffix
+    elif direction == "ingress":
+        d["domain_path"] = d["ingress_secret_file"].removesuffix(suffix)
+        # Set the DB base so its actual companion is the existing ingress file.
+        old = Path(d["ingress_secret_file"])
+        new = old.with_name(old.name + suffix)
+        old.rename(new)
+        d["ingress_secret_file"] = str(new)
+        d["domain_path"] = str(old)
+    else:
+        d["domain_path"] = d["operational_path"] + ".runtime-lock" + suffix
+    before = hashes([Path(d["ingress_secret_file"])])
+    with pytest.raises(CRMRefused):
+        feature("runtime_config", "CRMRuntimeConfig").from_document(d)
+    assert hashes([Path(d["ingress_secret_file"])]) == before
+    assert not Path(d["domain_path"]).exists()
+    assert not Path(d["operational_path"]).exists()
+
+
+@pytest.mark.parametrize("reserved", [".lock", "token", "client-secret"])
+def test_private_reference_paths_cannot_overlap_database_family(tmp_path, reserved):
+    from flight_recorder.collector.canonical import canonical_hash
+
+    cfg = config(tmp_path)
+    d = cfg.document
+    name = {
+        "token": canonical_hash({"connection_id": cfg.connection.connection_id}) + ".json",
+        "client-secret": cfg.connection.credential_reference + ".client-secret",
+        ".lock": ".lock",
+    }[reserved]
+    d["domain_path"] = str(cfg.domain_path.parent / "private" / name)
+    with pytest.raises(CRMRefused):
+        feature("runtime_config", "CRMRuntimeConfig").from_document(d)
+    assert not cfg.domain_path.exists() and not cfg.operational_path.exists()
+
+
+@pytest.mark.parametrize("fault", ["remove", "replace"])
+def test_domain_init_refuses_removed_or_replaced_reserved_file(tmp_path, monkeypatch, fault):
+    from pathlib import Path
+
+    import flight_recorder.adapters.crm.cli as cli
+
+    cfg = config(tmp_path)
+    original = cli.make_engine
+    retained = {}
+
+    def race(path):
+        Path(path).unlink()
+        if fault == "replace":
+            Path(path).write_bytes(b"foreign file must stay unchanged")
+            retained.update(hashes([Path(path)]))
+        return original(path)
+
+    monkeypatch.setattr(cli, "make_engine", race)
+    with pytest.raises(CRMRefused, match="crm_init_incomplete"):
+        cli.initialize(cfg)
+    assert hashes([cfg.domain_path]) == retained
+
+
+@pytest.mark.parametrize("value", [1, None, "true"])
+def test_store_exclusive_creation_requires_exact_boolean(tmp_path, value):
+    import inspect
+
+    from flight_recorder.adapters.crm.store import CRMStore
+
+    assert "exclusive" in inspect.signature(CRMStore).parameters, "exclusive initialization missing"
+    with pytest.raises(CRMRefused):
+        CRMStore(tmp_path / "new.sqlite", exclusive=value)
+    assert not (tmp_path / "new.sqlite").exists()
+
+
+def test_store_exclusive_init_does_not_change_existing_or_default_behavior(tmp_path):
+    import inspect
+
+    from flight_recorder.adapters.crm.store import CRMStore
+
+    assert "exclusive" in inspect.signature(CRMStore).parameters, "exclusive initialization missing"
+    for version in range(1, 5):
+        path = tmp_path / f"op-{version}.sqlite"
+        CRMStore(path, format_version=version, exclusive=True).close()
+        before = hashes([path])
+        with pytest.raises(CRMRefused):
+            CRMStore(path, format_version=version, exclusive=True)
+        assert hashes([path]) == before
+        CRMStore(path, format_version=version).close()
+        CRMStore(path, format_version=version, create=False).close()
+    with pytest.raises(CRMRefused):
+        CRMStore(tmp_path / "absent.sqlite", exclusive=True, create=False)
+    assert not (tmp_path / "absent.sqlite").exists()
+
+
+@pytest.mark.parametrize("boundary", ["first_schema_open", "after_schema"])
+def test_exclusive_operational_inode_stays_pinned_through_final_binding(
+    tmp_path, monkeypatch, boundary
+):
+    import os
+
+    import flight_recorder.adapters.crm.cli as cli
+    import flight_recorder.adapters.crm.store as stores
+    from flight_recorder.adapters.crm.store import CRMStore
+
+    cfg = config(tmp_path)
+    foreign_path = tmp_path / "foreign.sqlite"
+    foreign = CRMStore(foreign_path, format_version=4)
+    foreign.record_receipt("retained-owner", "receipt", b"untouched foreign bytes")
+    foreign.close()
+    before = foreign_path.read_bytes()
+    if boundary == "first_schema_open":
+        original = stores.sqlite3.connect
+        replaced = False
+
+        def race(database, *args, **kwargs):
+            nonlocal replaced
+            if not replaced and str(cfg.operational_path) in str(database):
+                replaced = True
+                os.replace(foreign_path, cfg.operational_path)
+            return original(database, *args, **kwargs)
+
+        monkeypatch.setattr(stores.sqlite3, "connect", race)
+    else:
+        from flight_recorder.adapters.crm import runtime
+
+        original = runtime.qualify_domain
+
+        def race(engine):
+            original(engine)
+            os.replace(foreign_path, cfg.operational_path)
+
+        monkeypatch.setattr(runtime, "qualify_domain", race)
+    with pytest.raises(CRMRefused, match="crm_init_incomplete"):
+        cli.initialize(cfg)
+    assert cfg.operational_path.read_bytes() == before
+    assert not cfg.operational_path.with_name(cfg.operational_path.name + ".runtime-lock").exists()
+
+
+def test_config_refuses_token_temporary_file_namespace(tmp_path):
+    cfg = config(tmp_path)
+    d = cfg.document
+    d["domain_path"] = str(cfg.domain_path.parent / "private" / ("." + "a" * 32 + ".tmp"))
+    with pytest.raises(CRMRefused):
+        feature("runtime_config", "CRMRuntimeConfig").from_document(d)
+    assert not cfg.domain_path.exists() and not cfg.operational_path.exists()

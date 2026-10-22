@@ -1,5 +1,6 @@
 """Closed, credential-free runtime configuration pinned into durable poll receipts."""
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -88,6 +89,29 @@ class CRMRuntimeConfig:
             )
             lock_path = Path(str(paths["operational_path"]) + ".runtime-lock")
             require(lock_path not in paths.values(), "invalid_runtime_config")
+            families = [
+                {Path(str(path) + suffix) for suffix in ("", "-wal", "-shm", "-journal")}
+                for path in (paths["domain_path"], paths["operational_path"], lock_path)
+            ]
+            private = paths["credential_directory"]
+            families += [
+                {paths["ingress_secret_file"]},
+                {private},
+                {private / ".lock"},
+                {private / (canonical_hash({"connection_id": cfg.connection_id}) + ".json")},
+                {private / (cfg.credential_reference + ".client-secret")},
+            ]
+            seen = set()
+            for family in families:
+                require(not seen.intersection(family), "invalid_runtime_config")
+                seen.update(family)
+            require(
+                not any(
+                    path.parent == private and re.fullmatch(r"\.[0-9a-f]{32}\.tmp", path.name)
+                    for path in seen
+                ),
+                "invalid_runtime_config",
+            )
             discoveries = d["discoveries"]
             require(
                 type(discoveries) is dict and set(discoveries) == set(cfg.record_ids),

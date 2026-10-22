@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
@@ -48,12 +49,16 @@ def _sql(text):
 
 
 class CRMStore:
-    def __init__(self, path: Path | str, *, format_version=1, create=True):
+    def __init__(self, path: Path | str, *, format_version=1, create=True, exclusive=False):
         require(
             type(format_version) is int and format_version in (1, 2, 3, 4),
             "operational_store_unrecognized",
         )
         require(type(create) is bool, "operational_store_unrecognized")
+        require(
+            type(exclusive) is bool and (not exclusive or create), "operational_store_unrecognized"
+        )
+        self._creation_fd = None
         self._format_version = format_version
         schema = _SCHEMA
         if format_version in (2, 3, 4):
@@ -75,11 +80,17 @@ class CRMStore:
         )
         existed = self.path.exists()
         require(existed or create, "operational_store_unrecognized")
+        require(not exclusive or not existed, "operational_store_unrecognized")
         try:
             if not existed:
                 # Exclusive creation prevents a race from initializing a foreign existing file.
-                with self.path.open("xb"):
-                    pass
+                if exclusive:
+                    self._creation_fd = os.open(
+                        self.path, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600
+                    )
+                else:
+                    with self.path.open("xb"):
+                        pass
                 with self.transaction() as conn:
                     for statement in schema.values():
                         conn.execute(statement)
@@ -102,16 +113,40 @@ class CRMStore:
                     "operational_store_unrecognized",
                 )
         except FileExistsError as exc:
+            self.close()
             raise CRMRefused("operational_store_unrecognized") from exc
         except sqlite3.DatabaseError as exc:
+            self.close()
             raise CRMRefused("operational_store_unrecognized") from exc
+        except BaseException:
+            self.close()
+            raise
+
+    def _check_created_file(self):
+        if self._creation_fd is not None:
+            try:
+                original = os.fstat(self._creation_fd)
+                current = os.stat(self.path, follow_symlinks=False)
+                require(
+                    (original.st_dev, original.st_ino) == (current.st_dev, current.st_ino)
+                    and original.st_nlink == current.st_nlink == 1,
+                    "operational_store_unrecognized",
+                )
+            except OSError:
+                raise CRMRefused("operational_store_unrecognized") from None
 
     def _connect(self):
         require(not self._closed, "operational_store_closed")
+        self._check_created_file()
         conn = sqlite3.connect(
             self.path.as_uri() + "?mode=rw", uri=True, isolation_level=None, timeout=5
         )
-        conn.execute("PRAGMA foreign_keys=ON")
+        try:
+            self._check_created_file()
+            conn.execute("PRAGMA foreign_keys=ON")
+        except BaseException:
+            conn.close()
+            raise
         return conn
 
     @contextmanager
@@ -141,6 +176,9 @@ class CRMStore:
 
     def close(self):
         self._closed = True
+        if self._creation_fd is not None:
+            os.close(self._creation_fd)
+            self._creation_fd = None
 
     def record_receipt(self, connection_id: str, receipt_id: str, body: bytes) -> Receipt:
         require(

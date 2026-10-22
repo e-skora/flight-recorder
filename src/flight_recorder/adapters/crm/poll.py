@@ -44,6 +44,16 @@ def dispatch_poll(runtime, connection_id, tick_id, *, clock):
 
 def capture_and_submit(runtime, target, receipt_id, *, clock):
     runtime.authority.assert_held()
+    require(not runtime._closed and not runtime._stop.is_set(), "runtime_closed")
+    require(runtime._execution.acquire(blocking=False), "poll_runner_busy")
+    try:
+        return _capture_and_submit_owned(runtime, target, receipt_id, clock=clock)
+    finally:
+        runtime._execution.release()
+
+
+def _capture_and_submit_owned(runtime, target, receipt_id, *, clock):
+    runtime.authority.assert_held()
     require(target in runtime.config.targets, "target_not_allowlisted")
     owner = runtime.queue.claim(receipt_id, target)
     try:

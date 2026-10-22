@@ -3,6 +3,8 @@
 import hashlib
 import os
 
+from sqlalchemy import event
+
 from flight_recorder.adapters.crm.contracts import CRMRefused, require
 from flight_recorder.adapters.crm.runtime_config import CRMRuntimeConfig, absolute_path
 from flight_recorder.adapters.crm.store import CRMStore
@@ -26,17 +28,42 @@ def initialize(config):
             ),
             "crm_init_requires_new_files",
         )
-    engine = store = None
+    engine = store = domain_fd = None
     try:
-        with config.domain_path.open("xb"):
-            pass
-        store = CRMStore(config.operational_path, format_version=4)
+        domain_fd = os.open(
+            config.domain_path, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600
+        )
+
+        def check_domain():
+            absolute_path(str(config.domain_path))
+            original = os.fstat(domain_fd)
+            current = os.stat(config.domain_path, follow_symlinks=False)
+            require(
+                (original.st_dev, original.st_ino) == (current.st_dev, current.st_ino)
+                and original.st_nlink == current.st_nlink == 1,
+                "crm_init_incomplete",
+            )
+
+        store = CRMStore(config.operational_path, format_version=4, exclusive=True)
         engine = make_engine(config.domain_path)
+
+        @event.listens_for(engine, "do_connect")
+        def existing_reserved_domain(dialect, connection_record, cargs, cparams):
+            check_domain()
+            cargs[0] = config.domain_path.as_uri() + "?mode=rw"
+            cparams["uri"] = True
+
+        @event.listens_for(engine, "connect", insert=True)
+        def validate_open_domain(connection, connection_record):
+            check_domain()
+
         create_schema(engine)
         create_crm_schema(engine)
         from flight_recorder.adapters.crm.runtime import qualify_domain
 
         qualify_domain(engine)
+        check_domain()
+        store._check_created_file()
         with lock_path.open("xb") as lock:
             os.fchmod(lock.fileno(), 0o600)
             op_info, lock_info = config.operational_path.stat(), os.fstat(lock.fileno())
@@ -54,6 +81,7 @@ def initialize(config):
             lock.flush()
             os.fsync(lock.fileno())
         with store.transaction() as conn:
+            check_domain()
             conn.execute(
                 "INSERT INTO crm_runtime_binding VALUES (1,?,?)",
                 (body, hashlib.sha256(body).hexdigest()),
@@ -63,6 +91,8 @@ def initialize(config):
             os.fsync(parent_fd)
         finally:
             os.close(parent_fd)
+        check_domain()
+        store._check_created_file()
     except Exception:
         raise CRMRefused("crm_init_incomplete") from None
     finally:
@@ -70,6 +100,8 @@ def initialize(config):
             store.close()
         if engine is not None:
             engine.dispose()
+        if domain_fd is not None:
+            os.close(domain_fd)
     return "initialized"
 
 
