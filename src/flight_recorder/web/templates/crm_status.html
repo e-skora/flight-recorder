@@ -6,7 +6,11 @@
 <dl class="fields"><dt>Provider</dt><dd>{{ status.provider }}</dd><dt>Expected organization</dt><dd><code class="hash">{{ status.instance_id }}</code></dd>
 <dt>Identity</dt><dd>{% if status.confirmation_at %}Identity last confirmed at {{ status.confirmation_at }} · {{ status.confirmation_origin }}{% else %}Identity not checked in this process{% endif %}</dd>
 <dt>Last saved observation</dt><dd>{% if status.last_observed_at %}{{ status.last_observed_at }} · {{ status.observation_origin }}{% else %}No verified saved observation{% endif %}</dd>
-<dt>CRM writes</dt><dd>Disabled</dd><dt>Atomic source guard</dt><dd>Not qualified</dd><dt>Reason</dt><dd><code class="hash">{{ status.reason }}</code></dd></dl>
+<dt>CRM writes</dt><dd>{% if status.write_mode == 'disabled' %}Disabled{% elif status.write_mode == 'enabled_unqualified' %}Local policy enabled; live use is unqualified{% elif status.write_mode == 'uncertainty_hold' %}Unknown request result — target remains held{% elif status.write_mode == 'observation_pending' %}Waiting for a complete output observation{% elif status.write_mode == 'check_in_progress' %}Write check in progress{% else %}Write history integrity hold{% endif %}</dd>
+<dt>Local policy generation</dt><dd>{{ status.policy_generation if status.policy_generation is not none else 'Unknown while unavailable' }}</dd>
+<dt>Local policy selection</dt><dd>{% if status.policy_enabled is none %}Unknown while unavailable{% elif status.policy_enabled %}Enabled locally; live use is unqualified{% else %}Disabled{% endif %}</dd>
+<dt>Write status reason</dt><dd><code class="hash">{{ status.writer_reason }}</code></dd>
+<dt>Atomic source guard</dt><dd>Not qualified</dd><dt>Reason</dt><dd><code class="hash">{{ status.reason }}</code></dd></dl>
 <p>A previous identity confirmation or archived observation does not establish current authorization or health. Fictional fixtures and injected transport tests are not real network proof. Live account readiness and conditional-write qualification remain separate.</p>
 <p><a href="/">Inspect saved accounts</a></p>
 {% endblock %}

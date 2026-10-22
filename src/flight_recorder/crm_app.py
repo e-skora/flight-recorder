@@ -10,10 +10,13 @@ from flight_recorder.app import create_app
 from flight_recorder.web.crm_decision_view import crm_status_router
 
 
-def create_crm_app(config, *, runtime=None, background=True):
-    runtime = CRMRuntime(config) if runtime is None else runtime
+def create_crm_app(config, *, runtime=None, background=True, writer_capable=False):
+    require(type(writer_capable) is bool, "invalid_writer_mode")
+    runtime = CRMRuntime(config, writer_capable=writer_capable) if runtime is None else runtime
     require(
-        type(runtime) is CRMRuntime and runtime.config.canonical_bytes == config.canonical_bytes,
+        type(runtime) is CRMRuntime
+        and runtime.config.canonical_bytes == config.canonical_bytes
+        and runtime.writer_capable == writer_capable,
         "invalid_crm_runtime",
     )
     app = create_app(config.domain_path)

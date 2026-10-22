@@ -25,6 +25,7 @@ from flight_recorder.replay.reconstruct import (
     reconstruct,
     verify_artifact,
 )
+from flight_recorder.web.crm_operation_view import load_crm_operations
 from flight_recorder.web.decision_view import positive_weight_bound_view
 from flight_recorder.web.hubspot_decision_view import Fact, InputRow
 
@@ -45,6 +46,8 @@ class CRMDecisionPage:
     context_rows: tuple = ()
     predecessor: object = None
     source_label: str = "Unverified source origin"
+    operations: tuple = ()
+    operation_failure: str | None = None
 
 
 def _facts(values):
@@ -160,7 +163,13 @@ def load_crm_decision_page(conn, account_ref, decision_event_id, current_artifac
         original = reconstruct(conn, decision_event_id)
         page = replace(page, original=original, **_details(conn, row, original))
     except FAILURES as error:
-        return replace(page, original_failure=f"{type(error).__name__}: {error}")
+        return replace(
+            page,
+            original_failure=f"{type(error).__name__}: {error}",
+            operation_failure="original_history_unavailable",
+        )
+    operations, operation_failure = load_crm_operations(conn, account_ref, decision_event_id)
+    page = replace(page, operations=operations, operation_failure=operation_failure)
     if current_artifact_hash is not None:
         try:
             page = replace(

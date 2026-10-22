@@ -48,6 +48,18 @@ def _observation(flag: bool | None, word: str, state: str) -> str:
 
 
 def summarize(event_type: str, payload: dict, schema_version: str = "1") -> str:
+    if schema_version == "2" and event_type == "external_operation.observed":
+        from flight_recorder.adapters.crm.status import SOURCE_LABELS
+
+        try:
+            intent = payload["intent"]
+            return (
+                f"{SOURCE_LABELS[payload['observation_origin']]}: saved CRM write "
+                f"{payload['state']} at {payload['observed_at']}; revision {intent['revision']}; "
+                f"original {intent['decision_event_id']}; operation {intent['operation_id']}"
+            )
+        except (KeyError, TypeError):
+            return "CRM operation history unavailable"
     if schema_version == "3" and event_type in ("decision.recorded", "evidence.recorded"):
         from flight_recorder.adapters.crm.status import SOURCE_LABELS
 

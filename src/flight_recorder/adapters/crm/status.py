@@ -6,8 +6,9 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
-from flight_recorder.adapters.crm.contracts import ConfirmedConnection
+from flight_recorder.adapters.crm.contracts import ConfirmedConnection, CRMRefused
 from flight_recorder.collector.crm_provenance import _original_capture
+from flight_recorder.collector.errors import CollectorError
 from flight_recorder.ledger.crm_schema import crm_captures
 
 SOURCE_LABELS = {
@@ -29,6 +30,80 @@ class ConnectionStatus:
     confirmation_at: str | None = None
     confirmation_origin: str | None = None
     observation_origin: str | None = None
+    policy_generation: int | None = 0
+    policy_enabled: bool | None = False
+    writer_reason: str = ""
+    writer_operations: tuple | None = ()
+
+
+def writer_status(runtime):
+    disabled = dict(
+        write_mode="disabled",
+        policy_generation=0,
+        policy_enabled=False,
+        writer_reason="not_writer_capable",
+        writer_operations=(),
+    )
+    if not getattr(runtime, "writer_capable", False):
+        return disabled
+    if not runtime._execution.acquire(blocking=False):
+        return dict(
+            disabled,
+            write_mode="check_in_progress",
+            writer_reason="writer_busy",
+            policy_generation=None,
+            policy_enabled=None,
+            writer_operations=None,
+        )
+    try:
+        snap = runtime.validate_write_state()
+        documents = [
+            d
+            for (connection, _), d in snap["policies"].items()
+            if connection == runtime.config.connection.connection_id
+        ]
+        policy = documents[-1]["policy"] if documents else None
+        operations = []
+        for op, intent in sorted(snap["intents"].items()):
+            progress = runtime._writer_store.progress(op, snap)
+            origin = min(snap["boxes"][op], key=lambda d: d["payload"]["observation_sequence"])[
+                "payload"
+            ]["observation_origin"]
+            operations.append(
+                dict(
+                    operation_id=op,
+                    decision_event_id=intent.document["decision_event_id"],
+                    state=progress.state,
+                    reason=progress.reason,
+                    admitted=progress.admitted,
+                    attempted=progress.attempted,
+                    held=progress.held,
+                    observation_origin=origin,
+                )
+            )
+        mode = "enabled_unqualified" if policy and policy["enabled"] else "disabled"
+        if any(o["held"] and o["state"] == "unknown" for o in operations):
+            mode = "uncertainty_hold"
+        elif any(o["held"] for o in operations):
+            mode = "observation_pending"
+        return dict(
+            write_mode=mode,
+            policy_generation=policy["generation"] if policy else 0,
+            policy_enabled=policy["enabled"] if policy else False,
+            writer_reason="live_readiness_unqualified",
+            writer_operations=tuple(operations),
+        )
+    except (CRMRefused, CollectorError, SQLAlchemyError) as exc:
+        return dict(
+            disabled,
+            write_mode="integrity_hold",
+            writer_reason=getattr(exc, "reason", "write_history_integrity"),
+            policy_generation=None,
+            policy_enabled=None,
+            writer_operations=None,
+        )
+    finally:
+        runtime._execution.release()
 
 
 def saved_confirmation(runtime):
@@ -89,10 +164,10 @@ def connection_status(runtime):
         instance_id=runtime.config.connection.expected_instance_id,
         auth_state="identity_last_confirmed" if confirmed is not None else "not_checked",
         last_observed_at=latest["read_finished_at"] if latest else None,
-        write_mode="disabled",
         atomic_source_guard=False,
         reason=reason,
         confirmation_at=confirmed.confirmed_at.isoformat() if confirmed else None,
         confirmation_origin=SOURCE_LABELS[confirmed.observation_origin] if confirmed else None,
         observation_origin=SOURCE_LABELS[latest["observation_origin"]] if latest else None,
+        **writer_status(runtime),
     )

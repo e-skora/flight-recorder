@@ -28,7 +28,7 @@
 <nav aria-label="Breadcrumb"><a href="/">Accounts</a> / <a href="/accounts/{{ account.account_ref }}">{{ account.name }}</a> / CRM decision</nav>
 <h1>Inspect a saved CRM decision</h1>
 <p><strong>{{ page.source_label }}.</strong> Company data is fictional. This page shows saved history, not current connection health. The selected values were observed across a read interval; this is not complete change capture.</p>
-<nav aria-label="Decision sections"><a href="#crm-original">Original</a> · <a href="#crm-rules">Rules</a> · <a href="#crm-evidence">Evidence</a> · <a href="#crm-replay">Replay</a> · <a href="#crm-capture">Capture</a></nav>
+<nav aria-label="Decision sections"><a href="#crm-original">Original</a> · <a href="#crm-rules">Rules</a> · <a href="#crm-evidence">Evidence</a> · <a href="#crm-replay">Replay</a> · <a href="#crm-capture">Capture</a> · <a href="#crm-operations">Write history</a></nav>
 <section id="crm-recorded"><h2>Recorded decision</h2>
 <p>{% if page.original %}The recorded result is reproduced below.{% else %}<strong>Recorded and unverified.</strong> The verification failure is shown below.{% endif %}</p>
 {% if page.recorded %}<p><strong>Saved result:</strong> {{ page.recorded.score }} points · threshold {{ page.recorded.threshold }} · {{ page.recorded.output }}</p>{% endif %}
@@ -55,7 +55,18 @@
 <section id="crm-lineage"><h2>Processing lineage</h2>
 {% if not page.original %}<p>Lineage unavailable: {{ page.original_failure }}</p>{% elif page.predecessor %}<p>Recorded predecessor unit <code class="hash">{{ page.predecessor.unit_id }}</code>: <a href="/accounts/{{ account.account_ref }}/decisions/{{ page.predecessor.decision_event_id }}">Inspect its original decision</a>. This is a separate processing result.</p>{% else %}<p>No predecessor recorded.</p>{% endif %}</section>
 <section id="crm-explanation"><h2>Recorded explanation</h2><p>Explanation is narrative, not authoritative evidence or logic.</p>{% if page.recorded.explanation %}<p>{{ page.recorded.explanation }}</p>{% else %}<p>No explanation recorded.</p>{% endif %}</section>
-<section id="crm-operations"><h2>CRM operations and buyer outcomes</h2><p>No CRM write observation recorded by this version. A technical CRM operation observation is distinct from a buyer outcome such as a reply or meeting. This decision has no new buyer outcome or attribution credit.</p></section>
+<section id="crm-operations"><h2>Saved CRM write history</h2>
+<p>A technical CRM write observation does not create a buyer outcome, such as a reply or meeting, or attribution credit. These are the adapter's saved observations from the time shown.</p>
+{% if page.operation_failure %}<p class="unavailable-state">Write history unavailable: {{ page.operation_failure }}. No successful result has been substituted.</p>
+{% elif not page.operations %}<p>No CRM write observation recorded for this decision.</p>
+{% else %}{% for operation in page.operations %}<article aria-label="Saved CRM write revision {{ operation.revision }}">
+<h3>Write revision {{ operation.revision }} · <code>{{ operation.state }}</code></h3>
+<p><strong>{{ operation.source_label }}.</strong> {{ operation.explanation }}</p>
+<p>Original decision: <a href="/accounts/{{ account.account_ref }}/decisions/{{ operation.decision_event_id }}#crm-original"><code class="hash">{{ operation.decision_event_id }}</code></a>.</p>
+<details><summary>Exact original values prepared for the CRM</summary>{{ facts(operation.output_facts) }}</details>
+<details><summary>Operation identity and captured source version</summary>{{ facts(operation.facts) }}</details>
+<ol>{% for observation in operation.observations %}<li><strong>{{ observation.phase }} · {{ observation.state }}</strong> · {{ observation.observed_at }} · {{ observation.source_label }}<details><summary>View saved observation {{ observation.sequence }}</summary>{{ facts(observation.facts) }}</details></li>{% endfor %}</ol>
+</article>{% endfor %}{% endif %}</section>
 <section id="crm-replay"><h2>Replay the same historical evidence</h2>
 {% if page.original %}<form method="get"><label for="current-artifact">Current logic artifact</label><select id="current-artifact" name="current" required><option value="" disabled{% if not current_hash %} selected{% endif %}>Select a registered artifact</option>{% if current_hash and not (artifact_options | selectattr("artifact_hash", "equalto", current_hash) | list) %}<option value="{{ current_hash }}" selected>Unregistered selection · {{ current_hash[:12] }}</option>{% endif %}{% for option in artifact_options %}<option value="{{ option.artifact_hash }}"{% if option.artifact_hash == current_hash %} selected{% endif %}>{{ option.label }}</option>{% endfor %}</select><button type="submit">Compare historical context</button></form>
 {% if page.comparison %}{% set comparison=page.comparison %}<p><strong>Ephemeral counterfactual</strong>. This did not happen. It is never stored or written to the CRM.</p>

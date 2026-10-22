@@ -396,11 +396,23 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="recompute outcomes that already have a result; append only changed results",
     )
-    for name in ("crm-init", "crm-serve"):
+    for name in (
+        "crm-init",
+        "crm-serve",
+        "crm-writer-init",
+        "crm-writer-serve",
+        "crm-write-status",
+    ):
         crm = sub.add_parser(name, help="explicit local CRM runtime command")
         crm.add_argument("--config", type=Path, required=True)
     args = parser.parse_args(argv)
-    if args.command in ("crm-init", "crm-serve"):
+    if args.command in (
+        "crm-init",
+        "crm-serve",
+        "crm-writer-init",
+        "crm-writer-serve",
+        "crm-write-status",
+    ):
         from flight_recorder.adapters.crm.cli import command
 
         return command(args.command, args.config)

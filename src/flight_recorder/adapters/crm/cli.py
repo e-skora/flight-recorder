@@ -193,17 +193,41 @@ def command(operation, config_path):
 
     try:
         config = load_config(config_path)
-        if operation == "crm-init":
-            initialize(config)
-            print("crm-init: initialized new local files")
+        if operation in ("crm-init", "crm-writer-init"):
+            initialize(config, writer_capable=operation == "crm-writer-init")
+            print(f"{operation}: initialized new local files")
+        elif operation == "crm-write-status":
+            import json
+            from dataclasses import asdict
+
+            from flight_recorder.adapters.crm.runtime import CRMRuntime
+            from flight_recorder.adapters.crm.status import connection_status
+
+            runtime = CRMRuntime(config, writer_capable=True)
+            try:
+                from sqlalchemy.exc import SQLAlchemyError
+
+                from flight_recorder.collector.errors import CollectorError
+
+                try:
+                    runtime.start(background=False)
+                    print(json.dumps(asdict(connection_status(runtime)), sort_keys=True))
+                except (CollectorError, SQLAlchemyError):
+                    raise CRMRefused("write_status_history_integrity") from None
+            finally:
+                runtime.close()
         else:
-            require(operation == "crm-serve", "unknown_crm_command")
+            require(operation in ("crm-serve", "crm-writer-serve"), "unknown_crm_command")
             import uvicorn
 
             from flight_recorder.crm_app import create_crm_app
 
             uvicorn.run(
-                create_crm_app(config), host="localhost", port=8768, workers=1, access_log=False
+                create_crm_app(config, writer_capable=operation == "crm-writer-serve"),
+                host="localhost",
+                port=8768,
+                workers=1,
+                access_log=False,
             )
         return 0
     except CRMRefused as exc:
