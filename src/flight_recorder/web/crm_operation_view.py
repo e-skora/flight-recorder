@@ -11,7 +11,7 @@ from flight_recorder.adapters.crm.status import SOURCE_LABELS
 from flight_recorder.collector.canonical import canonical_text
 from flight_recorder.collector.crm_operations import operation_history
 from flight_recorder.collector.errors import CollectorError
-from flight_recorder.ledger.crm_operations import schema_ready
+from flight_recorder.ledger.crm_operations import crm_operation_observations, schema_ready
 from flight_recorder.ledger.schema import events
 from flight_recorder.web.hubspot_decision_view import Fact
 
@@ -67,6 +67,10 @@ def facts(document):
 def load_crm_operations(conn, account_ref, decision_event_id):
     try:
         if not schema_ready(conn):
+            recognized_schema = conn.exec_driver_sql(
+                "SELECT 1 FROM sqlite_master WHERE name=? LIMIT 1",
+                (crm_operation_observations.name,),
+            ).first()
             known = conn.execute(
                 select(events.c.event_id)
                 .where(
@@ -75,7 +79,11 @@ def load_crm_operations(conn, account_ref, decision_event_id):
                 )
                 .limit(1)
             ).first()
-            return ((), "saved_operation_schema_unavailable") if known else ((), None)
+            return (
+                ((), "saved_operation_schema_unavailable")
+                if known or recognized_schema
+                else ((), None)
+            )
         documents = operation_history(conn, account_ref)
         groups = {}
         for doc in documents:

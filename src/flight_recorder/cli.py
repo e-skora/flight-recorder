@@ -363,7 +363,23 @@ def cmd_serve(db_path: Path) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="flight-recorder")
+    writer_commands = ("crm-writer-init", "crm-writer-serve", "crm-write-status")
+    writer_progs = {f"flight-recorder {name}" for name in writer_commands}
+    safe_crm_errors = False
+
+    class CRMArgumentParser(argparse.ArgumentParser):
+        def parse_known_args(self, args=None, namespace=None):
+            nonlocal safe_crm_errors
+            if self.prog in writer_progs:
+                safe_crm_errors = True
+            return super().parse_known_args(args, namespace)
+
+        def error(self, message):
+            if safe_crm_errors:
+                self.exit(2, "crm: refused: invalid_crm_arguments\n")
+            super().error(message)
+
+    parser = CRMArgumentParser(prog="flight-recorder")
     parser.add_argument(
         "--db",
         type=Path,
@@ -396,23 +412,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="recompute outcomes that already have a result; append only changed results",
     )
-    for name in (
-        "crm-init",
-        "crm-serve",
-        "crm-writer-init",
-        "crm-writer-serve",
-        "crm-write-status",
-    ):
+    for name in ("crm-init", "crm-serve", *writer_commands):
         crm = sub.add_parser(name, help="explicit local CRM runtime command")
         crm.add_argument("--config", type=Path, required=True)
     args = parser.parse_args(argv)
-    if args.command in (
-        "crm-init",
-        "crm-serve",
-        "crm-writer-init",
-        "crm-writer-serve",
-        "crm-write-status",
-    ):
+    if args.command in ("crm-init", "crm-serve", *writer_commands):
         from flight_recorder.adapters.crm.cli import command
 
         return command(args.command, args.config)

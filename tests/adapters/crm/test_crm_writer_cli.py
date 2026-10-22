@@ -18,6 +18,31 @@ def config_file(cfg, tmp_path):
     return path
 
 
+@pytest.mark.parametrize("command", ["crm-write-status", "crm-writer-init", "crm-writer-serve"])
+@pytest.mark.parametrize("global_db", [False, True])
+@pytest.mark.parametrize("malformed", ["unknown_option", "extra_value", "missing_value"])
+def test_writer_argument_refusal_is_named_and_never_echoes_private_paths(
+    command, global_db, malformed, monkeypatch, capsys
+):
+    marker = "/private/fictional-credential-directory-DO-NOT-ECHO"
+    prefix = ["--db", marker] if global_db else []
+    suffix = {
+        "unknown_option": ["--config", marker, "--token", marker],
+        "extra_value": ["--config", marker, marker],
+        "missing_value": ["--config"],
+    }[malformed]
+    monkeypatch.setattr(
+        feature("cli"), "command", lambda *args: pytest.fail("bad arguments reached runtime")
+    )
+    with pytest.raises(SystemExit) as refused:
+        main([*prefix, command, *suffix])
+    assert refused.value.code == 2
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert marker not in output.err
+    assert output.err == "crm: refused: invalid_crm_arguments\n"
+
+
 def test_writer_init_is_explicit_and_refuses_retained_files(tmp_path, capsys):
     cfg = config(tmp_path)
     path = config_file(cfg, tmp_path)

@@ -149,6 +149,49 @@ def test_corrupt_saved_operation_is_visible_without_losing_verified_original(tmp
         runtime.close()
 
 
+@pytest.mark.parametrize("damage", ["misclassified_event", "missing_event"])
+def test_damaged_schema_with_retained_projection_cannot_look_like_empty_history(tmp_path, damage):
+    runtime, provider, decision, _ = history(tmp_path, "prepared")
+    try:
+        with sqlite3.connect(runtime.config.domain_path) as conn:
+            trigger = "events_no_update" if damage == "misclassified_event" else "events_no_delete"
+            statement = conn.execute(
+                "SELECT sql FROM sqlite_master WHERE name=?", (trigger,)
+            ).fetchone()[0]
+            conn.execute(f"DROP TRIGGER {trigger}")
+            if damage == "misclassified_event":
+                conn.execute(
+                    "UPDATE events SET event_type='not_an_operation' "
+                    "WHERE event_type='external_operation.observed'"
+                )
+            else:
+                conn.execute("DELETE FROM events WHERE event_type='external_operation.observed'")
+            conn.execute(statement)
+            conn.execute("DROP TRIGGER crm_operation_observations_no_update")
+            assert conn.execute("SELECT COUNT(*) FROM crm_operation_observations").fetchone()[0]
+        before = (
+            runtime.config.domain_path.read_bytes(),
+            runtime.config.operational_path.read_bytes(),
+        )
+        calls = (provider.calls, provider.verifications, len(provider.sent), provider.output_reads)
+        body = page_body(runtime, decision)
+        assert "Verified original" in body
+        assert "Write history unavailable" in body
+        assert "No CRM write observation recorded for this decision" not in body
+        assert (
+            runtime.config.domain_path.read_bytes(),
+            runtime.config.operational_path.read_bytes(),
+        ) == before
+        assert (
+            provider.calls,
+            provider.verifications,
+            len(provider.sent),
+            provider.output_reads,
+        ) == calls
+    finally:
+        runtime.close()
+
+
 def test_schema2_trace_is_source_aware_and_fake_schema1_summary_stays_exact(tmp_path):
     operation_api()
     runtime, _, _, intent = history(tmp_path, "unknown")
