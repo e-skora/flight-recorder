@@ -722,3 +722,39 @@ def test_output_subset_keeps_completed_request_awaiting_observation(harness):
             output_read=output_read(case, i),
         ),
     )
+
+
+@pytest.mark.parametrize("prepared_at,expected", [(12, 422), (40, 201), (41, 201)])
+def test_new_revision_prepared_time_follows_previous_terminal(harness, prepared_at, expected):
+    case = prepare(harness)
+    i = intent(case)
+    sent(harness, case, i)
+    post_ok(
+        harness,
+        observation(case, i, 3, "response", "awaiting_observation", response=receipt(case, i)),
+    )
+    read = output_read(case, i, started_at=time_at(case, 38), finished_at=time_at(case, 39))
+    post_ok(
+        harness,
+        observation(
+            case,
+            i,
+            4,
+            "output_observed",
+            "observed_applied_at_t",
+            at=time_at(case, 40),
+            output_read=read,
+        ),
+    )
+    later = newer(harness, case)
+    j = intent(later, revision=2)
+    # Intent data may be constructed earlier; prepared is the durable admission boundary.
+    before = snapshot(harness.engine)
+    response = harness.post(observation(later, j, at=time_at(case, prepared_at)))
+    assert response.status_code == expected, response.text
+    if expected == 422:
+        assert response.json()["reason"] == "crm_operation_time_order"
+        assert snapshot(harness.engine) == before
+    else:
+        with harness.engine.connect() as conn:
+            assert len(api().operation_history(conn, case["decision"]["account_ref"])) == 5

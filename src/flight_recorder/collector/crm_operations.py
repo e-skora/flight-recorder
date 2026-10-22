@@ -286,6 +286,14 @@ def _step(conn, doc, prior, cutoff):
             "crm_operation_target_held",
         )
         require(
+            all(
+                datetime.fromisoformat(p["observed_at"])
+                >= datetime.fromisoformat(d["payload"]["observed_at"])
+                for d in last.values()
+            ),
+            "crm_operation_time_order",
+        )
+        require(
             i["revision"] == max([d["payload"]["intent"]["revision"] for d in same], default=0) + 1
         )
         require(
