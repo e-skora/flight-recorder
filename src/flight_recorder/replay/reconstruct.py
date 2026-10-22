@@ -431,17 +431,17 @@ def compare_with_recorded(
 
 
 def load_decision_row(conn, decision_event_id: str) -> DecisionRow:
-    row = conn.execute(
-        select(decisions).where(decisions.c.decision_event_id == decision_event_id)
-    ).first()
+    from flight_recorder.replay.crm_context import crm_decision
+
+    row = crm_decision(conn, decision_event_id)
+    if row is None:
+        row = conn.execute(
+            select(decisions).where(decisions.c.decision_event_id == decision_event_id)
+        ).first()
     if row is None:
         from flight_recorder.collector.provenance import v2_decision
 
         row = v2_decision(conn, decision_event_id)
-    if row is None:
-        from flight_recorder.replay.crm_context import crm_decision
-
-        row = crm_decision(conn, decision_event_id)
     if row is None:
         raise DecisionNotFound(decision_event_id)
     return DecisionRow(
@@ -536,6 +536,13 @@ def load_context(conn, decision_event_id: str, decision_boundary: str) -> tuple[
     what the decision preserved and the supersession link is never followed.
     """
     from flight_recorder.collector.provenance import load_v2_context, v2_decision
+    from flight_recorder.replay.crm_context import crm_decision, load_crm_context
+
+    crm = crm_decision(conn, decision_event_id)
+    if crm is not None:
+        if crm.decision_boundary != decision_boundary:
+            raise IntegrityFailure("decision_boundary", "CRM context boundary mismatch")
+        return load_crm_context(conn, decision_event_id)
 
     # No probe of new tables for a retained legacy decision.
     legacy = conn.execute(
@@ -549,13 +556,6 @@ def load_context(conn, decision_event_id: str, decision_boundary: str) -> tuple[
             if v2.decision_boundary != decision_boundary:
                 raise IntegrityFailure("decision_boundary", "v2 context boundary mismatch")
             return load_v2_context(conn, v2)
-        from flight_recorder.replay.crm_context import crm_decision, load_crm_context
-
-        crm = crm_decision(conn, decision_event_id)
-        if crm is not None:
-            if crm.decision_boundary != decision_boundary:
-                raise IntegrityFailure("decision_boundary", "CRM context boundary mismatch")
-            return load_crm_context(conn, decision_event_id)
     rows = conn.execute(
         select(decision_context)
         .where(decision_context.c.decision_event_id == decision_event_id)
@@ -592,6 +592,14 @@ def load_context(conn, decision_event_id: str, decision_boundary: str) -> tuple[
 
 
 def load_consumed_inputs(conn, decision_event_id: str) -> tuple[ConsumedInputRow, ...]:
+    from flight_recorder.replay.crm_context import crm_decision, verified_crm_history
+
+    if crm_decision(conn, decision_event_id) is not None:
+        _, _, _, used, _ = verified_crm_history(conn, decision_event_id)
+        return tuple(
+            ConsumedInputRow(x["input_key"], x["evidence_version_id"], x["contribution"])
+            for x in used
+        )
     table = decision_consumed_inputs
     legacy = conn.execute(
         select(decisions.c.decision_event_id).where(
@@ -605,15 +613,6 @@ def load_consumed_inputs(conn, decision_event_id: str) -> tuple[ConsumedInputRow
             from flight_recorder.ledger.schema import decision_consumed_inputs_v2
 
             table = decision_consumed_inputs_v2
-        else:
-            from flight_recorder.replay.crm_context import crm_decision, verified_crm_history
-
-            if crm_decision(conn, decision_event_id) is not None:
-                _, _, _, used, _ = verified_crm_history(conn, decision_event_id)
-                return tuple(
-                    ConsumedInputRow(x["input_key"], x["evidence_version_id"], x["contribution"])
-                    for x in used
-                )
     rows = conn.execute(
         select(table)
         .where(table.c.decision_event_id == decision_event_id)

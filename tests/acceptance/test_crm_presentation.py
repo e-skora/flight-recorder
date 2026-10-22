@@ -6,10 +6,18 @@ import importlib
 import importlib.util
 
 import pytest
-from sqlalchemy import event
+from sqlalchemy import event, select
 
 from flight_recorder.collector.canonical import canonical_hash
-from flight_recorder.ledger.crm_schema import create_crm_schema
+from flight_recorder.ledger.crm_schema import create_crm_schema, crm_decisions
+from flight_recorder.ledger.schema import decisions
+from flight_recorder.replay.reconstruct import (
+    IntegrityFailure,
+    load_consumed_inputs,
+    load_context,
+    load_decision_row,
+    reconstruct,
+)
 from tests.acceptance.test_hubspot_v2_presentation import corrupt
 from tests.adapters.crm.cases import envelopes, make_case, seal
 from tests.conftest import canonical_envelopes, register_current_logic
@@ -394,3 +402,129 @@ def test_unregistered_current_selection_stays_visible_in_selector(harness):
     assert f'value="{unknown}" selected' in selector
     assert "Unregistered selection" in selector
     assert "Verified original" in body and "ArtifactMissing" in body
+
+
+def shadow(harness, case):
+    with harness.engine.begin() as conn:
+        row = conn.execute(select(crm_decisions)).one()
+        values = {column.name: row._mapping[column.name] for column in decisions.columns}
+        values.update(score=0, output="DO_NOT_PRIORITIZE")
+        conn.execute(decisions.insert().values(**values))
+
+
+@pytest.mark.parametrize("path", ["row", "context", "consumed", "original", "page"])
+def test_event_version_precedes_shadow_projection(harness, path):
+    case = history(harness)
+    shadow(harness, case)
+    p = case["decision"]["payload"]
+    did = case["decision"]["event_id"]
+    with harness.engine.connect() as conn:
+        if path == "row":
+            assert load_decision_row(conn, did).score == p["result"]["score"]
+        elif path == "context":
+            assert len(load_context(conn, did, p["decision_boundary"])) == len(
+                p["historical_context"]
+            )
+        elif path == "consumed":
+            assert len(load_consumed_inputs(conn, did)) == len(p["consumed_inputs"])
+        elif path == "original":
+            assert reconstruct(conn, did).result.score == p["result"]["score"]
+        else:
+            from flight_recorder.web.crm_decision_view import load_crm_decision_page
+
+            page = load_crm_decision_page(conn, case["decision"]["account_ref"], did, None)
+            assert page.original.result.score == page.recorded["score"]
+
+
+@pytest.mark.parametrize("path", ["row", "context", "consumed", "original", "page"])
+def test_missing_known_v3_projection_never_falls_back_to_shadow(harness, path):
+    case = history(harness)
+    shadow(harness, case)
+    corrupt(harness, "crm_decisions", delete=True)
+    did = case["decision"]["event_id"]
+    p = case["decision"]["payload"]
+    if path == "page":
+        body = get(harness, case)
+        assert "IntegrityFailure" in body and "Verified original" not in body
+        return
+    with harness.engine.connect() as conn:
+        with pytest.raises(IntegrityFailure):
+            if path == "row":
+                load_decision_row(conn, did)
+            elif path == "context":
+                load_context(conn, did, p["decision_boundary"])
+            elif path == "consumed":
+                load_consumed_inputs(conn, did)
+            else:
+                reconstruct(conn, did)
+
+
+def test_crm_shaped_legacy_id_still_uses_actual_event_version(harness):
+    decision = None
+    for e in canonical_envelopes():
+        if e["event_type"] in [
+            "account.discovered",
+            "logic_artifact.registered",
+            "evidence.recorded",
+        ]:
+            assert harness.post(e).status_code == 201
+        elif e["event_type"] == "decision.recorded":
+            decision = copy.deepcopy(e)
+    decision["event_id"] = "fr-crm-decision-v1-" + "a" * 64
+    assert harness.post(decision).status_code == 201
+    statements = []
+
+    def record(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    event.listen(harness.engine, "before_cursor_execute", record)
+    with harness.engine.connect() as conn:
+        assert (
+            reconstruct(conn, decision["event_id"]).result.score
+            == decision["payload"]["result"]["score"]
+        )
+    assert not any("FROM crm_" in s or "JOIN crm_" in s for s in statements)
+
+
+def test_six_hundred_reprocessing_steps_verify_without_call_stack_limit(harness):
+    case = history(harness)
+    prior = case["capture"]["unit_id"]
+    final = None
+    for index in range(1, 601):
+        registration = copy.deepcopy(case["artifact"])
+        registration["event_id"] = f"crm-long-history-artifact-{index}"
+        artifact = registration["payload"]["artifact"]
+        artifact["artifact_id"] = f"crm-long-history-{index}"
+        artifact["logic_version"] = f"test-crm-history-{index}"
+        artifact["factors"][0]["weight"] += index
+        assert harness.post(registration).status_code == 201
+        cap = copy.deepcopy(case["capture"])
+        cap.update(
+            rule_hash=canonical_hash(artifact),
+            capture_sequence=index + 1,
+            ownership_generation=index + 1,
+            reprocesses=prior,
+        )
+        final = envelopes(seal(cap), registration)
+        response = harness.post(final["decision"])
+        assert response.status_code == 201, response.text
+        prior = final["capture"]["unit_id"]
+    did = final["decision"]["event_id"]
+    with harness.engine.connect() as conn:
+        assert (
+            reconstruct(conn, did).result.score == final["decision"]["payload"]["result"]["score"]
+        )
+    # The farthest ancestor remains verified; the traversal must not silently truncate.
+    raw = harness.engine.raw_connection()
+    try:
+        raw.execute("DROP TRIGGER crm_decisions_no_update")
+        raw.execute(
+            "UPDATE crm_decisions SET score=999 WHERE decision_event_id=?",
+            (case["decision"]["event_id"],),
+        )
+        raw.commit()
+    finally:
+        raw.close()
+    with harness.engine.connect() as conn:
+        with pytest.raises(IntegrityFailure):
+            reconstruct(conn, did)

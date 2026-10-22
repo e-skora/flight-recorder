@@ -1,6 +1,7 @@
 """Verified historical v3 projections; no operational store or current provider access."""
 
 import json
+import re
 from datetime import date
 
 from sqlalchemy import select
@@ -25,6 +26,13 @@ from flight_recorder.replay.reconstruct import IntegrityFailure
 
 
 def crm_event(conn, decision_event_id):
+    # v3 wire identity requires this exact namespace. This only narrows the
+    # metadata lookup; the event's actual version still decides the reader.
+    # Ordinary legacy/v2 IDs retain their no-events replay path.
+    if type(decision_event_id) is not str or not re.fullmatch(
+        r"fr-crm-decision-v1-[0-9a-f]{64}", decision_event_id
+    ):
+        return None
     return conn.execute(
         select(events).where(
             events.c.event_id == decision_event_id,
@@ -97,14 +105,11 @@ def _lineage(conn, row, cap):
         or old["capture_boundary"] > cap["capture_boundary"]
     ):
         raise ValueError("invalid recorded predecessor lineage")
-    # Ordering above makes this recursive historical check acyclic. It never
-    # treats an accepted predecessor as a new ingestion attempt.
-    verified_crm_history(conn, prior.decision_event_id)
     return prior
 
 
-def verified_crm_history(conn, decision_event_id):
-    """Verify complete event/projection/capture/evidence binding, never repair missing rows."""
+def _history_step(conn, decision_event_id):
+    """Verify one complete preserved record and its immediate predecessor identity."""
     try:
         row = crm_decision(conn, decision_event_id)
         if row is None:
@@ -169,6 +174,19 @@ def verified_crm_history(conn, decision_event_id):
         raise IntegrityFailure(
             "crm_provenance", "preserved CRM history failed verification"
         ) from error
+
+
+def verified_crm_history(conn, decision_event_id):
+    """Verify the complete chain without a call-stack cutoff or history truncation."""
+    original = _history_step(conn, decision_event_id)
+    visited = {decision_event_id}
+    prior = original[-1]
+    while prior is not None:
+        if prior.decision_event_id in visited:
+            raise IntegrityFailure("crm_provenance", "cyclic recorded predecessor lineage")
+        visited.add(prior.decision_event_id)
+        prior = _history_step(conn, prior.decision_event_id)[-1]
+    return original
 
 
 def load_crm_context(conn, decision_event_id):
