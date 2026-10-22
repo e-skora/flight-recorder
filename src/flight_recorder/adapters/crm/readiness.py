@@ -313,6 +313,10 @@ def _schema_compatible(fields, artifact, authority):
         "FR_Decision_Ref__c": len("fr-crm-decision-v1-") + 64,
         "FR_Logic_Version__c": len(artifact["logic_version"]),
     }
+    for name in lengths:
+        kinds = {"string", "picklist"} if name == "FR_Output__c" else {"string"}
+        if by_name[name]["kind"] not in kinds:
+            return False
     if any(by_name[name]["length"] < length for name, length in lengths.items()):
         return False
     for name, values in {

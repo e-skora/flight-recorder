@@ -594,3 +594,31 @@ def test_declared_output_integer_must_fit_the_existing_mapping(tmp_path, stage, 
     result = report(cfg, d)
     assert not result.declarations_complete and not result.ready_for_write
     assert "send_declaration_unqualified" in result.reasons
+
+
+@pytest.mark.parametrize("stage", ["qualification_send", "ordinary_send"])
+@pytest.mark.parametrize(
+    "name", ["FR_Logic_Version__c", "FR_Decision_Ref__c", "FR_Operation_Id__c"]
+)
+@pytest.mark.parametrize("kind", ["picklist", "url", "textarea"])
+def test_opaque_output_identifiers_require_text_fields(tmp_path, stage, name, kind):
+    cfg = config(tmp_path)
+    d = declaration(cfg, stage)
+    field = next(f for f in d["field_schema"] if f["name"] == name)
+    field.update(kind=kind, picklist_values=["UNRELATED_VALUE"] if kind == "picklist" else [])
+    result = report(cfg, d)
+    assert not result.ready_for_read and not result.ready_for_write
+    assert not result.declarations_complete
+    assert "field_schema_unqualified" in result.reasons
+
+
+@pytest.mark.parametrize("stage", ["qualification_send", "ordinary_send"])
+def test_priority_output_requires_text_or_a_reviewed_enum_not_url(tmp_path, stage):
+    cfg = config(tmp_path)
+    d = declaration(cfg, stage)
+    field = next(f for f in d["field_schema"] if f["name"] == "FR_Output__c")
+    field["kind"] = "url"
+    result = report(cfg, d)
+    assert not result.ready_for_read and not result.ready_for_write
+    assert not result.declarations_complete
+    assert "field_schema_unqualified" in result.reasons
