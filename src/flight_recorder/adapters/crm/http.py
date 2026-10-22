@@ -1,5 +1,6 @@
 """Owned bounded Salesforce HTTP, with injected transport explicitly distinguished."""
 
+import hashlib
 import json
 import math
 import re
@@ -8,16 +9,96 @@ import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
-from urllib.parse import parse_qsl, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
 
 from flight_recorder.adapters.crm.contracts import ConnectionConfig, CRMRefused, require
-from flight_recorder.adapters.crm.mapping import INPUT_FIELDS
+from flight_recorder.adapters.crm.mapping import INPUT_FIELDS, OUTPUTS
 
 SELECTED_FIELDS = tuple(sorted(INPUT_FIELDS | {"Id", "Name", "Website", "LastModifiedDate"}))
 _MAX_BODY = 1024 * 1024
 _TRANSIENT = {429, 502, 503, 504}
+OUTPUT_FIELDS = tuple(sorted({"Id", *OUTPUTS.values()}))
+
+
+def _mutation_complete(status, body, headers):
+    """A narrow typed receipt, not a claim that every API variant is qualified."""
+    if status not in (204, 412):
+        return False
+    try:
+        critical = {}
+        for key, value in headers:
+            name = key.lower()
+            if name not in {
+                "content-length",
+                "content-type",
+                "transfer-encoding",
+                "content-encoding",
+            }:
+                continue
+            require(name not in critical, "invalid_provider_response")
+            require(
+                not any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in value),
+                "invalid_provider_response",
+            )
+            critical[name] = value.strip()
+        length = critical.get("content-length")
+        transfer = critical.get("transfer-encoding")
+        require(length is None or transfer is None, "invalid_provider_response")
+        if length is not None:
+            require(
+                bool(re.fullmatch(r"0|[1-9][0-9]{0,6}", length, re.ASCII))
+                and int(length) == len(body),
+                "invalid_provider_response",
+            )
+        if transfer is not None:
+            require(status == 412 and transfer.lower() == "chunked", "invalid_provider_response")
+        require(
+            critical.get("content-encoding", "identity").lower() == "identity",
+            "invalid_provider_response",
+        )
+        media = critical.get("content-type")
+        if media is not None:
+            require(
+                bool(
+                    re.fullmatch(
+                        r"application/json(?:\s*;\s*charset=(?:utf-8|utf8))?",
+                        media,
+                        re.ASCII | re.IGNORECASE,
+                    )
+                ),
+                "invalid_provider_response",
+            )
+        if status == 204:
+            return body == b"" and transfer is None
+        if body == b"":
+            return True
+        require(media is not None, "invalid_provider_response")
+        errors = strict_json(body)
+        require(type(errors) is list and bool(errors), "invalid_provider_response")
+        for item in errors:
+            require(
+                type(item) is dict
+                and {"message", "errorCode"} <= set(item) <= {"message", "errorCode", "fields"},
+                "invalid_provider_response",
+            )
+            require(
+                type(item["message"]) is str
+                and 0 < len(item["message"]) <= 4096
+                and type(item["errorCode"]) is str
+                and 0 < len(item["errorCode"]) <= 256,
+                "invalid_provider_response",
+            )
+            if "fields" in item:
+                require(
+                    type(item["fields"]) is list
+                    and all(type(v) is str and len(v) <= 256 for v in item["fields"]),
+                    "invalid_provider_response",
+                )
+        return True
+    except (ValueError, TypeError, RecursionError):
+        return False
 
 
 def utc_now(clock):
@@ -203,11 +284,43 @@ class OwnedHTTP:
         for value in form.values():
             private_text(value)
 
-    def _request(self, method, url, material):
+    def _write_document(self, intent):
+        from flight_recorder.adapters.crm.writer_contracts import CRMWriteIntent
+
+        require(type(intent) is CRMWriteIntent, "invalid_provider_request")
+        # Revalidate bytes at the credential/transport boundary, never caller aliases.
+        d = CRMWriteIntent(intent.canonical_bytes).document
+        cfg = self._config
+        require(
+            d["connection_id"] == cfg.connection_id
+            and d["target"]["provider"] == cfg.provider
+            and d["target"]["instance_id"] == cfg.expected_instance_id
+            and d["target"]["object_type"] == "Account"
+            and d["target"]["record_id"] in cfg.record_ids
+            and d["mapping_hash"] == cfg.mapping_hash
+            and d["artifact_hash"] == cfg.artifact_hash
+            and d["evaluator_version"] == cfg.evaluator_version,
+            "invalid_provider_request",
+        )
+        return d
+
+    def _output_url(self, intent):
+        d = self._write_document(intent)
+        return (
+            self._config.api_origin
+            + f"/services/data/v{self._config.api_version}"
+            + f"/sobjects/Account/{d['target']['record_id']}?"
+            + urlencode({"fields": ",".join(OUTPUT_FIELDS)})
+        )
+
+    def _request(self, method, url, material, *, output_intent=None):
         with self._mutex:
             require(not self._closed, "provider_transport_closed")
             if method == "GET":
-                self._get_url(url)
+                if output_intent is None:
+                    self._get_url(url)
+                else:
+                    require(url == self._output_url(output_intent), "invalid_provider_request")
                 private_text(material)
             else:
                 self._form(material)
@@ -274,6 +387,84 @@ class OwnedHTTP:
 
     def post_token(self, form):
         return self._request("POST", self._config.login_origin + "/services/oauth2/token", form)
+
+    def get_outputs(self, intent, access_token):
+        return self._request("GET", self._output_url(intent), access_token, output_intent=intent)
+
+    def patch_once(self, intent, access_token, admission, client, credential_generation):
+        from flight_recorder.adapters.crm.writer_contracts import ProviderResponse, _SendAdmission
+        from flight_recorder.collector.canonical import canonical_bytes
+        from flight_recorder.collector.crm_operations import request_digest
+
+        require(type(admission) is _SendAdmission, "invalid_send_admission")
+        with self._mutex:
+            require(not self._closed, "provider_transport_closed")
+            d = self._write_document(intent)
+            private_text(access_token)
+            url = (
+                self._config.api_origin
+                + f"/services/data/v{self._config.api_version}"
+                + f"/sobjects/Account/{d['target']['record_id']}"
+            )
+            request = httpx.Request(
+                "PATCH",
+                url,
+                headers={
+                    "Authorization": "Bearer " + access_token,
+                    "Accept": "application/json",
+                    "Accept-Encoding": "identity",
+                    "Content-Type": "application/json",
+                    "If-Match": d["source_precondition"],
+                },
+                content=canonical_bytes(
+                    {remote: d["intended"][local] for local, remote in OUTPUTS.items()}
+                ),
+            )
+            request.extensions["timeout"] = {"connect": 10, "read": 30, "write": 30, "pool": 10}
+            admission.consume(intent, client, credential_generation=credential_generation)
+            started = utc_now(self._clock)
+            response = None
+            status = digest = None
+            complete = False
+            try:
+                # The only mutation send. There is no retry loop, refresh or redirect branch.
+                response = self._client.send(request, stream=True, follow_redirects=False)
+                status = response.status_code
+                body = bytearray()
+                for chunk in response.iter_bytes(chunk_size=65536):
+                    body.extend(chunk)
+                    require(len(body) <= _MAX_BODY, "invalid_provider_response")
+                digest = hashlib.sha256(body).hexdigest()
+                complete = _mutation_complete(status, bytes(body), response.headers.multi_items())
+            except Exception:
+                complete = False
+            finally:
+                try:
+                    if response is not None:
+                        response.close()
+                except Exception:
+                    complete = False
+                try:
+                    self._client.cookies.clear()
+                except Exception:
+                    complete = False
+            finished = utc_now(self._clock)
+            require(finished >= started, "invalid_crm_clock")
+
+            def stamp(value):
+                return value.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+            return ProviderResponse.from_document(
+                dict(
+                    request_hash=request_digest(d),
+                    started_at=stamp(started),
+                    finished_at=stamp(finished),
+                    status=status,
+                    complete=complete,
+                    body_sha256=digest,
+                ),
+                observation_origin=self.observation_origin,
+            )
 
     def close(self):
         with self._mutex:

@@ -15,7 +15,7 @@ from flight_recorder.adapters.crm.contracts import (
     require,
 )
 from flight_recorder.adapters.crm.http import SELECTED_FIELDS, private_text, utc_now
-from flight_recorder.adapters.crm.mapping import decode_salesforce_record
+from flight_recorder.adapters.crm.mapping import OUTPUTS, decode_salesforce_record, integer_value
 
 
 def source_identity_id(value, prefix):
@@ -192,4 +192,78 @@ class SalesforceClient:
                 response_body_sha256=hashlib.sha256(response.body).hexdigest(),
                 observation_origin=self._http.observation_origin,
             )
+        )
+
+    def _write_ready(self, intent=None):
+        if intent is not None:
+            self._http._write_document(intent)
+        require(self._verified is not None, "connection_not_verified")
+        cfg = self._config
+        current = self._tokens.read_ready(cfg.connection_id, cfg.binding)
+        require(
+            self._verified == (cfg.binding, current.generation, current.material),
+            "connection_confirmation_stale",
+        )
+        require(
+            current.material.expires_at is None
+            or current.material.expires_at > utc_now(self._clock),
+            "token_expired",
+        )
+        return current
+
+    def write_generation(self):
+        return self._write_ready().generation
+
+    def send_once(self, intent, admission):
+        from flight_recorder.adapters.crm.writer_contracts import _SendAdmission
+
+        require(type(admission) is _SendAdmission, "invalid_send_admission")
+        try:
+            current = self._write_ready(intent)
+            return self._http.patch_once(
+                intent, current.material.access_token, admission, self, current.generation
+            )
+        finally:
+            # Even refusal before a transport call cannot become a reusable send grant.
+            admission.discard()
+
+    def read_outputs(self, intent):
+        from flight_recorder.adapters.crm.writer_contracts import OutputObservation
+
+        current = self._write_ready(intent)
+        d = intent.document
+        started = utc_now(self._clock)
+        response = self._http.get_outputs(intent, current.material.access_token)
+        try:
+            response.json()  # Validate strict UTF8/duplicates before lossless number mapping.
+            properties = decode_salesforce_record(response.body)
+            require(
+                properties.get("Id") == d["target"]["record_id"]
+                and set(properties) <= {"Id", *OUTPUTS.values()},
+                "invalid_provider_response",
+            )
+            values = {}
+            for local, remote in OUTPUTS.items():
+                if remote not in properties:
+                    continue
+                value = properties[remote]
+                if local in ("fr_score", "fr_op_rev") and value not in (None, ""):
+                    value = integer_value(value, revision=local == "fr_op_rev")
+                values[local] = value
+        except (ValueError, TypeError, RecursionError):
+            raise CRMRefused("invalid_provider_response") from None
+
+        def stamp(value):
+            return value.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+        return OutputObservation.from_document(
+            dict(
+                target=d["target"],
+                fields=sorted(OUTPUTS),
+                values=values,
+                started_at=stamp(started),
+                finished_at=stamp(response.received_at),
+                body_sha256=hashlib.sha256(response.body).hexdigest(),
+            ),
+            observation_origin=self._http.observation_origin,
         )

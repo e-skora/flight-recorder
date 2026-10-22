@@ -162,7 +162,8 @@ class ProcessAuthority:
 
 
 class CRMRuntime:
-    def __init__(self, config, *, client_factory=None, clock=None):
+    def __init__(self, config, *, client_factory=None, clock=None, writer_capable=False):
+        require(type(writer_capable) is bool, "invalid_writer_mode")
         require(type(config) is CRMRuntimeConfig, "invalid_runtime_config")
         config.__post_init__()
         require(
@@ -170,8 +171,12 @@ class CRMRuntime:
             "crm_runtime_uninitialized",
         )
         self.config, self.clock = config, clock or (lambda: datetime.now(UTC))
+        self.writer_capable = writer_capable
+        self._writer_store = None
         self.authority = ProcessAuthority(config.operational_path)
-        self.store = CRMStore(config.operational_path, format_version=4, create=False)
+        self.store = CRMStore(
+            config.operational_path, format_version=5 if writer_capable else 4, create=False
+        )
         engine = make_engine(config.domain_path)
 
         @event.listens_for(engine, "do_connect")
@@ -182,6 +187,13 @@ class CRMRuntime:
         self.collector = Collector(engine)
         try:
             qualify_domain(self.collector.engine)
+            if writer_capable:
+                from flight_recorder.ledger.crm_operations import (
+                    schema_ready as writer_schema_ready,
+                )
+
+                with self.collector.engine.connect() as conn:
+                    require(writer_schema_ready(conn), "crm_writer_domain_uninitialized")
             self.authority.validate_files()
         except BaseException:
             self.collector.engine.dispose()
@@ -204,6 +216,7 @@ class CRMRuntime:
         require(not self._closed, "runtime_closed")
         self.authority.acquire()
         try:
+            self.validate_write_state()
             self.queue.active_tick()
             if background:
                 self._thread = threading.Thread(
@@ -218,6 +231,15 @@ class CRMRuntime:
     def notify(self):
         self.authority.assert_held()
         self._wake.set()
+
+    def validate_write_state(self):
+        if not self.writer_capable:
+            return None
+        from flight_recorder.adapters.crm.writer_store import WriterStore
+
+        if self._writer_store is None:
+            self._writer_store = WriterStore(self)
+        return self._writer_store.audit()
 
     def _runner(self):
         while not self._stop.is_set():
@@ -273,6 +295,7 @@ class CRMRuntime:
         require(not self._closed and not self._stop.is_set(), "runtime_closed")
         require(self._execution.acquire(blocking=False), "poll_runner_busy")
         try:
+            self.validate_write_state()
             while not self._stop.is_set():
                 tick = self.queue.active_tick()
                 if tick is None:

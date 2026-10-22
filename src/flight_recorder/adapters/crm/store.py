@@ -51,7 +51,7 @@ def _sql(text):
 class CRMStore:
     def __init__(self, path: Path | str, *, format_version=1, create=True, exclusive=False):
         require(
-            type(format_version) is int and format_version in (1, 2, 3, 4),
+            type(format_version) is int and format_version in (1, 2, 3, 4, 5),
             "operational_store_unrecognized",
         )
         require(type(create) is bool, "operational_store_unrecognized")
@@ -61,18 +61,22 @@ class CRMStore:
         self._creation_fd = None
         self._format_version = format_version
         schema = _SCHEMA
-        if format_version in (2, 3, 4):
+        if format_version in (2, 3, 4, 5):
             from flight_recorder.adapters.crm.operational_schema import capture_schema
 
             schema = capture_schema(_SCHEMA)
-            if format_version in (3, 4):
+            if format_version in (3, 4, 5):
                 from flight_recorder.adapters.crm.submission_schema import submission_schema
 
                 schema = submission_schema(schema)
-                if format_version == 4:
+                if format_version in (4, 5):
                     from flight_recorder.adapters.crm.poll_schema import poll_schema
 
                     schema = poll_schema(schema)
+                    if format_version == 5:
+                        from flight_recorder.adapters.crm.writer_schema import writer_schema
+
+                        schema = writer_schema(schema)
         self.path = Path(path).resolve()
         self._closed = False
         require(
@@ -273,7 +277,7 @@ class CRMStore:
 
     @contextmanager
     def _capture_transaction(self):
-        require(self._format_version in (2, 3, 4), "capture_store_uninitialized")
+        require(self._format_version in (2, 3, 4, 5), "capture_store_uninitialized")
         try:
             with self.transaction() as conn:
                 yield conn
@@ -743,7 +747,7 @@ class CRMStore:
 
     @contextmanager
     def _submission_transaction(self):
-        require(self._format_version in (3, 4), "submission_store_uninitialized")
+        require(self._format_version in (3, 4, 5), "submission_store_uninitialized")
         with self._capture_transaction() as conn:
             yield conn
 

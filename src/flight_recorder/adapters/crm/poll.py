@@ -11,6 +11,8 @@ from flight_recorder.collector.schema import format_utc
 
 def _dispatch_poll(runtime, connection_id, tick_id, *, clock):
     runtime.authority.assert_held()
+    if getattr(runtime, "writer_capable", False):
+        runtime.validate_write_state()
     require(
         type(connection_id) is str and connection_id == runtime.config.connection.connection_id,
         "unknown_crm_connection",
@@ -54,6 +56,8 @@ def capture_and_submit(runtime, target, receipt_id, *, clock):
 
 def _capture_and_submit_owned(runtime, target, receipt_id, *, clock):
     runtime.authority.assert_held()
+    if getattr(runtime, "writer_capable", False):
+        runtime.validate_write_state()
     require(target in runtime.config.targets, "target_not_allowlisted")
     owner = runtime.queue.claim(receipt_id, target)
     try:

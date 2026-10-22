@@ -14,7 +14,8 @@ from flight_recorder.ledger.database import make_engine
 from flight_recorder.ledger.schema import create_schema
 
 
-def initialize(config):
+def initialize(config, *, writer_capable=False):
+    require(type(writer_capable) is bool, "invalid_writer_mode")
     require(type(config) is CRMRuntimeConfig, "invalid_runtime_config")
     config.__post_init__()
     lock_path = config.operational_path.with_name(config.operational_path.name + ".runtime-lock")
@@ -44,7 +45,9 @@ def initialize(config):
                 "crm_init_incomplete",
             )
 
-        store = CRMStore(config.operational_path, format_version=4, exclusive=True)
+        store = CRMStore(
+            config.operational_path, format_version=5 if writer_capable else 4, exclusive=True
+        )
         engine = make_engine(config.domain_path)
 
         @event.listens_for(engine, "do_connect")
@@ -59,6 +62,10 @@ def initialize(config):
 
         create_schema(engine)
         create_crm_schema(engine)
+        if writer_capable:
+            from flight_recorder.ledger.crm_operations import create_crm_operation_schema
+
+            create_crm_operation_schema(engine)
         from flight_recorder.adapters.crm.runtime import qualify_domain
 
         qualify_domain(engine)

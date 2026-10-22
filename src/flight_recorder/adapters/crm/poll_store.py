@@ -40,7 +40,7 @@ def _decode(body, digest):
 
 class PollStore:
     def __init__(self, store, config, authority):
-        require(store._format_version == 4, "poll_store_uninitialized")
+        require(store._format_version in (4, 5), "poll_store_uninitialized")
         self.store, self.config, self.authority = store, config, authority
         self.connection_id = config.connection.connection_id
 
