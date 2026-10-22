@@ -106,6 +106,10 @@ def set_write_policy(runtime, policy, *, clock):
                 evaluator_version=c.evaluator_version,
                 recorded_at=format_utc(clock()),
             )
+            require(
+                not docs or d["recorded_at"] >= docs[max(docs)]["recorded_at"],
+                "invalid_crm_clock",
+            )
             with store.store.transaction() as conn:
                 put(
                     conn,

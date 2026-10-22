@@ -762,7 +762,7 @@ def test_domain_path_cannot_be_swapped_for_a_copy_of_history(tmp_path):
     changed = feature("runtime_config").CRMRuntimeConfig.from_document(d)
     resumed = None
     try:
-        with pytest.raises(CRMRefused, match="poll_config_conflict"):
+        with pytest.raises(CRMRefused, match="write_policy_binding"):
             resumed = feature("runtime").CRMRuntime(
                 changed,
                 writer_capable=True,

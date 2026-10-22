@@ -1,5 +1,7 @@
 """New-only operational format and immutable writer value boundaries."""
 
+import hashlib
+import json
 import pickle
 import sqlite3
 
@@ -184,3 +186,170 @@ def test_boolean_cannot_match_integer_credential_generation_at_consumption():
     with pytest.raises(CRMRefused, match="consumed"):
         grant.consume(frozen, client, credential_generation=1)
     assert calls == []
+
+
+def _rehash_retained_policy(runtime, generation, change):
+    with sqlite3.connect(runtime.config.operational_path) as conn:
+        trigger = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE name='crm_write_policies_no_update'"
+        ).fetchone()[0]
+        body = conn.execute(
+            "SELECT body FROM crm_write_policies WHERE generation=?", (generation,)
+        ).fetchone()[0]
+        document = json.loads(body)
+        change(document)
+        modified = canonical_bytes(document)
+        conn.execute("DROP TRIGGER crm_write_policies_no_update")
+        conn.execute(
+            "UPDATE crm_write_policies SET body=?,body_sha256=? WHERE generation=?",
+            (modified, hashlib.sha256(modified).hexdigest(), generation),
+        )
+        conn.execute(trigger)
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "config_binding",
+        "connection_binding",
+        "artifact_hash",
+        "evaluator_version",
+        "selection_identity",
+        "mapping_hash",
+        "target_keys",
+        "recorded_at",
+    ],
+)
+def test_every_unreferenced_policy_is_bound_before_start_and_provider_work(tmp_path, field):
+    from dataclasses import replace
+
+    from tests.adapters.crm.test_salesforce_writer import dispatch, enable, policy, setup
+
+    runtime, provider, decision = setup(tmp_path)
+    cfg, clock = runtime.config, runtime.clock
+    try:
+        enable(runtime)
+        feature().set_write_policy(
+            runtime, policy(runtime, generation=2, enabled=False), clock=clock
+        )
+
+        def change(d):
+            if field == "recorded_at":
+                d[field] = "2026-04-17T10:11:00.000000Z"
+            elif field == "target_keys":
+                d["policy"][field] = [replace(cfg.targets[0], record_id="001000000000002AAA").key]
+            elif field in ("selection_identity", "mapping_hash"):
+                d["policy"][field] = "f" * 64 if field == "mapping_hash" else "changed-selection"
+            else:
+                d[field] = "changed-evaluator" if field == "evaluator_version" else "f" * 64
+
+        _rehash_retained_policy(runtime, 1, change)
+        before = (provider.calls, provider.verifications, len(provider.sent), provider.output_reads)
+        op_bytes, domain_bytes = cfg.operational_path.read_bytes(), cfg.domain_path.read_bytes()
+        with pytest.raises(CRMRefused, match="write_policy"):
+            runtime.validate_write_state()
+        for action in [
+            lambda: feature().prepare_write(runtime, decision, clock=clock),
+            lambda: feature().send_write_once(runtime, "f" * 64, clock=clock),
+            lambda: feature().observe_write(runtime, "f" * 64, clock=clock),
+            lambda: feature().set_write_policy(runtime, policy(runtime, generation=3), clock=clock),
+            lambda: feature("poll").capture_and_submit(
+                runtime, cfg.targets[0], "original", clock=clock
+            ),
+        ]:
+            with pytest.raises(CRMRefused, match="write_policy"):
+                action()
+        with pytest.raises(CRMRefused):
+            dispatch(runtime, "must-hold-before-read")
+            runtime.run_pending()
+        assert (
+            provider.calls,
+            provider.verifications,
+            len(provider.sent),
+            provider.output_reads,
+        ) == before
+        assert cfg.operational_path.read_bytes() == op_bytes
+        assert cfg.domain_path.read_bytes() == domain_bytes
+    finally:
+        runtime.close()
+    resumed = feature("runtime").CRMRuntime(
+        cfg,
+        writer_capable=True,
+        client_factory=lambda: pytest.fail("damaged historical policy reached credentials"),
+        clock=clock,
+    )
+    try:
+        with pytest.raises(CRMRefused, match="write_policy"):
+            resumed.start(background=False)
+    finally:
+        resumed.close()
+
+
+def test_policy_cannot_be_recorded_after_its_completed_original_intent(tmp_path):
+    from tests.adapters.crm.test_salesforce_writer import enable, prepare, send, setup
+
+    runtime, _, decision = setup(tmp_path)
+    try:
+        enable(runtime)
+        frozen = prepare(runtime, decision)
+        assert send(runtime, frozen).state == "observed_applied_at_t"
+        _rehash_retained_policy(
+            runtime, 1, lambda d: d.update(recorded_at="2026-04-17T10:11:00.000000Z")
+        )
+        with pytest.raises(CRMRefused, match="write_policy"):
+            runtime.validate_write_state()
+    finally:
+        runtime.close()
+
+
+def test_completed_policy_binding_is_checked_after_later_disable(tmp_path):
+    from tests.adapters.crm.test_salesforce_writer import (
+        dispatch,
+        enable,
+        policy,
+        prepare,
+        send,
+        setup,
+    )
+
+    runtime, provider, decision = setup(tmp_path)
+    try:
+        enable(runtime)
+        frozen = prepare(runtime, decision)
+        assert send(runtime, frozen).state == "observed_applied_at_t"
+        feature().set_write_policy(
+            runtime, policy(runtime, generation=2, enabled=False), clock=runtime.clock
+        )
+        _rehash_retained_policy(runtime, 1, lambda d: d.update(connection_binding="f" * 64))
+        before = (provider.calls, provider.verifications, len(provider.sent), provider.output_reads)
+        with pytest.raises(CRMRefused, match="write_policy"):
+            dispatch(runtime, "completed-corruption")
+        assert (
+            provider.calls,
+            provider.verifications,
+            len(provider.sent),
+            provider.output_reads,
+        ) == before
+    finally:
+        runtime.close()
+
+
+def test_backwards_policy_clock_is_refused_before_append(tmp_path):
+    from datetime import UTC, datetime
+
+    from tests.adapters.crm.test_salesforce_writer import enable, policy, setup
+
+    runtime, _, _ = setup(tmp_path)
+    try:
+        enable(runtime)
+        before = runtime.config.operational_path.read_bytes()
+        with pytest.raises(CRMRefused):
+            feature().set_write_policy(
+                runtime,
+                policy(runtime, generation=2),
+                clock=lambda: datetime(2020, 1, 1, tzinfo=UTC),
+            )
+        assert runtime.config.operational_path.read_bytes() == before
+        runtime.validate_write_state()
+    finally:
+        runtime.close()

@@ -82,6 +82,7 @@ class WriterStore:
 
     def policy_history(self, conn):
         result = {}
+        cfg, binding = self.runtime.config, self.runtime.config.connection
         for row in sorted(
             rows(conn, "crm_write_policies"), key=lambda r: (r["connection_id"], r["generation"])
         ):
@@ -126,6 +127,25 @@ class WriterStore:
                 type(d["evaluator_version"]) is str and bool(d["evaluator_version"]),
                 "write_policy_integrity",
             )
+            # This operational runtime is pinned, including retained poll history.
+            # Policy generations may change enablement/subsets, never that binding.
+            require(
+                d["config_binding"] == cfg.binding
+                and d["connection_binding"] == binding.binding
+                and d["artifact_hash"] == binding.artifact_hash
+                and d["evaluator_version"] == binding.evaluator_version
+                and policy.connection_id == binding.connection_id
+                and policy.expected_instance_id == binding.expected_instance_id
+                and policy.mapping_hash == binding.mapping_hash
+                and policy.selection_identity == cfg.document["selection_identity"]
+                and set(policy.target_keys) <= {t.key for t in cfg.targets},
+                "write_policy_binding",
+            )
+            prior = result.get((policy.connection_id, policy.generation - 1))
+            require(
+                prior is None or d["recorded_at"] >= prior["recorded_at"],
+                "write_policy_time_order",
+            )
             result[key] = d
         return result
 
@@ -166,6 +186,7 @@ class WriterStore:
                 and policy_doc["evaluator_version"] == d["evaluator_version"],
                 "write_policy_binding",
             )
+            require(d["created_at"] >= policy_doc["recorded_at"], "write_policy_time_order")
             intents[d["operation_id"]] = frozen
         boxes = {op: [] for op in intents}
         by_event = {}
