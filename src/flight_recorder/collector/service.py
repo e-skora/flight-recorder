@@ -98,11 +98,17 @@ class Collector:
         normalized = envelope.model_dump(mode="json")
         digest = canonical_hash(normalized)
 
+        from flight_recorder.collector.crm_operations import (
+            ensure_operation_schema,
+            is_crm_operation,
+        )
         from flight_recorder.collector.crm_provenance import ensure_crm_schema, is_crm
         from flight_recorder.collector.provenance import is_v2
 
         try:
             with self.engine.begin() as conn:
+                if is_crm_operation(normalized):
+                    ensure_operation_schema(conn)
                 if is_crm(normalized):
                     ensure_crm_schema(conn)
                 existing = conn.execute(

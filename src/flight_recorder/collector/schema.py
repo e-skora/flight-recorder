@@ -765,6 +765,13 @@ class ExternalOperationEnvelope(_EnvelopeBase):
         return self
 
 
+from flight_recorder.collector.crm_operations import build_operation_envelope  # noqa: E402
+
+CRMOperationEnvelope = build_operation_envelope()
+ExternalOperationEnvelopes = Annotated[
+    ExternalOperationEnvelope | CRMOperationEnvelope, Field(discriminator="schema_version")
+]
+
 Envelope = Annotated[
     LogicArtifactRegisteredEnvelope
     | AccountDiscoveredEnvelope
@@ -774,7 +781,7 @@ Envelope = Annotated[
     | ActionRecordedEnvelope
     | OutcomeEvaluatedEnvelopes
     | OutcomeAttributedEnvelope
-    | ExternalOperationEnvelope,
+    | ExternalOperationEnvelopes,
     Field(discriminator="event_type"),
 ]
 
@@ -795,6 +802,7 @@ AnyEnvelope = (
     | DecisionRecordedV3Envelope
     | OutcomeAttributedEnvelope
     | ExternalOperationEnvelope
+    | CRMOperationEnvelope
 )
 
 
