@@ -13,6 +13,7 @@ from sqlalchemy import event
 from sqlalchemy.schema import CreateTable
 
 from flight_recorder.adapters.crm.contracts import CRMRefused, require
+from flight_recorder.adapters.crm.http import OwnedHTTP as _OwnedHTTP
 from flight_recorder.adapters.crm.http import strict_json
 from flight_recorder.adapters.crm.poll_store import PollStore
 from flight_recorder.adapters.crm.runtime_config import CRMRuntimeConfig, absolute_path
@@ -201,6 +202,9 @@ class CRMRuntime:
             raise
         self.queue = PollStore(self.store, config, self.authority)
         self._client_factory = client_factory
+        self.read_gate = None
+        self._read_context = None
+        self._read_capture_tick = None
         self._client = self._http = self._tokens = None
         self._wake, self._stop = threading.Event(), threading.Event()
         self._execution = threading.Lock()
@@ -218,6 +222,20 @@ class CRMRuntime:
         try:
             self.validate_write_state()
             self.queue.active_tick()
+            if self.read_gate is not None:
+                from flight_recorder.adapters.crm.read_control import ReadSessionGate
+
+                require(type(self.read_gate) is ReadSessionGate, "live_read_authority_required")
+                try:
+                    self.read_gate.check()
+                except CRMRefused:
+                    tick = self.read_gate.authority.document["tick_id"]
+                    require(
+                        tick is not None and not self.read_gate.prepare_capture(self, tick),
+                        "read_recovery_refused",
+                    )
+                    # Only an audited already-frozen/terminal capture can reach this branch.
+                    self.run_pending()
             if background:
                 self._thread = threading.Thread(
                     target=self._runner, name="crm-local-poll-runner", daemon=False
@@ -254,26 +272,113 @@ class CRMRuntime:
                 except Exception:
                     self.background_reason = "poll_runner_refused"
 
+    def admit_read_tick(self, tick_id):
+        from flight_recorder.adapters.crm.read_control import ReadSessionGate
+
+        self.authority.assert_held()
+        require(type(self.read_gate) is ReadSessionGate, "live_read_authority_required")
+        require(self._execution.acquire(blocking=False), "poll_runner_busy")
+        try:
+            return self.read_gate.admit_capture(self, tick_id)
+        finally:
+            self._execution.release()
+
+    def require_read_context(self):
+        self.authority.assert_held()
+        from flight_recorder.adapters.crm.read_control import ReadActionContext, ReadSessionGate
+
+        injected = (
+            type(self._http) is _OwnedHTTP
+            and self._http.observation_origin == "injected_transport"
+            and self._http.config_binding == self.config.connection.binding
+        )
+        if self.read_gate is None:
+            require(self._client_factory is not None or injected, "live_read_authority_required")
+            return None
+        require(
+            type(self.read_gate) is ReadSessionGate
+            and not self.writer_capable
+            and self.read_gate.config.canonical_bytes == self.config.canonical_bytes,
+            "live_read_authority_required",
+        )
+        action = self.read_gate.authority.document["action"]
+        if self._read_context is None:
+            if action == "oauth_connect":
+                self._read_context = self.read_gate.authorize_oauth()
+            elif action == "metadata_probe":
+                self._read_context = self.read_gate.authorize_metadata()
+            else:
+                require(self._read_capture_tick is not None, "capture_admission_required")
+                self._read_context = self.read_gate.authorize_capture(
+                    self._read_capture_tick, self.config.targets[0]
+                )
+        require(
+            type(self._read_context) is ReadActionContext
+            and self._read_context.gate is self.read_gate,
+            "live_read_authority_required",
+        )
+        self._read_context.check()
+        return self._read_context
+
+    def _before_read_attempt(self, method, path, category):
+        self.authority.assert_held()
+        context = self.require_read_context()
+        require(context is not None, "live_read_authority_required")
+        context.before_attempt(method, path, category)
+        self.authority.assert_held()
+
+    def owned_http(self):
+        context = self.require_read_context()
+        if self._http is None:
+            require(context is not None, "live_read_authority_required")
+            self._http = _OwnedHTTP(
+                self.config.connection, clock=self.clock, before_attempt=self._before_read_attempt
+            )
+        require(
+            type(self._http) is _OwnedHTTP
+            and self._http.config_binding == self.config.connection.binding,
+            "invalid_connection_binding",
+        )
+        if context is not None:
+            require(self._http._before_attempt == self._before_read_attempt, "read_context_refused")
+        else:
+            require(
+                self._http.observation_origin == "injected_transport",
+                "live_read_authority_required",
+            )
+        return self._http
+
     def client(self):
         self.authority.assert_held()
+        self.require_read_context()
         if self._client is None:
             if self._client_factory is not None:
                 self._client = self._client_factory()
             else:
-                from flight_recorder.adapters.crm.http import OwnedHTTP
                 from flight_recorder.adapters.crm.salesforce import SalesforceClient
                 from flight_recorder.adapters.crm.secrets import TokenStore
 
+                http = self.owned_http()
                 if self._tokens is None:
                     self._tokens = TokenStore(self.config.document["credential_directory"])
-                if self._http is None:
-                    self._http = OwnedHTTP(self.config.connection, clock=self.clock)
                 self._client = SalesforceClient(
-                    self.config.connection, self._tokens, self._http, self.clock
+                    self.config.connection, self._tokens, http, self.clock
                 )
+        elif self._client_factory is None:
+            from flight_recorder.adapters.crm.salesforce import SalesforceClient
+
+            self.owned_http()
+            require(
+                type(self._client) is SalesforceClient
+                and self._client._http is self._http
+                and self._client._tokens is self._tokens
+                and self._client._config.binding == self.config.connection.binding,
+                "read_context_refused",
+            )
         return self._client
 
     def verify_for_read(self, client):
+        self.require_read_context()
         try:
             self._confirmed_connection = client.verify_connection()
         except CRMRefused as exc:
@@ -285,6 +390,7 @@ class CRMRuntime:
                 raise
             from flight_recorder.adapters.crm.oauth import refresh_connection
 
+            self.require_read_context()
             refresh_connection(self.config.connection, self._tokens, self._http, self.clock)
             self._confirmed_connection = client.verify_connection()
 
@@ -300,13 +406,24 @@ class CRMRuntime:
                 tick = self.queue.active_tick()
                 if tick is None:
                     break
+                if self.read_gate is not None:
+                    from flight_recorder.adapters.crm.read_control import ReadSessionGate
+
+                    require(type(self.read_gate) is ReadSessionGate, "live_read_authority_required")
+                    if self.read_gate.prepare_capture(self, tick):
+                        self._read_capture_tick = tick
+                        self.require_read_context()
                 for target in self.config.targets:
                     if self._stop.is_set():
                         break
                     report = self.queue.report(tick)
                     member = next(m for m in report.members if m.target_key == target.key)
                     if member.state not in ("complete", "refused", "scoring_inputs_unchanged"):
-                        _capture_and_submit_owned(self, target, tick, clock=self.clock)
+                        try:
+                            _capture_and_submit_owned(self, target, tick, clock=self.clock)
+                        finally:
+                            if self.read_gate is not None:
+                                self.read_gate.capture_result(self, tick)
                 if self.queue.report(tick).disposition != "complete":
                     break
         finally:

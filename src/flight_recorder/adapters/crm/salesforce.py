@@ -2,6 +2,7 @@
 
 import hashlib
 import re
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
@@ -12,10 +13,171 @@ from flight_recorder.adapters.crm.contracts import (
     CRMTarget,
     ObservedRead,
     _salesforce_id,
+    observation_time,
     require,
+    validate_unit_id,
 )
-from flight_recorder.adapters.crm.http import SELECTED_FIELDS, private_text, utc_now
-from flight_recorder.adapters.crm.mapping import OUTPUTS, decode_salesforce_record, integer_value
+from flight_recorder.adapters.crm.http import SELECTED_FIELDS, private_text, strict_json, utc_now
+from flight_recorder.adapters.crm.mapping import (
+    ALLOWED,
+    OUTPUTS,
+    decode_salesforce_record,
+    integer_value,
+)
+from flight_recorder.collector.canonical import canonical_bytes
+
+
+@dataclass(frozen=True, repr=False)
+class ObservedAccountMetadata:
+    """Client observation, including injected origin; never a permission grant."""
+
+    canonical_bytes: bytes
+
+    def __post_init__(self):
+        try:
+            d = strict_json(self.canonical_bytes)
+            require(
+                type(self.canonical_bytes) is bytes
+                and type(d) is dict
+                and canonical_bytes(d) == self.canonical_bytes
+                and set(d)
+                == {
+                    "format_version",
+                    "type",
+                    "observation_origin",
+                    "connection_binding",
+                    "expected_instance_id",
+                    "expected_user_id",
+                    "api_origin",
+                    "api_version",
+                    "read_started_at",
+                    "read_finished_at",
+                    "versions",
+                    "describe",
+                    "advertised_versions",
+                    "account",
+                    "fields",
+                    "missing_fields",
+                }
+                and type(d["format_version"]) is int
+                and d["format_version"] == 1
+                and d["type"] == "account_metadata_observation"
+                and d["observation_origin"] in {"provider_http", "injected_transport"},
+                "invalid_account_metadata",
+            )
+            validate_unit_id(d["connection_binding"])
+            _salesforce_id(d["expected_instance_id"], "00D")
+            _salesforce_id(d["expected_user_id"], "005")
+            origin = urlsplit(d["api_origin"])
+            require(
+                origin.scheme == "https"
+                and origin.netloc
+                and not origin.path
+                and not origin.query
+                and not origin.fragment
+                and d["api_origin"] == "https://" + origin.netloc
+                and re.fullmatch(r"[1-9][0-9]*\.0", d["api_version"]) is not None,
+                "invalid_account_metadata",
+            )
+            first, last = (
+                observation_time(d["read_started_at"]),
+                observation_time(d["read_finished_at"]),
+            )
+            require(first <= last, "invalid_account_metadata")
+            previous = first
+            for name, path in (
+                ("versions", "/services/data"),
+                ("describe", f"/services/data/v{d['api_version']}/sobjects/Account/describe"),
+            ):
+                item = d[name]
+                require(
+                    type(item) is dict
+                    and set(item) == {"path", "body_sha256", "read_started_at", "read_finished_at"}
+                    and item["path"] == path,
+                    "invalid_account_metadata",
+                )
+                validate_unit_id(item["body_sha256"])
+                start, finish = (
+                    observation_time(item["read_started_at"]),
+                    observation_time(item["read_finished_at"]),
+                )
+                require(previous <= start <= finish <= last, "invalid_account_metadata")
+                previous = finish
+            require(
+                d["versions"]["read_started_at"] == d["read_started_at"]
+                and d["describe"]["read_finished_at"] == d["read_finished_at"],
+                "invalid_account_metadata",
+            )
+            versions = d["advertised_versions"]
+            require(
+                type(versions) is list
+                and 1 <= len(versions) <= 1000
+                and all(type(v) is str and re.fullmatch(r"[1-9][0-9]*\.0", v) for v in versions)
+                and versions == sorted(set(versions))
+                and d["api_version"] in versions,
+                "invalid_account_metadata",
+            )
+            require(
+                type(d["account"]) is dict
+                and set(d["account"]) == {"queryable", "retrieveable", "updateable"}
+                and all(type(v) is bool for v in d["account"].values()),
+                "invalid_account_metadata",
+            )
+            require(
+                type(d["fields"]) is list and type(d["missing_fields"]) is list,
+                "invalid_account_metadata",
+            )
+            names = []
+            for field in d["fields"]:
+                require(
+                    type(field) is dict
+                    and set(field)
+                    == {
+                        "name",
+                        "kind",
+                        "length",
+                        "precision",
+                        "scale",
+                        "picklist_values",
+                        "readable",
+                        "updateable",
+                    }
+                    and field["name"] in ALLOWED
+                    and type(field["kind"]) is str
+                    and 0 < len(field["kind"]) <= 64
+                    and field["readable"] is True
+                    and type(field["updateable"]) is bool,
+                    "invalid_account_metadata",
+                )
+                for key in ("length", "precision", "scale"):
+                    require(
+                        field[key] is None
+                        or type(field[key]) is int
+                        and 0 <= field[key] <= 1000000,
+                        "invalid_account_metadata",
+                    )
+                values = field["picklist_values"]
+                require(
+                    type(values) is list
+                    and len(values) <= 1000
+                    and all(type(v) is str and len(v) <= 2048 for v in values)
+                    and len(set(values)) == len(values),
+                    "invalid_account_metadata",
+                )
+                names.append(field["name"])
+            require(
+                names == sorted(set(names)) and d["missing_fields"] == sorted(ALLOWED - set(names)),
+                "invalid_account_metadata",
+            )
+        except (ValueError, TypeError, KeyError, RecursionError, AttributeError):
+            raise CRMRefused("invalid_account_metadata") from None
+
+    @property
+    def document(self):
+        return strict_json(self.canonical_bytes)
+
+    def __repr__(self):
+        return "ObservedAccountMetadata(<client observation, no authority>)"
 
 
 def source_identity_id(value, prefix):
@@ -132,6 +294,120 @@ class SalesforceClient:
         require(current == ready, "connection_confirmation_stale")
         self._verified = (cfg.binding, ready.generation, ready.material)
         return confirmed
+
+    def read_metadata(self):
+        cfg = self._config
+        require(self._verified is not None, "connection_not_verified")
+        current = self._tokens.read_ready(cfg.connection_id, cfg.binding)
+        require(
+            self._verified == (cfg.binding, current.generation, current.material),
+            "connection_confirmation_stale",
+        )
+        started = utc_now(self._clock)
+        require(
+            current.material.expires_at is None or current.material.expires_at > started,
+            "token_expired",
+        )
+
+        def stamp(value):
+            return value.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+        def get(path):
+            first = utc_now(self._clock)
+            require(
+                current.material.expires_at is None or current.material.expires_at > first,
+                "token_expired",
+            )
+            require(
+                self._tokens.read_ready(cfg.connection_id, cfg.binding) == current,
+                "connection_confirmation_stale",
+            )
+            response = self._http.get(cfg.api_origin + path, current.material.access_token)
+            return response.json(), dict(
+                path=path,
+                body_sha256=hashlib.sha256(response.body).hexdigest(),
+                read_started_at=stamp(first),
+                read_finished_at=stamp(response.received_at),
+            )
+
+        versions, version_fact = get("/services/data")
+        require(type(versions) is list and 1 <= len(versions) <= 1000, "invalid_account_metadata")
+        supported = set()
+        for item in versions:
+            require(
+                type(item) is dict
+                and type(item.get("version")) is str
+                and re.fullmatch(r"[1-9][0-9]*\.0", item["version"]) is not None
+                and item.get("url") == "/services/data/v" + item["version"],
+                "invalid_account_metadata",
+            )
+            supported.add(item["version"])
+        require(cfg.api_version in supported, "unsupported_api_version")
+        data, describe_fact = get(f"/services/data/v{cfg.api_version}/sobjects/Account/describe")
+        require(
+            type(data) is dict
+            and data.get("name") == "Account"
+            and type(data.get("fields")) is list
+            and len(data["fields"]) <= 10000,
+            "invalid_account_metadata",
+        )
+        account = {key: data.get(key) for key in ("queryable", "retrieveable", "updateable")}
+        require(all(type(value) is bool for value in account.values()), "invalid_account_metadata")
+        fields, names = [], set()
+        for raw in data["fields"]:
+            require(
+                type(raw) is dict and type(raw.get("name")) is str and raw["name"] not in names,
+                "invalid_account_metadata",
+            )
+            names.add(raw["name"])
+            if raw["name"] not in ALLOWED:
+                continue
+            picks = raw.get("picklistValues", [])
+            require(type(picks) is list and len(picks) <= 1000, "invalid_account_metadata")
+            values = []
+            for pick in picks:
+                require(
+                    type(pick) is dict
+                    and type(pick.get("active")) is bool
+                    and type(pick.get("value")) is str,
+                    "invalid_account_metadata",
+                )
+                if pick["active"]:
+                    values.append(pick["value"])
+            fields.append(
+                dict(
+                    name=raw["name"],
+                    kind=raw.get("type"),
+                    length=raw.get("length"),
+                    precision=raw.get("precision"),
+                    scale=raw.get("scale"),
+                    picklist_values=values,
+                    readable=True,
+                    updateable=raw.get("updateable"),
+                )
+            )
+        return ObservedAccountMetadata(
+            canonical_bytes(
+                dict(
+                    format_version=1,
+                    type="account_metadata_observation",
+                    observation_origin=self._http.observation_origin,
+                    connection_binding=cfg.binding,
+                    expected_instance_id=cfg.expected_instance_id,
+                    expected_user_id=cfg.expected_user_id,
+                    api_origin=cfg.api_origin,
+                    api_version=cfg.api_version,
+                    read_started_at=version_fact["read_started_at"],
+                    read_finished_at=describe_fact["read_finished_at"],
+                    versions=version_fact,
+                    describe=describe_fact,
+                    advertised_versions=sorted(supported),
+                    account=account,
+                    fields=sorted(fields, key=lambda f: f["name"]),
+                    missing_fields=sorted(ALLOWED - names),
+                )
+            )
+        )
 
     def read_selected(self, target):
         cfg = self._config

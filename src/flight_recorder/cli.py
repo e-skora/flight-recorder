@@ -364,7 +364,9 @@ def cmd_serve(db_path: Path) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     writer_commands = ("crm-writer-init", "crm-writer-serve", "crm-write-status")
-    writer_progs = {f"flight-recorder {name}" for name in writer_commands}
+    read_commands = ("crm-read-check", "crm-read-serve")
+    private_commands = (*writer_commands, *read_commands, "crm-network-check-serve")
+    writer_progs = {f"flight-recorder {name}" for name in private_commands}
     safe_crm_errors = False
 
     class CRMArgumentParser(argparse.ArgumentParser):
@@ -415,7 +417,26 @@ def main(argv: list[str] | None = None) -> int:
     for name in ("crm-init", "crm-serve", *writer_commands):
         crm = sub.add_parser(name, help="explicit local CRM runtime command")
         crm.add_argument("--config", type=Path, required=True)
+    for name in read_commands:
+        crm = sub.add_parser(name, help="explicit private read session")
+        for flag in ("config", "readiness", "authority", "read-evidence-directory"):
+            crm.add_argument("--" + flag, type=Path, required=True)
+    network_check = sub.add_parser(
+        "crm-network-check-serve", help="isolated no-provider network probe"
+    )
+    for flag in ("config", "qualification", "read-evidence-directory"):
+        network_check.add_argument("--" + flag, type=Path, required=True)
     args = parser.parse_args(argv)
+    if args.command in read_commands:
+        from flight_recorder.adapters.crm.cli import read_command
+
+        return read_command(
+            args.command, args.config, args.readiness, args.authority, args.read_evidence_directory
+        )
+    if args.command == "crm-network-check-serve":
+        from flight_recorder.adapters.crm.cli import network_check_command
+
+        return network_check_command(args.config, args.qualification, args.read_evidence_directory)
     if args.command in ("crm-init", "crm-serve", *writer_commands):
         from flight_recorder.adapters.crm.cli import command
 

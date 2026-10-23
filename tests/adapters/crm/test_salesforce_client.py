@@ -544,3 +544,170 @@ def test_retry_after_handles_arbitrarily_padded_decimal_without_int_conversion_e
         assert delays == [expected]
     finally:
         http.close()
+
+
+def test_exact_account_describe_metadata_path_is_bounded():
+    cfg, clock = configuration(), Clock()
+    requests = []
+
+    def metadata(request):
+        requests.append(request)
+        return httpx.Response(200, json={"name": "Account", "fields": []})
+
+    http = feature("http", "OwnedHTTP")(cfg, transport=httpx.MockTransport(metadata), clock=clock)
+    try:
+        path = f"/services/data/v{cfg.api_version}/sobjects/Account/describe"
+        response = http.get(cfg.api_origin + path, "fictional-access-one")
+        assert response.json() == {"name": "Account", "fields": []}
+        assert [request.url.path for request in requests] == [path]
+        assert http.observation_origin == "injected_transport"
+        for suffix in ("?fields=Name", "/", "?q=Account"):
+            with pytest.raises(CRMRefused, match="^invalid_provider_request$"):
+                http.get(cfg.api_origin + path + suffix, "fictional-access-one")
+        with pytest.raises(CRMRefused, match="^invalid_provider_request$"):
+            http.get(cfg.api_origin + path.replace("Account", "Contact"), "fictional-access-one")
+        assert len(requests) == 1
+    finally:
+        http.close()
+
+
+def test_authority_is_rechecked_before_every_http_retry():
+    cfg, clock = configuration(), Clock()
+    attempts, admissions = [], []
+
+    def guard(method, path, category):
+        admissions.append((method, path, category))
+        if len(admissions) > 1:
+            raise CRMRefused("read_authority_expired")
+
+    def provider(request):
+        attempts.append(request)
+        return httpx.Response(503 if len(attempts) == 1 else 200, json=[])
+
+    http = feature("http", "OwnedHTTP")(
+        cfg, transport=httpx.MockTransport(provider), clock=clock, before_attempt=guard
+    )
+    try:
+        with pytest.raises(CRMRefused, match="^read_authority_expired$"):
+            http.get(cfg.api_origin + "/services/data", "fictional-access-one")
+        assert len(attempts) == 1
+        assert admissions == [("GET", "/services/data", "api_versions")] * 2
+        assert "fictional-access-one" not in repr(admissions)
+    finally:
+        http.close()
+
+
+def describe_document():
+    from flight_recorder.adapters.crm.mapping import ALLOWED
+
+    return dict(
+        name="Account",
+        queryable=True,
+        retrieveable=True,
+        updateable=False,
+        fields=[
+            dict(
+                name=name,
+                type="string",
+                length=255,
+                precision=0,
+                scale=0,
+                updateable=False,
+                picklistValues=[],
+            )
+            for name in sorted(ALLOWED)
+        ]
+        + [
+            dict(
+                name="Unmapped_Secret__c",
+                type="string",
+                length=255,
+                precision=0,
+                scale=0,
+                updateable=True,
+                picklistValues=[],
+            )
+        ],
+    )
+
+
+def test_metadata_can_never_fetch_account(tmp_path):
+    body = json.dumps(describe_document()).encode()
+    cfg, clock, store, http, requests, client, _ = ready_client(tmp_path, body=body)
+    client.verify_connection()
+    requests.clear()
+    observed = client.read_metadata()
+    assert observed is not None, "metadata probe must return a bounded immutable observation"
+    from flight_recorder.adapters.crm.mapping import ALLOWED
+
+    d = observed.document
+    assert d["observation_origin"] == "injected_transport"
+    assert d["connection_binding"] == cfg.binding
+    assert d["expected_instance_id"] == ORG and d["expected_user_id"] == USER
+    assert d["api_version"] == cfg.api_version
+    assert d["describe"]["body_sha256"] == hashlib.sha256(body).hexdigest()
+    assert d["account"] == dict(queryable=True, retrieveable=True, updateable=False)
+    assert {f["name"] for f in d["fields"]} == ALLOWED
+    assert all(f["readable"] and not f["updateable"] for f in d["fields"])
+    assert d["missing_fields"] == []
+    assert len(requests) == 2
+    assert [r.url.path for r in requests] == [
+        "/services/data",
+        f"/services/data/v{cfg.api_version}/sobjects/Account/describe",
+    ]
+    assert all(r.method == "GET" and not r.url.query for r in requests)
+    assert "Unmapped_Secret" not in observed.canonical_bytes.decode()
+    d["fields"][0]["readable"] = False
+    assert observed.document["fields"][0]["readable"] is True
+    assert "fictional-access" not in repr(observed)
+    http.close()
+    store.close()
+
+
+def test_unverified_metadata_refuses_before_token_or_network(tmp_path):
+    cfg, clock, store, http, requests, client, _ = ready_client(tmp_path)
+    with pytest.raises(CRMRefused, match="connection_not_verified"):
+        client.read_metadata()
+    assert requests == []
+    http.close()
+    store.close()
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda d: d.update(name="Contact"),
+        lambda d: d.update(queryable="true"),
+        lambda d: d["fields"].append(d["fields"][0]),
+        lambda d: d["fields"][0].update(updateable="false"),
+        lambda d: d["fields"][0].update(length=True),
+        lambda d: d["fields"][0].update(picklistValues=[{"value": "x", "active": "true"}]),
+    ],
+)
+def test_malformed_metadata_is_refused_without_record_read(tmp_path, change):
+    doc = describe_document()
+    change(doc)
+    cfg, clock, store, http, requests, client, _ = ready_client(
+        tmp_path, body=json.dumps(doc).encode()
+    )
+    client.verify_connection()
+    with pytest.raises(CRMRefused, match="invalid_account_metadata"):
+        client.read_metadata()
+    assert all(not r.url.query for r in requests)
+    http.close()
+    store.close()
+
+
+def test_metadata_preserves_missing_fields_as_missing(tmp_path):
+    doc = describe_document()
+    missing = doc["fields"].pop(0)["name"]
+    cfg, clock, store, http, requests, client, _ = ready_client(
+        tmp_path, body=json.dumps(doc).encode()
+    )
+    client.verify_connection()
+    observed = client.read_metadata()
+    assert observed is not None, "missing fields must remain observable"
+    assert observed.document["missing_fields"] == [missing]
+    assert missing not in {f["name"] for f in observed.document["fields"]}
+    http.close()
+    store.close()

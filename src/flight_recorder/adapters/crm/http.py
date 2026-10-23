@@ -190,10 +190,12 @@ class PrivateResponse:
 
 
 class OwnedHTTP:
-    def __init__(self, config, *, transport=None, clock):
+    def __init__(self, config, *, transport=None, clock, before_attempt=None):
         require(type(config) is ConnectionConfig, "invalid_connection_config")
         config.__post_init__()
         self._config = config
+        require(before_attempt is None or callable(before_attempt), "invalid_provider_request")
+        self._before_attempt = before_attempt
         self._clock = clock
         self._mutex = threading.Lock()
         self._closed = False
@@ -238,10 +240,15 @@ class OwnedHTTP:
             for user in (cfg.expected_user_id, cfg.expected_user_id[:15])
         }
         if origin == cfg.identity_origin and parsed.path in identity_paths and not parsed.query:
-            return
+            return "identity"
         require(origin == cfg.api_origin, "invalid_provider_request")
         if parsed.path == "/services/data" and not parsed.query:
-            return
+            return "api_versions"
+        if (
+            parsed.path == f"/services/data/v{cfg.api_version}/sobjects/Account/describe"
+            and not parsed.query
+        ):
+            return "account_metadata"
         paths = {
             f"/services/data/v{cfg.api_version}/sobjects/Account/{record}"
             for record in cfg.record_ids
@@ -252,6 +259,7 @@ class OwnedHTTP:
             == [("fields", ",".join(SELECTED_FIELDS))],
             "invalid_provider_request",
         )
+        return "account_read"
 
     def _form(self, form):
         require(
@@ -318,12 +326,14 @@ class OwnedHTTP:
             require(not self._closed, "provider_transport_closed")
             if method == "GET":
                 if output_intent is None:
-                    self._get_url(url)
+                    category = self._get_url(url)
                 else:
                     require(url == self._output_url(output_intent), "invalid_provider_request")
+                    category = "writer_outputs"
                 private_text(material)
             else:
                 self._form(material)
+                category = material["grant_type"]
             attempts = 3 if method == "GET" else 1
             for attempt in range(attempts):
                 response = None
@@ -342,6 +352,8 @@ class OwnedHTTP:
                         "write": 30,
                         "pool": 10,
                     }
+                    if self._before_attempt is not None:
+                        self._before_attempt(method, urlsplit(url).path, category)
                     response = self._client.send(request, stream=True, follow_redirects=False)
                     if response.status_code != 200:
                         if method == "GET" and response.status_code in _TRANSIENT and attempt < 2:
@@ -421,6 +433,8 @@ class OwnedHTTP:
                 ),
             )
             request.extensions["timeout"] = {"connect": 10, "read": 30, "write": 30, "pool": 10}
+            if self._before_attempt is not None:
+                self._before_attempt("PATCH", urlsplit(url).path, "writer_send")
             admission.consume(intent, client, credential_generation=credential_generation)
             started = utc_now(self._clock)
             response = None

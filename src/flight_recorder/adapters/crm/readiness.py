@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 from pydantic import BaseModel, ConfigDict, create_model
 
-from flight_recorder.adapters.crm.cli import n8n_poll_workflow
+from flight_recorder.adapters.crm.cli import N8nBinding, bound_n8n_workflow, n8n_poll_workflow
 from flight_recorder.adapters.crm.contracts import CRMRefused, observation_time, require
 from flight_recorder.adapters.crm.http import SELECTED_FIELDS, strict_json
 from flight_recorder.adapters.crm.mapping import ALLOWED, MAX_INTEGER, NUMERIC, OUTPUTS
@@ -399,7 +399,7 @@ def _guard_qualified(guard, proof, connection, config_hash, now):
     )
 
 
-def validate_readiness(manifest, config, *, now):
+def validate_readiness(manifest, config, *, now, n8n_binding=None):
     require(
         type(manifest) is ReadinessManifest and type(config) is CRMRuntimeConfig,
         "invalid_readiness_input",
@@ -449,23 +449,47 @@ def validate_readiness(manifest, config, *, now):
     if not _schema_compatible(d["field_schema"], artifact, authority):
         reasons.add("field_schema_unqualified")
     permissions = d["permissions"]
+    read_only_permissions = (
+        stage == "read_only"
+        and permissions["account_update"] is False
+        and permissions["write_fields"] == []
+    )
     if (
         permissions["user_id"] != connection["expected_user_id"]
         or permissions["account_read"] is not True
         or sorted(permissions["read_fields"]) != sorted(ALLOWED)
-        or sorted(permissions["write_fields"]) != sorted(OUTPUTS.values())
+        or (
+            not read_only_permissions
+            and sorted(permissions["write_fields"]) != sorted(OUTPUTS.values())
+        )
     ):
         reasons.add("permissions_unqualified")
     n8n = d["n8n"]
+    workflow_hash = canonical_hash(n8n_poll_workflow())
+    binding_valid = True
+    if n8n_binding is not None:
+        try:
+            require(type(n8n_binding) is N8nBinding, "invalid_n8n_binding")
+            binding_document = n8n_binding.document
+            require(
+                observation_time(binding_document["issued_at"])
+                <= now
+                < observation_time(binding_document["expires_at"]),
+                "invalid_n8n_binding",
+            )
+            workflow_hash = canonical_hash(bound_n8n_workflow(config, n8n_binding))
+        except (ValueError, TypeError, KeyError):
+            binding_valid = False
     if (
-        not _text(n8n["runtime_id"])
+        not binding_valid
+        or not _text(n8n["runtime_id"])
         or not _text(n8n["version"])
         or n8n["version"] != n8n["expected_version"]
         or n8n["from_runtime_id"] != n8n["runtime_id"]
         or n8n["to_origin"] != cfg["ingress_origin"]
         or n8n["reachable"] is not True
         or n8n["interval_seconds"] != 60
-        or n8n["workflow_sha256"] != canonical_hash(n8n_poll_workflow())
+        or n8n["workflow_sha256"] != workflow_hash
     ):
         reasons.add("n8n_runtime_network_unqualified")
     for key in (

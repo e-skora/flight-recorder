@@ -1,0 +1,80 @@
+{
+  "name": "Flight Recorder local connection check (inactive)",
+  "active": false,
+  "nodes": [
+    {
+      "id": "8fdc2130-2d79-4e38-a1ec-664c2da37f00",
+      "name": "Start connection check",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "d5c0c0d7-4088-4b7e-a151-977e4e110fbf",
+      "name": "Check local Flight Recorder link",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REVIEWED_LOCAL_INGRESS_CREDENTIAL",
+          "name": "Flight Recorder local ingress"
+        }
+      },
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8768/api/internal/crm/network-check",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "{\"format_version\":1,\"connection_id\":\"REVIEWED_CONNECTION_ID\",\"probe_id\":\"0000000000000000000000000000000000000000000000000000000000000000\"}",
+        "options": {
+          "timeout": 30000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          }
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Host",
+              "value": "localhost:8768"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Start connection check": {
+      "main": [
+        [
+          {
+            "node": "Check local Flight Recorder link",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "UTC"
+  }
+}

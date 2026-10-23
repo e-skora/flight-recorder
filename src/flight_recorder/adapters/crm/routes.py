@@ -72,7 +72,7 @@ def ingress_secret(config):
     return body
 
 
-def _headers(request, *, authenticated, body):
+def _headers(request, *, authenticated, body, content_types=None):
     values = {}
     protected = {
         b"host",
@@ -97,7 +97,11 @@ def _headers(request, *, authenticated, body):
             raise HTTPException(401, "invalid_ingress_authorization")
     if body:
         content_type = values.get(b"content-type", b"").lower()
-        if content_type not in (b"application/json", b"application/json; charset=utf-8"):
+        if content_type not in (
+            content_types
+            if content_types is not None
+            else (b"application/json", b"application/json; charset=utf-8")
+        ):
             raise HTTPException(415, "json_content_type_required")
         length = values.get(b"content-length")
         if length is not None:
@@ -137,11 +141,7 @@ class _LazyHTTP:
         self.config_binding = runtime.config.connection.binding
 
     def _get(self):
-        from flight_recorder.adapters.crm.http import OwnedHTTP
-
-        if self.runtime._http is None:
-            self.runtime._http = OwnedHTTP(self.runtime.config.connection, clock=self.runtime.clock)
-        return self.runtime._http
+        return self.runtime.owned_http()
 
     @property
     def observation_origin(self):
@@ -172,7 +172,7 @@ class _LazyTokens:
         return self._get().install(*args, **kwargs)
 
 
-def crm_router():
+def crm_router(*, read_mode=False):
     router = APIRouter()
 
     @router.post("/api/internal/crm/poll", status_code=202)
@@ -182,13 +182,24 @@ def crm_router():
             raise HTTPException(400, "invalid_crm_request")
         runtime = request.app.state.crm_runtime
         try:
-            report = dispatch_poll(
-                runtime, value["connection_id"], value["tick_id"], clock=runtime.clock
-            )
+            if runtime.read_gate is not None:
+                require(
+                    value["connection_id"] == runtime.config.connection.connection_id,
+                    "unknown_crm_connection",
+                )
+                report = runtime.admit_read_tick(value["tick_id"])
+            else:
+                runtime.require_read_context()
+                report = dispatch_poll(
+                    runtime, value["connection_id"], value["tick_id"], clock=runtime.clock
+                )
             return asdict(report)
         except CRMRefused as exc:
             status = 409 if exc.reason == "poll_config_conflict" else 400
             raise HTTPException(status, exc.reason) from None
+
+    if read_mode:
+        return router
 
     @router.post("/api/internal/crm/oauth/salesforce/begin")
     async def oauth_begin(request: Request):
@@ -201,6 +212,8 @@ def crm_router():
             raise HTTPException(400, "unknown_crm_connection")
         try:
             runtime.authority.assert_held()
+            runtime.require_read_context()
+            require(runtime.read_gate is None, "live_handoff_required")
             result = begin_oauth(
                 runtime.config.connection, request.app.state.oauth_sessions, runtime.clock
             )
@@ -214,6 +227,8 @@ def crm_router():
         runtime = request.app.state.crm_runtime
         try:
             runtime.authority.assert_held()
+            runtime.require_read_context()
+            require(runtime.read_gate is None, "live_handoff_required")
             raw = request.scope.get("query_string", b"")
             require(len(raw) <= 16384, "invalid_oauth_callback")
             items = parse_qsl(
