@@ -344,6 +344,70 @@ def test_non_oauth_pages_keep_referrer_suppression(tmp_path, action):
         assert provider.calls == provider.verifications == 0
 
 
+@pytest.mark.parametrize("change", [None, "csrf", "origin", "extra", "authority"])
+def test_metadata_route_never_upgrades_injected_alias_observation(tmp_path, change):
+    """Exercise the real route/client without pretending synthetic HTTP is live proof."""
+    import json
+
+    from flight_recorder.adapters.crm.secrets import TokenMaterial, TokenStore
+    from tests.adapters.crm.test_oauth import fake_provider
+
+    app, runtime, provider, paths = read_app_setup(tmp_path, action="metadata_probe")
+    cfg = runtime.config.connection
+    runtime._client_factory = None
+    runtime._tokens = TokenStore(runtime.config.document["credential_directory"])
+    runtime._tokens.install(
+        cfg.connection_id, cfg.binding, TokenMaterial("fictional-access", "fictional-refresh", None)
+    )
+    runtime._http, requests = fake_provider(
+        runtime.clock,
+        config=cfg,
+        versions=[
+            {"version": "65.0", "url": "/services/data/latest"},
+            {"version": "64.0", "url": "/services/data/v64.0"},
+        ],
+    )
+    runtime._http._before_attempt = runtime._before_read_attempt
+    directory = runtime.read_gate.evidence.directory
+    before = {p.name: p.read_bytes() for p in directory.iterdir()}
+    with TestClient(app, base_url="http://localhost:8768") as client:
+        body = {"csrf": csrf_from_page(client.get("/crm/read"))}
+        headers = {"Origin": "http://localhost:8768"}
+        if change == "csrf":
+            body["csrf"] = "wrong"
+        if change == "origin":
+            headers["Origin"] = "http://foreign.invalid"
+        if change == "extra":
+            body["target"] = "unapproved"
+        if change == "authority":
+            paths[2].write_bytes(paths[2].read_bytes())
+        response = client.post(
+            "/crm/read/metadata", json=body, headers=headers, follow_redirects=False
+        )
+        if change is not None:
+            assert response.status_code in {400, 403}
+        else:
+            assert response.status_code == 303
+            assert response.headers["location"] == "/crm/read/result"
+            result = client.get("/crm/read/result")
+            assert "refused" in result.text and "metadata_observed" not in result.text
+            assert "fictional-access" not in result.text
+        if change is None:
+            assert runtime._confirmed_connection.observation_origin == "injected_transport"
+            assert [r.url.path for r in requests] == [
+                f"/id/{cfg.expected_instance_id}/{cfg.expected_user_id}",
+                "/services/data",
+            ]
+        else:
+            assert requests == []
+        assert provider.calls == provider.verifications == 0
+        assert runtime.store.receipt_count() == 0
+        assert {p.name: p.read_bytes() for p in directory.iterdir()} == before
+        assert not any(
+            json.loads(p.read_bytes()).get("type") == "metadata" for p in directory.iterdir()
+        )
+
+
 @pytest.mark.parametrize(
     "origins",
     [

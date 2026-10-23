@@ -433,8 +433,14 @@ class SalesforceClient:
             require(
                 type(item) is dict
                 and type(item.get("version")) is str
-                and re.fullmatch(r"[1-9][0-9]*\.0", item["version"]) is not None
-                and item.get("url") == "/services/data/v" + item["version"],
+                and re.fullmatch(r"[1-9][0-9]*\.0", item["version"]) is not None,
+                "invalid_account_metadata",
+            )
+            # The unused alias cannot supply configured numeric-version support.
+            if item.get("url") == "/services/data/latest":
+                continue
+            require(
+                item.get("url") == "/services/data/v" + item["version"],
                 "invalid_account_metadata",
             )
             supported.add(item["version"])

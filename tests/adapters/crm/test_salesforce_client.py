@@ -711,3 +711,307 @@ def test_metadata_preserves_missing_fields_as_missing(tmp_path):
     assert missing not in {f["name"] for f in observed.document["fields"]}
     http.close()
     store.close()
+
+
+def metadata_versions_client(tmp_path, versions, *, body=None, versions_body=None, expires=None):
+    """Verify normally, then supply a distinct synthetic metadata advertisement."""
+    cfg, clock = configuration(), Clock()
+    store = private_store(tmp_path)
+    store.install(
+        cfg.connection_id,
+        cfg.binding,
+        TokenMaterial("fictional-access", "fictional-refresh", expires),
+    )
+    requests, version_reads = [], []
+    if body is None:
+        body = json.dumps(describe_document()).encode()
+
+    def handler(request):
+        requests.append(request)
+        assert request.method == "GET" and not request.url.query
+        if request.url.path == f"/id/{ORG}/{USER}":
+            return httpx.Response(
+                200,
+                json=dict(organization_id=ORG, user_id=USER, active=True, asserted_user=True),
+            )
+        if request.url.path == "/services/data":
+            version_reads.append(True)
+            if len(version_reads) > 1 and versions_body is not None:
+                return httpx.Response(200, content=versions_body)
+            rows = (
+                [{"version": "64.0", "url": "/services/data/v64.0"}]
+                if len(version_reads) == 1
+                else versions
+            )
+            return httpx.Response(
+                200, content=json.dumps(rows, separators=(",", ":"), ensure_ascii=False).encode()
+            )
+        assert request.url.path == "/services/data/v64.0/sobjects/Account/describe"
+        return httpx.Response(200, content=body)
+
+    http = feature("http", "OwnedHTTP")(cfg, transport=httpx.MockTransport(handler), clock=clock)
+    client = feature("salesforce", "SalesforceClient")(cfg, store, http, clock)
+    client.verify_connection()
+    requests.clear()
+    return cfg, clock, store, http, requests, client, body
+
+
+@pytest.mark.parametrize("alias_first", [True, False])
+def test_metadata_alias_root_requires_separate_numeric_support(tmp_path, alias_first):
+    alias = {"version": "65.0", "url": "/services/data/latest"}
+    pinned = {"version": "64.0", "url": "/services/data/v64.0"}
+    versions = [alias, pinned] if alias_first else [pinned, alias]
+    cfg, _, store, http, requests, client, body = metadata_versions_client(tmp_path, versions)
+    try:
+        observed = client.read_metadata()
+        document = observed.document
+        assert document["advertised_versions"] == ["64.0"]
+        assert document["observation_origin"] == "injected_transport"
+        assert document["api_version"] == cfg.api_version == "64.0"
+        assert (
+            document["versions"]["body_sha256"]
+            == hashlib.sha256(
+                json.dumps(versions, separators=(",", ":"), ensure_ascii=False).encode()
+            ).hexdigest()
+        )
+        assert document["describe"]["body_sha256"] == hashlib.sha256(body).hexdigest()
+        assert [r.url.path for r in requests] == [
+            "/services/data",
+            "/services/data/v64.0/sobjects/Account/describe",
+        ]
+    finally:
+        http.close()
+        store.close()
+
+
+@pytest.mark.parametrize(
+    "versions,expected",
+    [
+        ([{"version": "64.0", "url": "/services/data/latest"}], None),
+        ([{"version": "65.0", "url": "/services/data/latest"}], None),
+        ([{"version": "65.0", "url": "/services/data/v65.0"}], None),
+        (
+            [
+                {"version": "64.0", "url": "/services/data/latest"},
+                {"version": "65.0", "url": "/services/data/latest"},
+            ],
+            None,
+        ),
+        (
+            [
+                {"version": "65.0", "url": "/services/data/latest"},
+                {"version": "65.0", "url": "/services/data/latest"},
+                {"version": "64.0", "url": "/services/data/v64.0"},
+                {"version": "63.0", "url": "/services/data/v63.0"},
+            ],
+            ["63.0", "64.0"],
+        ),
+    ],
+)
+def test_metadata_alias_never_supplies_configured_version(tmp_path, versions, expected):
+    _, _, store, http, requests, client, _ = metadata_versions_client(tmp_path, versions)
+    try:
+        if expected is None:
+            with pytest.raises(CRMRefused, match="^unsupported_api_version$"):
+                client.read_metadata()
+            assert [r.url.path for r in requests] == ["/services/data"]
+        else:
+            assert client.read_metadata().document["advertised_versions"] == expected
+            assert [r.url.path for r in requests] == [
+                "/services/data",
+                "/services/data/v64.0/sobjects/Account/describe",
+            ]
+    finally:
+        http.close()
+        store.close()
+
+
+@pytest.mark.parametrize("bad_first", [True, False])
+@pytest.mark.parametrize(
+    "bad",
+    [
+        None,
+        [],
+        {},
+        {"version": None, "url": "/services/data/latest"},
+        {"version": 65, "url": "/services/data/latest"},
+        {"version": True, "url": "/services/data/latest"},
+        *[
+            {"version": version, "url": "/services/data/latest"}
+            for version in ["latest", "", "065.0", "0.0", "65.1", "65.0\n", "٦٥.0"]
+        ],
+        *[
+            {"version": "65.0", "url": path}
+            for path in [
+                None,
+                65,
+                "/services/data/latest/Account",
+                "/services/data/latest/",
+                "/services/data/latest?x=1",
+                "/services/data/latest#x",
+                "/services/data/LATEST",
+                "/services/data/%6catest",
+                "/services/data/latest%2f",
+                "/services/data//latest",
+                "/services/data/../latest",
+                "/services/data/latest\\x",
+                "/services/data/latest ",
+                " /services/data/latest",
+                "//fictional.my.salesforce.com/services/data/latest",
+                "https://fictional.my.salesforce.com/services/data/latest",
+                "https://foreign.invalid/services/data/latest",
+                "/services/data/v64.0",
+                "/services/data/v65.0/Account",
+                "/services/data/v65.0?x=1",
+            ]
+        ],
+    ],
+)
+def test_metadata_valid_pin_never_hides_invalid_advertisement(tmp_path, bad, bad_first):
+    pinned = {"version": "64.0", "url": "/services/data/v64.0"}
+    alias = {"version": "65.0", "url": "/services/data/latest"}
+    versions = [bad, alias, pinned] if bad_first else [pinned, alias, bad]
+    _, _, store, http, requests, client, _ = metadata_versions_client(tmp_path, versions)
+    try:
+        with pytest.raises(CRMRefused, match="^invalid_account_metadata$"):
+            client.read_metadata()
+        assert [r.url.path for r in requests] == ["/services/data"]
+    finally:
+        http.close()
+        store.close()
+
+
+@pytest.mark.parametrize("versions", [None, {}, [], [None] * 1001])
+def test_metadata_versions_list_bounds_remain_strict(tmp_path, versions):
+    _, _, store, http, requests, client, _ = metadata_versions_client(tmp_path, versions)
+    try:
+        with pytest.raises(CRMRefused, match="^invalid_account_metadata$"):
+            client.read_metadata()
+        assert [r.url.path for r in requests] == ["/services/data"]
+    finally:
+        http.close()
+        store.close()
+
+
+@pytest.mark.parametrize("document_kind", ["versions", "describe"])
+@pytest.mark.parametrize("raw", [b'{"a":1,"a":2}', b'{"a":NaN}', b"\xff", b"["])
+def test_metadata_alias_does_not_relax_strict_json(tmp_path, document_kind, raw):
+    versions = [
+        {"version": "65.0", "url": "/services/data/latest"},
+        {"version": "64.0", "url": "/services/data/v64.0"},
+    ]
+    _, _, store, http, requests, client, _ = metadata_versions_client(
+        tmp_path,
+        versions,
+        **({"versions_body": raw} if document_kind == "versions" else {"body": raw}),
+    )
+    try:
+        with pytest.raises(CRMRefused):
+            client.read_metadata()
+        assert [r.url.path for r in requests] == ["/services/data"] + (
+            ["/services/data/v64.0/sobjects/Account/describe"]
+            if document_kind == "describe"
+            else []
+        )
+    finally:
+        http.close()
+        store.close()
+
+
+@pytest.mark.parametrize("change", ["generation", "expired"])
+def test_metadata_alias_cannot_bypass_current_token_confirmation(tmp_path, change):
+    _, clock, store, http, requests, client, _ = metadata_versions_client(
+        tmp_path,
+        [{"version": "65.0", "url": "/services/data/latest"}],
+        expires=BASIS + timedelta(seconds=10),
+    )
+    try:
+        if change == "generation":
+            cfg = configuration()
+            claim = store.begin_refresh(cfg.connection_id, cfg.binding, expected_generation=1)
+            store.finish_refresh(
+                claim,
+                TokenMaterial("fictional-new-access", "fictional-new-refresh", None),
+            )
+        else:
+            clock.value += timedelta(seconds=10)
+        with pytest.raises(
+            CRMRefused,
+            match="^connection_confirmation_stale$"
+            if change == "generation"
+            else "^token_expired$",
+        ):
+            client.read_metadata()
+        assert requests == []
+    finally:
+        http.close()
+        store.close()
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [("type", None), ("length", True), ("precision", -1), ("scale", 1.5), ("updateable", "false")],
+)
+def test_metadata_alias_preserves_field_schema_refusals(tmp_path, field, value):
+    document = describe_document()
+    document["fields"][0][field] = value
+    _, _, store, http, requests, client, _ = metadata_versions_client(
+        tmp_path,
+        [
+            {"version": "65.0", "url": "/services/data/latest"},
+            {"version": "64.0", "url": "/services/data/v64.0"},
+        ],
+        body=json.dumps(document).encode(),
+    )
+    try:
+        with pytest.raises(CRMRefused, match="^invalid_account_metadata$"):
+            client.read_metadata()
+        assert [r.url.path for r in requests] == [
+            "/services/data",
+            "/services/data/v64.0/sobjects/Account/describe",
+        ]
+    finally:
+        http.close()
+        store.close()
+
+
+def test_metadata_alias_preserves_missing_and_read_only_schema_facts(tmp_path):
+    document = describe_document()
+    missing = document["fields"].pop(0)["name"]
+    field = document["fields"][0]
+    field.update(
+        type="picklist",
+        length=300,
+        precision=18,
+        scale=0,
+        picklistValues=[{"active": True, "value": "kept"}, {"active": False, "value": "old"}],
+    )
+    _, _, store, http, requests, client, _ = metadata_versions_client(
+        tmp_path,
+        [
+            {"version": "65.0", "url": "/services/data/latest"},
+            {"version": "64.0", "url": "/services/data/v64.0"},
+        ],
+        body=json.dumps(document).encode(),
+    )
+    try:
+        observed = client.read_metadata().document
+        assert observed["missing_fields"] == [missing]
+        assert observed["fields"][0] == dict(
+            name=field["name"],
+            kind="picklist",
+            length=300,
+            precision=18,
+            scale=0,
+            picklist_values=["kept"],
+            readable=True,
+            updateable=False,
+        )
+        assert observed["account"] == dict(queryable=True, retrieveable=True, updateable=False)
+        assert [r.url.path for r in requests] == [
+            "/services/data",
+            "/services/data/v64.0/sobjects/Account/describe",
+        ]
+    finally:
+        http.close()
+        store.close()
