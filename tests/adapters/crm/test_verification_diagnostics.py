@@ -27,7 +27,23 @@ MARKER = "fictional-private-verification-marker"
         ("versions_entry_type", "versions_entry_type", "invalid_provider_response"),
         ("versions_version_type", "versions_version_type", "invalid_provider_response"),
         ("versions_version_grammar", "versions_version_grammar", "invalid_provider_response"),
-        ("versions_entry", "versions_entry_url", "invalid_provider_response"),
+        ("versions_entry", "versions_url_relative_path", "invalid_provider_response"),
+        ("versions_url_missing", "versions_url_missing", "invalid_provider_response"),
+        ("versions_url_null", "versions_url_non_string", "invalid_provider_response"),
+        ("versions_url_number", "versions_url_non_string", "invalid_provider_response"),
+        ("versions_url_object", "versions_url_non_string", "invalid_provider_response"),
+        ("versions_url_array", "versions_url_non_string", "invalid_provider_response"),
+        ("versions_url_empty", "versions_url_empty", "invalid_provider_response"),
+        ("versions_url_space", "versions_url_whitespace", "invalid_provider_response"),
+        ("versions_url_control", "versions_url_whitespace", "invalid_provider_response"),
+        ("versions_url_network", "versions_url_network_path", "invalid_provider_response"),
+        ("versions_url_slash", "versions_url_trailing_slash", "invalid_provider_response"),
+        ("versions_url_query", "versions_url_query_fragment", "invalid_provider_response"),
+        ("versions_url_fragment", "versions_url_query_fragment", "invalid_provider_response"),
+        ("versions_url_pinned", "versions_url_absolute_pinned", "invalid_provider_response"),
+        ("versions_url_foreign", "versions_url_absolute_other", "invalid_provider_response"),
+        ("versions_url_malformed", "versions_url_malformed", "invalid_provider_response"),
+        ("versions_url_other", "versions_url_other", "invalid_provider_response"),
         ("versions_type", "versions_validation", "unsupported_api_version"),
         ("versions_missing", "versions_validation", "unsupported_api_version"),
     ],
@@ -72,6 +88,29 @@ def test_refused_verification_reports_safe_boundary_and_never_installs_credentia
             )
         if fault == "versions_entry":
             return httpx.Response(200, json=[{"version": "64.0", "url": "/" + MARKER}])
+        if fault == "versions_url_missing":
+            return httpx.Response(200, json=[{"version": "64.0"}])
+        url_faults = {
+            "versions_url_null": None,
+            "versions_url_number": 64,
+            "versions_url_object": {"private": MARKER},
+            "versions_url_array": [MARKER],
+            "versions_url_empty": "",
+            "versions_url_space": " " + MARKER,
+            "versions_url_control": MARKER + "\n",
+            "versions_url_network": "//" + MARKER + ".invalid/services/data/v64.0",
+            "versions_url_slash": "/services/data/v64.0/",
+            "versions_url_query": "/services/data/v64.0?private=" + MARKER,
+            "versions_url_fragment": "/services/data/v64.0#" + MARKER,
+            "versions_url_pinned": runtime.config.connection.api_origin
+            + "/services/data/v64.0?private="
+            + MARKER,
+            "versions_url_foreign": "https://" + MARKER + ".invalid/services/data/v64.0",
+            "versions_url_malformed": "https://[" + MARKER,
+            "versions_url_other": MARKER + "/services/data/v64.0",
+        }
+        if fault in url_faults:
+            return httpx.Response(200, json=[{"version": "64.0", "url": url_faults[fault]}])
         assert fault == "versions_missing"
         return httpx.Response(200, json=[{"version": "63.0", "url": "/services/data/v63.0"}])
 

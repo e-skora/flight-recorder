@@ -40,6 +40,18 @@ class OAuthProgress:
             "versions_version_type",
             "versions_version_grammar",
             "versions_entry_url",
+            "versions_url_missing",
+            "versions_url_non_string",
+            "versions_url_empty",
+            "versions_url_whitespace",
+            "versions_url_network_path",
+            "versions_url_trailing_slash",
+            "versions_url_query_fragment",
+            "versions_url_relative_path",
+            "versions_url_absolute_pinned",
+            "versions_url_absolute_other",
+            "versions_url_malformed",
+            "versions_url_other",
             "credential_installation",
         }
     )

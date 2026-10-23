@@ -226,6 +226,37 @@ def identity_url(config, url):
     return url
 
 
+def _versions_url_failure_stage(entry, api_origin):
+    """Classify a rejected URL without returning private values or accepting it."""
+    if "url" not in entry:
+        return "versions_url_missing"
+    value = entry["url"]
+    if type(value) is not str:
+        return "versions_url_non_string"
+    if not value:
+        return "versions_url_empty"
+    if any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in value):
+        return "versions_url_whitespace"
+    if value.startswith("//"):
+        return "versions_url_network_path"
+    expected = "/services/data/v" + entry["version"]
+    if value == expected + "/":
+        return "versions_url_trailing_slash"
+    if value.startswith((expected + "?", expected + "#")):
+        return "versions_url_query_fragment"
+    if value.startswith("/"):
+        return "versions_url_relative_path"
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return "versions_url_malformed"
+    if parsed.scheme and parsed.netloc:
+        if parsed.scheme + "://" + parsed.netloc == api_origin:
+            return "versions_url_absolute_pinned"
+        return "versions_url_absolute_other"
+    return "versions_url_other"
+
+
 def verify_material(config, material, http, clock, *, identity=None, progress=None):
     if progress is not None:
         # Deferred because OAuth orchestration imports this verifier.
@@ -278,6 +309,8 @@ def verify_material(config, material, http, clock, *, identity=None, progress=No
             "invalid_provider_response",
         )
         mark("versions_entry_url")
+        if progress is not None and entry.get("url") != "/services/data/v" + entry["version"]:
+            mark(_versions_url_failure_stage(entry, config.api_origin))
         require(
             entry.get("url") == "/services/data/v" + entry["version"],
             "invalid_provider_response",
