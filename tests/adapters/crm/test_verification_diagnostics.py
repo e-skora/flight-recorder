@@ -40,7 +40,7 @@ PATH_FAULTS = {
     "path_entry_descendant": ("/services/data/v64.0/Account", "versions_path_entry_descendant"),
     "path_numeric_root": ("/services/data/v63.0", "versions_path_numeric_root"),
     "path_numeric_descendant": ("/services/data/v63.0/Account", "versions_path_numeric_descendant"),
-    "path_alias": ("/services/data/latest", "versions_path_alias"),
+    "path_alias": ("/services/data/latest", "versions_validation"),
     "path_alias_descendant": ("/services/data/latest/Account", "versions_path_alias"),
     "path_missing_v": ("/services/data/64.0", "versions_path_missing_v"),
     "path_missing_v_descendant": ("/services/data/63.0/Account", "versions_path_missing_v"),
@@ -95,7 +95,14 @@ PATH_FAULTS = {
         ("versions_url_foreign", "versions_url_absolute_other", "invalid_provider_response"),
         ("versions_url_malformed", "versions_url_malformed", "invalid_provider_response"),
         ("versions_url_other", "versions_url_other", "invalid_provider_response"),
-        *[(fault, stage, "invalid_provider_response") for fault, (_, stage) in PATH_FAULTS.items()],
+        *[
+            (
+                fault,
+                stage,
+                "unsupported_api_version" if fault == "path_alias" else "invalid_provider_response",
+            )
+            for fault, (_, stage) in PATH_FAULTS.items()
+        ],
         ("versions_type", "versions_validation", "unsupported_api_version"),
         ("versions_missing", "versions_validation", "unsupported_api_version"),
     ],

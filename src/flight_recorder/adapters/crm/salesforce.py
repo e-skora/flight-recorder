@@ -347,6 +347,9 @@ def verify_material(config, material, http, clock, *, identity=None, progress=No
             "invalid_provider_response",
         )
         mark("versions_entry_url")
+        # The documented alias is unused metadata, never pinned numeric support.
+        if entry.get("url") == "/services/data/latest":
+            continue
         if progress is not None and entry.get("url") != "/services/data/v" + entry["version"]:
             mark(_versions_url_failure_stage(entry, config.api_origin))
         require(
