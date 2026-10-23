@@ -8,11 +8,14 @@ from urllib.parse import parse_qsl
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from sqlalchemy.exc import SQLAlchemyError
 
 from flight_recorder.adapters.crm import oauth
 from flight_recorder.adapters.crm.contracts import CRMRefused, require
 from flight_recorder.adapters.crm.http import strict_json, utc_now
+from flight_recorder.adapters.crm.poll_store import MemberProgress, PollReport
 from flight_recorder.adapters.crm.routes import _headers, _LazyHTTP, _LazyTokens, read_private_file
+from flight_recorder.web.crm_decision_view import FAILURES, load_crm_decision_page
 
 _HEADERS = {"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"}
 _STATES = frozenset(
@@ -73,7 +76,45 @@ def read_control_router(runtime):
     sessions, pending = {}, {}
     state = ["not_started"]
     refusal = [None]
+    completed = [None]
     gate = runtime.read_gate
+
+    def saved_decision_url():
+        if state[0] != "capture_complete" or type(completed[0]) is not PollReport:
+            return None
+        report = completed[0]
+        try:
+            gate.check()
+            target = runtime.config.targets[0]
+            if not (
+                len(runtime.config.targets) == 1
+                and report.connection_id == runtime.config.connection.connection_id
+                and report.tick_id == gate.authority.document["tick_id"]
+                and report.disposition == "complete"
+                and len(report.members) == 1
+            ):
+                return None
+            member = report.members[0]
+            if not (
+                type(member) is MemberProgress
+                and member.target_key == target.key
+                and member.state == "complete"
+                and type(member.decision_event_id) is str
+            ):
+                return None
+            with runtime.collector.engine.connect() as conn:
+                saved = load_crm_decision_page(
+                    conn, target.account_ref, member.decision_event_id, None
+                )
+            if (
+                saved is None
+                or saved.original is None
+                or member.unit_id != saved.recorded["unit_id"]
+            ):
+                return None
+            return f"/accounts/{target.account_ref}/decisions/{saved.original.decision_event_id}"
+        except (CRMRefused, SQLAlchemyError, *FAILURES):
+            return None
 
     def result_redirect():
         return RedirectResponse("/crm/read/result", status_code=303, headers=_HEADERS)
@@ -156,6 +197,7 @@ def read_control_router(runtime):
             else ""
         )
         diagnostic = ""
+        onward = saved_decision_url()
         if action == "oauth_connect" and state[0] == "refused" and refusal[0] is not None:
             stage, reason = refusal[0]
             diagnostic = (
@@ -185,6 +227,22 @@ def read_control_router(runtime):
                 '<form id="read-action">',
                 '<form id="read-action" method="post" action="/crm/read/connect">',
             )
+        if state[0] == "capture_complete":
+            markup = markup[: markup.index('<form id="read-action">')]
+            markup += (
+                "<h2>Capture complete</h2><p>The saved decision is ready for inspection. "
+                "No score was written to Salesforce.</p>"
+            )
+            if onward is not None:
+                markup += (
+                    f'<p><a href="{html.escape(onward, quote=True)}">View saved decision</a></p>'
+                )
+            else:
+                markup += (
+                    "<p>The saved decision link is unavailable because its local identity "
+                    "or authority could not be verified.</p>"
+                )
+            markup += "</body></html>"
         response = HTMLResponse(markup, headers=_HEADERS)
         response.set_cookie(
             "fr_read_session", key, httponly=True, samesite="strict", path="/crm/read", max_age=600
@@ -299,9 +357,12 @@ def read_control_router(runtime):
             state[0] = "capture_queued"
             runtime.run_pending()
             report = runtime.poll_report(body["tick_id"])
+            completed[0] = report
             if report.disposition == "complete":
                 state[0] = (
-                    "capture_complete" if report.members[0].state == "complete" else "refused"
+                    "capture_complete"
+                    if report.members and report.members[0].state == "complete"
+                    else "refused"
                 )
         except CRMRefused:
             state[0] = "refused"

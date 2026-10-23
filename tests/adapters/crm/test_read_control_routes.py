@@ -551,3 +551,120 @@ def test_network_signature_race_returns_fixed_refusal_without_receipt(tmp_path, 
         assert response.status_code == 403
         assert response.json() == {"detail": "network_qualification_refused"}
         assert set(directory.iterdir()) == before
+
+
+def test_completed_read_capture_offers_verified_own_saved_decision(tmp_path):
+    app, runtime, provider, paths = read_app_setup(tmp_path, action="capture_once")
+    with TestClient(app, base_url="http://localhost:8768") as client:
+        initial = client.get("/crm/read")
+        token = csrf_from_page(initial)
+        tick = runtime.read_gate.authority.document["tick_id"]
+        response = client.post(
+            "/crm/read/capture",
+            json={"csrf": token, "tick_id": tick},
+            headers={"Origin": "http://localhost:8768"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+        report = runtime.poll_report(tick)
+        assert report.disposition == "complete" and report.members[0].state == "complete"
+        assert provider.calls == 1
+
+        saved = client.get("/crm/read/result")
+        expected = (
+            f"/accounts/{runtime.config.targets[0].account_ref}/decisions/"
+            f"{report.members[0].decision_event_id}"
+        )
+        assert f'href="{expected}"' in saved.text
+        assert "View saved decision" in saved.text
+        assert 'id="read-action"' not in saved.text
+        assert provider.calls == 1
+        for key in ("content-security-policy", "cache-control", "referrer-policy"):
+            assert saved.headers.get(key) == initial.headers.get(key)
+        before = runtime.config.domain_path.read_bytes()
+        decision_page = client.get(expected)
+        assert decision_page.status_code == 200 and "Verified original" in decision_page.text
+        assert runtime.config.domain_path.read_bytes() == before and provider.calls == 1
+        again = client.post(
+            "/crm/read/capture",
+            json={"csrf": token, "tick_id": tick},
+            headers={"Origin": "http://localhost:8768"},
+            follow_redirects=False,
+        )
+        assert again.status_code == 303 and provider.calls == 1
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "connection",
+        "tick",
+        "target",
+        "unit",
+        "decision",
+        "missing",
+        "multiple",
+        "nonterminal",
+        "corrupt",
+        "expired",
+    ],
+)
+def test_completed_link_refuses_unverified_report_identity(tmp_path, monkeypatch, mutation):
+    from dataclasses import replace
+
+    from flight_recorder.adapters.crm.poll_store import MemberProgress, PollReport
+
+    app, runtime, provider, paths = read_app_setup(tmp_path, action="capture_once")
+    original = runtime.poll_report
+
+    def report(tick):
+        value = original(tick)
+        member = value.members[0]
+        if mutation == "connection":
+            return replace(value, connection_id="foreign")
+        if mutation == "tick":
+            return replace(value, tick_id="foreign")
+        if mutation == "missing":
+            return replace(value, members=())
+        if mutation == "multiple":
+            return replace(value, members=(member, member))
+        if mutation in ("target", "unit", "decision", "nonterminal"):
+            field = {
+                "target": "target_key",
+                "unit": "unit_id",
+                "decision": "decision_event_id",
+                "nonterminal": "state",
+            }[mutation]
+            member = replace(member, **{field: "foreign"})
+        assert type(value) is PollReport and type(member) is MemberProgress
+        return replace(value, members=(member,))
+
+    monkeypatch.setattr(runtime, "poll_report", report)
+    with TestClient(app, base_url="http://localhost:8768") as client:
+        token = csrf_from_page(client.get("/crm/read"))
+        tick = runtime.read_gate.authority.document["tick_id"]
+        response = client.post(
+            "/crm/read/capture",
+            json={"csrf": token, "tick_id": tick},
+            headers={"Origin": "http://localhost:8768"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+        if mutation == "corrupt":
+            raw = runtime.collector.engine.raw_connection()
+            try:
+                raw.execute("DROP TRIGGER crm_decisions_no_update")
+                raw.execute("UPDATE crm_decisions SET score=999")
+                raw.commit()
+            finally:
+                raw.close()
+        if mutation == "expired":
+            monkeypatch.setattr(
+                runtime.read_gate,
+                "check",
+                lambda: (_ for _ in ()).throw(CRMRefused("read_authority_expired")),
+            )
+        saved = client.get("/crm/read/result")
+        assert saved.status_code == 200
+        assert "View saved decision" not in saved.text
+        assert provider.calls == 1

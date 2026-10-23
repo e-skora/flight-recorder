@@ -174,6 +174,25 @@ def test_four_input_states_and_zero_consumption_are_distinct(harness):
     assert rows["verified_integration_pressure"].state == "available but ignored"
     assert rows["open_platform_engineering_roles"].state == "explicitly unavailable"
     assert rows["funding_event"].state == "absent"
+    reasons = {r.key: r for r in page.reason_rows}
+    for key, row in rows.items():
+        assert reasons[key].state == row.state
+        assert reasons[key].contribution == row.contribution
+
+
+def test_derived_preserved_values_are_escaped(harness):
+    from flight_recorder.adapters.crm.mapping import map_inputs
+
+    case = make_case()
+    cap = case["capture"]
+    value = "<img src=x onerror=fictional()>"
+    cap["properties"]["FR_Industry_Segment__c"] = value
+    cap["inputs"] = map_inputs(cap["properties"], cap["unavailable_fields"])
+    case = history(harness, envelopes(seal(cap)))
+    response = harness.client.get(case["url"])
+    assert response.status_code == 200
+    assert value not in response.text
+    assert html.escape(value, quote=True) in response.text
 
 
 def test_cross_account_url_is_404_and_explanation_is_escaped(harness):
@@ -528,3 +547,108 @@ def test_six_hundred_reprocessing_steps_verify_without_call_stack_limit(harness)
     with harness.engine.connect() as conn:
         with pytest.raises(IntegrityFailure):
             reconstruct(conn, did)
+
+
+@pytest.mark.parametrize(
+    "origin,label",
+    [
+        ("fixture", "Fictional fixture"),
+        ("injected_transport", "Injected transport test"),
+        ("provider_http", "Recorded provider HTTP observation"),
+    ],
+)
+def test_offline_crm_source_disclosure_uses_verified_saved_origin(harness, origin, label):
+    case = history(harness, make_case(observation_origin=origin))
+    harness.app.state.crm_mode = False
+    before = snapshot(harness.engine)
+    body = get(harness, case)
+    assert label in body
+    assert "All accounts, vendor-like events" not in body
+    assert "current connection health" in body
+    assert snapshot(harness.engine) == before
+
+    trace = harness.client.get("/accounts/" + case["decision"]["account_ref"]).text
+    assert "All accounts, vendor-like events" not in trace
+    assert "includes saved CRM test history" in trace
+    assert "current connection health" in trace
+    assert label in trace
+
+
+def test_saved_funding_explanation_uses_preserved_boundary(harness, monkeypatch):
+    from datetime import datetime
+
+    from flight_recorder.adapters.crm.mapping import map_inputs
+
+    class NoWallClock(datetime):
+        @classmethod
+        def now(cls, *args, **kwargs):
+            pytest.fail("saved explanation consulted the wall clock")
+
+    monkeypatch.setattr(page_api(), "datetime", NoWallClock)
+    case = make_case()
+    cap = case["capture"]
+    cap["properties"]["FR_Funding_Observed_On__c"] = "2025-09-22"
+    cap["inputs"] = map_inputs(cap["properties"], cap["unavailable_fields"])
+    case = history(harness, envelopes(seal(cap)))
+    before = snapshot(harness.engine)
+    body = get(harness, case)
+    assert "68" in body
+    assert "207 full days" in body
+    assert "Why this result" in body
+    assert snapshot(harness.engine) == before
+
+
+def test_mixed_trace_qualifies_history_without_labeling_every_event_provider(harness):
+    case = history(harness, make_case(observation_origin="provider_http"))
+    harness.app.state.crm_mode = False
+    # A surrounding schema-v1 event keeps its own source in a mixed trace.
+    legacy = next(
+        copy.deepcopy(e) for e in canonical_envelopes() if e["event_type"] == "evidence.recorded"
+    )
+    legacy["event_id"] = "mixed-trace-evidence"
+    legacy["account_ref"] = case["decision"]["account_ref"]
+    response = harness.post(legacy)
+    assert response.status_code == 201, response.text
+    body = harness.client.get("/accounts/" + case["decision"]["account_ref"]).text
+    assert "includes saved CRM test history" in body
+    assert "Each event retains its own recorded source" in body
+    assert legacy["source"] in body and "Recorded provider HTTP observation" in body
+    assert "All accounts, vendor-like events" not in body
+
+
+@pytest.mark.parametrize(
+    "observed,boundary,matched",
+    [
+        ("2026-01-17", "2026-04-17T00:00:00Z", True),
+        ("2026-01-17", "2026-04-17T10:05:02Z", False),
+        ("2026-01-18", "2026-04-17T10:05:02Z", True),
+        ("2026-01-16", "2026-04-17T10:05:02Z", False),
+    ],
+)
+def test_reason_uses_verified_match_and_exact_saved_elapsed(harness, observed, boundary, matched):
+    from datetime import datetime, timedelta
+
+    from flight_recorder.adapters.crm.mapping import map_inputs
+    from flight_recorder.collector.schema import format_utc
+
+    case = make_case()
+    cap = case["capture"]
+    instant = datetime.fromisoformat(boundary)
+    cap["capture_boundary"] = format_utc(instant)
+    cap["read_started_at"] = format_utc(instant - timedelta(seconds=2))
+    cap["read_finished_at"] = format_utc(instant - timedelta(seconds=1))
+    cap["source_updated_at"] = format_utc(instant - timedelta(seconds=30))
+    cap["properties"]["LastModifiedDate"] = cap["source_updated_at"]
+    cap["properties"]["FR_Funding_Observed_On__c"] = observed
+    cap["inputs"] = map_inputs(cap["properties"], cap["unavailable_fields"])
+    case = history(harness, envelopes(seal(cap)))
+    with harness.engine.connect() as conn:
+        page = page_api().load_crm_decision_page(
+            conn, case["decision"]["account_ref"], case["decision"]["event_id"], None
+        )
+    reason = next(row for row in page.reason_rows if row.key == "funding_event")
+    factor = next(f for f in page.original.result.factors if f.key == "funding_event")
+    assert factor.matched is matched
+    assert reason.contribution == factor.contribution
+    assert observed in reason.detail and "90-day" in reason.detail
+    assert ("Rule matched" if matched else "Rule did not match") in reason.detail

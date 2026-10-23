@@ -56,6 +56,13 @@
       <a href="{{ request.app.state.source_repository_url }}">source repository</a>.</p>
     </details>
   </aside>
+  {%- elif crm_history_source is defined or crm_history_trace | default(false) %}
+  <aside class="synthetic-banner" role="note" aria-label="Saved CRM source disclosure">
+    {% if crm_history_source is defined %}<strong>{{ crm_history_source }}.</strong>
+    {% else %}<strong>This trace includes saved CRM test history.</strong> Each event retains its own recorded source. Open a decision to verify its evidence.{% endif %}
+    Company values are fictional. Saved history does not establish current connection health.
+    This viewer uses saved evidence and makes no provider lookup.
+  </aside>
   {%- elif request.app.state.crm_mode | default(false) %}
   <aside class="synthetic-banner" role="note" aria-label="CRM source disclosure">
     <strong>Local CRM test workspace.</strong> Company data is fictional. Each saved observation names

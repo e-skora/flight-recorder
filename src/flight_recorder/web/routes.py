@@ -177,11 +177,21 @@ def account_trace(request: Request, account_ref: str):
         ).first()
         if account is None:
             raise HTTPException(status_code=404, detail="unknown account")
-        rows = [trace_row(r) for r in conn.execute(trace_query(account_ref)).all()]
+        events_in_trace = conn.execute(trace_query(account_ref)).all()
+        rows = [trace_row(r) for r in events_in_trace]
+        crm_history_trace = not getattr(request.app.state, "public_demo", False) and any(
+            r.schema_version == "3" and r.event_type in ("decision.recorded", "evidence.recorded")
+            for r in events_in_trace
+        )
     return templates.TemplateResponse(
         request,
         "trace.html",
-        {"account": account, "rows": rows, "operating_company": OPERATING_COMPANY},
+        {
+            "account": account,
+            "rows": rows,
+            "operating_company": OPERATING_COMPANY,
+            "crm_history_trace": crm_history_trace,
+        },
     )
 
 
@@ -285,6 +295,7 @@ def decision_detail(
                         "account": account,
                         "operating_company": OPERATING_COMPANY,
                         "page": crm_page,
+                        "crm_history_source": crm_page.source_label,
                         "artifact_options": crm_options,
                         "current_hash": crm_hash,
                         "no_selection_message": crm_message,

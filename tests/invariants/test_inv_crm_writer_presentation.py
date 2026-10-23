@@ -46,6 +46,14 @@ def test_generated_read_order_never_changes_unknown_or_creates_provider_work(ord
                             conn, runtime.config.targets[0].account_ref, decision, None
                         )
                     assert page.operations[0].state == "unknown"
+                    assert page.reason_rows
+                    assert page.result_label
+                    for reason in page.reason_rows:
+                        if reason.contribution is not None:
+                            factor = next(
+                                f for f in page.original.result.factors if f.key == reason.key
+                            )
+                            assert reason.contribution == factor.contribution
                 assert (
                     runtime.config.domain_path.read_bytes(),
                     runtime.config.operational_path.read_bytes(),

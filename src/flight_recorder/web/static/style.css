@@ -490,3 +490,54 @@ html.public-demo .about-decisions dd { margin: 0; padding: .25rem 1.25rem 1.25re
   html.public-demo .comparison-cards, html.public-demo .home-steps { grid-template-columns: minmax(0, 1fr); }
   html.public-demo .comparison-card h3 { min-height: 0; }
 }
+
+/* Private saved CRM decision presentation. */
+html:not(.public-demo) .crm-history { min-width: 0; overflow-wrap: anywhere; }
+html:not(.public-demo) .crm-history .crm-rules-grid { width: 100%; table-layout: fixed; }
+html:not(.public-demo) .crm-history .crm-rules-grid th:first-child { width: 28%; }
+html:not(.public-demo) .crm-history .crm-rules-grid th:last-child { width: 12%; }
+html:not(.public-demo) .crm-history .crm-rules-grid th, html:not(.public-demo) .crm-history .crm-rules-grid td { overflow-wrap: anywhere; }
+html:not(.public-demo) .crm-history .crm-rules-grid code.hash { word-break: normal; overflow-wrap: anywhere; }
+html:not(.public-demo) .crm-history .crm-evidence-grid { min-width: 56rem; table-layout: fixed; }
+html:not(.public-demo) .crm-history .crm-evidence-grid th:nth-child(1) { width: 22%; }
+html:not(.public-demo) .crm-history .crm-evidence-grid th:nth-child(2) { width: 13%; }
+html:not(.public-demo) .crm-history .crm-evidence-grid th:nth-child(3) { width: 18%; }
+html:not(.public-demo) .crm-history .crm-evidence-grid th:nth-child(4) { width: 12%; }
+html:not(.public-demo) .crm-history .crm-evidence-grid th:nth-child(5) { width: 35%; }
+html:not(.public-demo) .crm-history .crm-evidence-grid td { overflow-wrap: normal; }
+html:not(.public-demo) .crm-history .crm-evidence-grid .fields { display: block; }
+html:not(.public-demo) .crm-history .crm-evidence-grid .fields dd { margin: 0 0 .6rem; }
+html:not(.public-demo) .crm-history .crm-comparison-grid { min-width: 56rem; }
+html:not(.public-demo) .crm-history .crm-comparison-grid th, html:not(.public-demo) .crm-history .crm-comparison-grid td { overflow-wrap: normal; white-space: nowrap; }
+html:not(.public-demo) .crm-history select { max-width: 100%; }
+html:not(.public-demo) .crm-history form label { display: block; }
+html:not(.public-demo) .crm-history details summary { cursor: pointer; }
+html:not(.public-demo) .crm-history { max-width: 68rem; }
+html:not(.public-demo) .crm-history h1 { font-size: clamp(1.8rem, 4vw, 2.8rem); margin: .4rem 0; line-height: 1.15; }
+html:not(.public-demo) .crm-history .crm-eyebrow { color: var(--muted); margin: 1.5rem 0 0; }
+html:not(.public-demo) .crm-history .crm-result { padding: 1.25rem 1.5rem; background: #eef4fb; border-left: 5px solid var(--focus); border-radius: .35rem; margin-top: 1.25rem; }
+html:not(.public-demo) .crm-history .crm-score { margin: .2rem 0; font-size: 1.3rem; }
+html:not(.public-demo) .crm-history .crm-score strong { font-size: 2.2rem; font-variant-numeric: tabular-nums; }
+html:not(.public-demo) .crm-history .crm-score span { color: var(--muted); font-size: 1rem; }
+html:not(.public-demo) .crm-history .crm-reasons { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .85rem; }
+html:not(.public-demo) .crm-history .crm-reasons li { border: 1px solid var(--line); border-radius: .4rem; padding: 1rem; }
+html:not(.public-demo) .crm-history .crm-reasons li > div { display: flex; justify-content: space-between; gap: .6rem; flex-wrap: wrap; }
+html:not(.public-demo) .crm-history .crm-reasons p { margin: .5rem 0 0; }
+html:not(.public-demo) .crm-history .crm-points { font-weight: 700; color: var(--focus); }
+html:not(.public-demo) .crm-history .crm-state { font-size: .9rem; color: var(--muted); }
+html:not(.public-demo) .crm-history .crm-comparison-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin: 1rem 0; }
+html:not(.public-demo) .crm-history .crm-comparison-cards article { padding: 1rem; border: 1px solid var(--line); border-radius: .4rem; }
+html:not(.public-demo) .crm-history .crm-comparison-cards h3 { margin-top: 0; }
+html:not(.public-demo) .crm-history section > details { border-top: 1px solid var(--line); padding-top: .75rem; }
+html:not(.public-demo) .crm-history summary { font-weight: 650; padding: .4rem 0; }
+html:not(.public-demo) .crm-history summary:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+html:not(.public-demo) .crm-history form { display: flex; flex-wrap: wrap; gap: .6rem; align-items: end; }
+html:not(.public-demo) .crm-history form label { flex-basis: 100%; }
+html:not(.public-demo) .crm-history select { min-width: 0; flex: 1 1 16rem; width: 100%; }
+html:not(.public-demo) .crm-history .fields { grid-template-columns: minmax(8rem, 30%) minmax(0, 1fr); }
+@media (max-width: 42rem) {
+  html:not(.public-demo) .crm-history .crm-reasons,
+  html:not(.public-demo) .crm-history .crm-comparison-cards { grid-template-columns: minmax(0, 1fr); }
+  html:not(.public-demo) .crm-history .fields { display: block; }
+  html:not(.public-demo) .crm-history .fields dd { margin-bottom: .75rem; }
+}
