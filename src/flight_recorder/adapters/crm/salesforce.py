@@ -226,7 +226,13 @@ def identity_url(config, url):
     return url
 
 
-def verify_material(config, material, http, clock, *, identity=None):
+def verify_material(config, material, http, clock, *, identity=None, progress=None):
+    if progress is not None:
+        # Deferred because OAuth orchestration imports this verifier.
+        from flight_recorder.adapters.crm.oauth import OAuthProgress
+
+        require(type(progress) is OAuthProgress, "invalid_oauth_diagnostic")
+    mark = progress.advance if progress is not None else lambda stage: None
     require(http.config_binding == config.binding, "invalid_connection_binding")
     now = utc_now(clock)
     require(material.expires_at is None or material.expires_at > now, "token_expired")
@@ -236,7 +242,11 @@ def verify_material(config, material, http, clock, *, identity=None):
         if identity is not None
         else f"{config.identity_origin}/id/{config.expected_instance_id}/{config.expected_user_id}",
     )
-    response = http.get(identity, material.access_token).json()
+    mark("identity_request")
+    response = http.get(identity, material.access_token)
+    mark("identity_json")
+    response = response.json()
+    mark("identity_validation")
     require(
         type(response) is dict
         and response.get("asserted_user") is True
@@ -250,7 +260,11 @@ def verify_material(config, material, http, clock, *, identity=None):
     )
     if "id" in response:
         identity_url(config, response["id"])
-    versions = http.get(config.api_origin + "/services/data", material.access_token).json()
+    mark("versions_request")
+    versions = http.get(config.api_origin + "/services/data", material.access_token)
+    mark("versions_json")
+    versions = versions.json()
+    mark("versions_validation")
     require(type(versions) is list and 1 <= len(versions) <= 1000, "unsupported_api_version")
     supported = set()
     for entry in versions:

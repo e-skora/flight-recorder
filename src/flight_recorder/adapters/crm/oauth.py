@@ -30,6 +30,12 @@ class OAuthProgress:
             "token_exchange",
             "token_response",
             "connection_verification",
+            "identity_request",
+            "identity_json",
+            "identity_validation",
+            "versions_request",
+            "versions_json",
+            "versions_validation",
             "credential_installation",
         }
     )
@@ -253,7 +259,7 @@ def finish_oauth(
     mark("token_response")
     material, identity = _parse_tokens(config, response, client_secret)
     mark("connection_verification")
-    confirmed = verify_material(config, material, http, clock, identity=identity)
+    confirmed = verify_material(config, material, http, clock, identity=identity, progress=progress)
     mark("credential_installation")
     token_store.install(config.connection_id, config.binding, material)
     return confirmed
