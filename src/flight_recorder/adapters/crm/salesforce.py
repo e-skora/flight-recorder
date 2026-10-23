@@ -226,6 +226,44 @@ def identity_url(config, url):
     return url
 
 
+def _versions_relative_path_stage(value, version):
+    """Fixed syntax labels for an already-refused path; never normalize or accept it."""
+    if "?" in value or "#" in value:
+        return "versions_path_query_fragment"
+    if "%" in value:
+        return "versions_path_percent_encoding"
+    if "\\" in value:
+        return "versions_path_backslash"
+    if not value.isascii():
+        return "versions_path_non_ascii"
+    if value in {"/services/data", "/services/data/"}:
+        return "versions_path_collection"
+    parts = value[1:].split("/")
+    if "" in parts:
+        return "versions_path_empty_segment"
+    if any(part in {".", ".."} for part in parts):
+        return "versions_path_dot_segment"
+    prefix = parts[:2]
+    if prefix != ["services", "data"]:
+        if [part.lower() for part in prefix] == ["services", "data"]:
+            return "versions_path_prefix_case"
+        return "versions_path_prefix_other"
+    segment = parts[2]
+    if segment == "v" + version:
+        return "versions_path_entry_descendant"
+    if re.fullmatch(r"v[1-9][0-9]*\.0", segment, re.ASCII):
+        return (
+            "versions_path_numeric_root" if len(parts) == 3 else "versions_path_numeric_descendant"
+        )
+    if segment == "latest":
+        return "versions_path_alias"
+    if re.fullmatch(r"[1-9][0-9]*\.0", segment, re.ASCII):
+        return "versions_path_missing_v"
+    if re.fullmatch(r"V[1-9][0-9]*\.0", segment, re.ASCII):
+        return "versions_path_version_case"
+    return "versions_path_version_other"
+
+
 def _versions_url_failure_stage(entry, api_origin):
     """Classify a rejected URL without returning private values or accepting it."""
     if "url" not in entry:
@@ -245,7 +283,7 @@ def _versions_url_failure_stage(entry, api_origin):
     if value.startswith((expected + "?", expected + "#")):
         return "versions_url_query_fragment"
     if value.startswith("/"):
-        return "versions_url_relative_path"
+        return _versions_relative_path_stage(value, entry["version"])
     try:
         parsed = urlsplit(value)
     except ValueError:

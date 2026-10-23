@@ -13,6 +13,57 @@ from tests.adapters.crm.test_read_control_routes import csrf_from_page, read_app
 
 MARKER = "fictional-private-verification-marker"
 
+# Literal route fixtures: labels describe syntax only, never valid or accepted URLs.
+PATH_FAULTS = {
+    "path_query": ("/services/data/v63.0?" + MARKER, "versions_path_query_fragment"),
+    "path_fragment": ("/services/data/v63.0#" + MARKER, "versions_path_query_fragment"),
+    "path_percent": ("/services/data/v%36%34.0", "versions_path_percent_encoding"),
+    "path_percent_invalid": ("/services/data/v%ZZ", "versions_path_percent_encoding"),
+    "path_percent_bare": ("/services/data/%", "versions_path_percent_encoding"),
+    "path_backslash": ("/services/data\\v64.0", "versions_path_backslash"),
+    "path_non_ascii": ("/services/data/vé", "versions_path_non_ascii"),
+    "path_unicode_digit": ("/services/data/v６４.0", "versions_path_non_ascii"),
+    "path_collection": ("/services/data", "versions_path_collection"),
+    "path_collection_slash": ("/services/data/", "versions_path_collection"),
+    "path_empty": ("/services//data/v64.0", "versions_path_empty_segment"),
+    "path_root_only": ("/", "versions_path_empty_segment"),
+    "path_short_slash": ("/services/", "versions_path_empty_segment"),
+    "path_descendant_slash": ("/services/data/v64.0/Account/", "versions_path_empty_segment"),
+    "path_dot": ("/services/./data/v64.0", "versions_path_dot_segment"),
+    "path_dot_parent": ("/services/data/v64.0/..", "versions_path_dot_segment"),
+    "path_prefix_case": ("/Services/DATA/v64.0", "versions_path_prefix_case"),
+    "path_prefix_case_short": ("/Services/Data", "versions_path_prefix_case"),
+    "path_prefix_other": ("/service/data/v64.0", "versions_path_prefix_other"),
+    "path_short": ("/services", "versions_path_prefix_other"),
+    "path_prefix_boundary": ("/services/database/v64.0", "versions_path_prefix_other"),
+    "path_prefix_case_other": ("/SERVICES/OTHER/v64.0", "versions_path_prefix_other"),
+    "path_entry_descendant": ("/services/data/v64.0/Account", "versions_path_entry_descendant"),
+    "path_numeric_root": ("/services/data/v63.0", "versions_path_numeric_root"),
+    "path_numeric_descendant": ("/services/data/v63.0/Account", "versions_path_numeric_descendant"),
+    "path_alias": ("/services/data/latest", "versions_path_alias"),
+    "path_alias_descendant": ("/services/data/latest/Account", "versions_path_alias"),
+    "path_missing_v": ("/services/data/64.0", "versions_path_missing_v"),
+    "path_missing_v_descendant": ("/services/data/63.0/Account", "versions_path_missing_v"),
+    "path_version_case": ("/services/data/V64.0", "versions_path_version_case"),
+    "path_version_case_descendant": ("/services/data/V63.0/Account", "versions_path_version_case"),
+    "path_version_other": ("/services/data/" + MARKER, "versions_path_version_other"),
+    "path_alias_case": ("/services/data/Latest", "versions_path_version_other"),
+    "path_numeric_zero": ("/services/data/v0.0", "versions_path_version_other"),
+    "path_numeric_leading_zero": ("/services/data/v064.0", "versions_path_version_other"),
+    "path_numeric_minor": ("/services/data/v64.1", "versions_path_version_other"),
+    "path_numeric_dot": ("/services/data/v64x0", "versions_path_version_other"),
+    "path_missing_v_malformed": ("/services/data/064.0", "versions_path_version_other"),
+    "path_version_case_malformed": ("/services/data/V64.1", "versions_path_version_other"),
+    "path_query_percent": ("/services/data/v%ZZ?" + MARKER, "versions_path_query_fragment"),
+    "path_percent_backslash": ("/services/data/%\\" + MARKER, "versions_path_percent_encoding"),
+    "path_backslash_non_ascii": ("/services/data/\\é", "versions_path_backslash"),
+    "path_non_ascii_empty": ("/services//data/é", "versions_path_non_ascii"),
+    "path_empty_dot": ("/services//./data", "versions_path_empty_segment"),
+    "path_dot_case": ("/Services/Data/../v64.0", "versions_path_dot_segment"),
+    "path_case_numeric": ("/Services/Data/v63.0", "versions_path_prefix_case"),
+    "path_foreign_alias": ("/other/data/latest", "versions_path_prefix_other"),
+}
+
 
 @pytest.mark.parametrize(
     "fault,stage,reason",
@@ -27,7 +78,7 @@ MARKER = "fictional-private-verification-marker"
         ("versions_entry_type", "versions_entry_type", "invalid_provider_response"),
         ("versions_version_type", "versions_version_type", "invalid_provider_response"),
         ("versions_version_grammar", "versions_version_grammar", "invalid_provider_response"),
-        ("versions_entry", "versions_url_relative_path", "invalid_provider_response"),
+        ("versions_entry", "versions_path_prefix_other", "invalid_provider_response"),
         ("versions_url_missing", "versions_url_missing", "invalid_provider_response"),
         ("versions_url_null", "versions_url_non_string", "invalid_provider_response"),
         ("versions_url_number", "versions_url_non_string", "invalid_provider_response"),
@@ -44,6 +95,7 @@ MARKER = "fictional-private-verification-marker"
         ("versions_url_foreign", "versions_url_absolute_other", "invalid_provider_response"),
         ("versions_url_malformed", "versions_url_malformed", "invalid_provider_response"),
         ("versions_url_other", "versions_url_other", "invalid_provider_response"),
+        *[(fault, stage, "invalid_provider_response") for fault, (_, stage) in PATH_FAULTS.items()],
         ("versions_type", "versions_validation", "unsupported_api_version"),
         ("versions_missing", "versions_validation", "unsupported_api_version"),
     ],
@@ -109,6 +161,7 @@ def test_refused_verification_reports_safe_boundary_and_never_installs_credentia
             "versions_url_malformed": "https://[" + MARKER,
             "versions_url_other": MARKER + "/services/data/v64.0",
         }
+        url_faults.update({fault: value for fault, (value, _) in PATH_FAULTS.items()})
         if fault in url_faults:
             return httpx.Response(200, json=[{"version": "64.0", "url": url_faults[fault]}])
         assert fault == "versions_missing"
@@ -167,7 +220,7 @@ def test_refused_verification_reports_safe_boundary_and_never_installs_credentia
         expected_paths = ["/services/oauth2/token"]
         assert requests[1].url.path.startswith("/id/")
         expected_paths.append(requests[1].url.path)
-        if fault.startswith("versions"):
+        if fault.startswith("versions") or fault in PATH_FAULTS:
             expected_paths.append("/services/data")
         assert [r.url.path for r in requests] == expected_paths
         client.get(
