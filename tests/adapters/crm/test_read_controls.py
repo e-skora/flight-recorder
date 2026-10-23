@@ -741,6 +741,50 @@ def capture_gate_setup(
     )
 
 
+@pytest.mark.parametrize("damage", [None, "mismatch", "stale", "injected", "schema"])
+def test_synthetic_bound_employee_integer_zero_metadata_capture_gate(tmp_path, damage):
+    """Fictional store artifacts exercise the gate, never live provider proof."""
+    import copy
+
+    from flight_recorder.collector.canonical import canonical_hash
+
+    def prepare(c, m, a, t, store, receipt):
+        employee = next(f for f in m["field_schema"] if f["name"] == "NumberOfEmployees")
+        observed = next(
+            f for f in receipt["observation"]["fields"] if f["name"] == "NumberOfEmployees"
+        )
+        employee.update(kind="int", precision=0, scale=0)
+        observed.update(kind="int", precision=0, scale=0)
+        if damage == "injected":
+            receipt["observation"]["observation_origin"] = "injected_transport"
+        if damage == "schema":
+            employee["scale"] = observed["scale"] = 1
+        a["metadata_receipt_sha256"] = store.save(receipt)
+        for key in ("api_versions", "field_schema", "permissions"):
+            m["evidence"][key]["sha256"] = canonical_hash(receipt)
+        if damage == "mismatch":
+            employee["precision"] = 18
+
+    finished = "2026-04-17T11:45:00.000000Z" if damage == "stale" else "2026-04-17T11:50:00.000000Z"
+    cfg, m, a, paths, directory, gate = capture_gate_setup(
+        tmp_path, finished=finished, change=prepare
+    )
+    before = {p: p.read_bytes() for p in directory.iterdir()}
+    controls = {p: p.read_bytes() for p in paths}
+    manifest_before = copy.deepcopy(m)
+    if damage is None:
+        ctx = gate.authorize_capture(a["tick_id"], cfg.targets[0])
+        assert ctx.action == "capture_once"
+        assert m["permissions"]["account_update"] is False
+        assert m["permissions"]["write_fields"] == []
+    else:
+        with pytest.raises(CRMRefused):
+            gate.authorize_capture(a["tick_id"], cfg.targets[0])
+    assert {p: p.read_bytes() for p in directory.iterdir()} == before
+    assert {p: p.read_bytes() for p in paths} == controls
+    assert m == manifest_before
+
+
 def test_capture_requires_matching_observed_metadata_and_full_readiness(tmp_path):
     cfg, m, a, paths, directory, gate = capture_gate_setup(tmp_path)
     ctx = gate.authorize_capture(a["tick_id"], cfg.targets[0])

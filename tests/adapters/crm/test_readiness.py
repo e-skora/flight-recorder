@@ -220,6 +220,95 @@ def report(cfg, document, now=NOW):
     return api.validate_readiness(api.ReadinessManifest.from_document(document), cfg, now=now)
 
 
+def test_read_only_standard_employee_integer_zero_precision_is_compatible(tmp_path):
+    cfg = config(tmp_path)
+    document = declaration(cfg, "read_only")
+    document["permissions"].update(account_update=False, write_fields=[])
+    employee = next(f for f in document["field_schema"] if f["name"] == "NumberOfEmployees")
+    employee.update(kind="int", precision=0, scale=0)
+    before = copy.deepcopy(document)
+    result = report(cfg, document)
+    assert result.ready_for_read, result.reasons
+    assert not result.ready_for_write
+    assert document == before
+
+
+@pytest.mark.parametrize("precision", [1, 18, 64])
+@pytest.mark.parametrize("kind", ["int", "double"])
+def test_employee_positive_precision_remains_compatible(tmp_path, precision, kind):
+    cfg = config(tmp_path)
+    d = declaration(cfg, "read_only")
+    d["permissions"].update(account_update=False, write_fields=[])
+    employee = next(f for f in d["field_schema"] if f["name"] == "NumberOfEmployees")
+    employee.update(kind=kind, precision=precision, scale=0)
+    result = report(cfg, d)
+    assert result.ready_for_read and not result.ready_for_write
+
+
+@pytest.mark.parametrize("name", sorted(NUMERIC))
+@pytest.mark.parametrize("kind", ["int", "double"])
+def test_numeric_zero_precision_is_exclusive_to_standard_employee_int(tmp_path, name, kind):
+    cfg = config(tmp_path)
+    d = declaration(cfg, "read_only")
+    d["permissions"].update(account_update=False, write_fields=[])
+    field = next(f for f in d["field_schema"] if f["name"] == name)
+    field.update(kind=kind, precision=0, scale=0)
+    result = report(cfg, d)
+    expected = name == "NumberOfEmployees" and kind == "int"
+    assert result.ready_for_read is expected
+    assert not result.ready_for_write
+    assert ("field_schema_unqualified" in result.reasons) is (not expected)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"precision": None},
+        {"precision": -1},
+        {"precision": 65},
+        {"scale": None},
+        {"scale": -1},
+        {"scale": 1},
+        {"kind": "string"},
+        {"kind": "integer"},
+        {"kind": "double"},
+        {"name": "EmployeeCount__c"},
+    ],
+)
+def test_employee_zero_precision_does_not_bypass_other_schema_checks(tmp_path, change):
+    cfg = config(tmp_path)
+    d = declaration(cfg, "read_only")
+    employee = next(f for f in d["field_schema"] if f["name"] == "NumberOfEmployees")
+    employee.update(kind="int", precision=0, scale=0)
+    employee.update(change)
+    result = report(cfg, d)
+    assert not result.ready_for_read and not result.ready_for_write
+    assert "field_schema_unqualified" in result.reasons
+
+
+@pytest.mark.parametrize("key", ["precision", "scale"])
+@pytest.mark.parametrize("value", [True, False, 0.5, "0"])
+def test_employee_numeric_metadata_requires_exact_integer_types(tmp_path, key, value):
+    cfg = config(tmp_path)
+    d = declaration(cfg, "read_only")
+    employee = next(f for f in d["field_schema"] if f["name"] == "NumberOfEmployees")
+    employee.update(kind="int", precision=0, scale=0)
+    employee[key] = value
+    with pytest.raises(CRMRefused, match="^invalid_readiness_manifest$"):
+        feature().ReadinessManifest.from_document(d)
+
+
+@pytest.mark.parametrize("key", ["precision", "scale", "kind"])
+def test_employee_metadata_missing_required_member_is_refused(tmp_path, key):
+    cfg = config(tmp_path)
+    d = declaration(cfg, "read_only")
+    employee = next(f for f in d["field_schema"] if f["name"] == "NumberOfEmployees")
+    employee.update(kind="int", precision=0, scale=0)
+    del employee[key]
+    with pytest.raises(CRMRefused, match="^invalid_readiness_manifest$"):
+        feature().ReadinessManifest.from_document(d)
+
+
 def test_complete_declarations_are_not_attestation_or_execution_authority(tmp_path):
     cfg = config(tmp_path)
     result = report(cfg, declaration(cfg))

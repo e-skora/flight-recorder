@@ -289,7 +289,14 @@ def _schema_compatible(fields, artifact, authority):
                 field["kind"] in {"int", "double"}
                 and field["scale"] == 0
                 and type(field["precision"]) is int
-                and 1 <= field["precision"] <= 64
+                and (
+                    1 <= field["precision"] <= 64
+                    or (
+                        name == "NumberOfEmployees"
+                        and field["kind"] == "int"
+                        and field["precision"] == 0
+                    )
+                )
             ):
                 return False
         elif name in dates:
