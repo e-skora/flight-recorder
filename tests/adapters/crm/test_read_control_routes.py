@@ -221,8 +221,13 @@ def test_read_gets_never_contact_provider_or_queue_work(tmp_path):
         assert "HttpOnly" in response.headers["set-cookie"]
         assert "SameSite=strict" in response.headers["set-cookie"]
         assert response.headers["cache-control"] == "no-store"
-        assert response.headers["referrer-policy"] == "no-referrer"
-        assert client.get("/crm/read/result").status_code == 200
+        # A normal form POST with no-referrer sends Origin:null in a real browser.
+        # The connect page must preserve its same-origin POST without leaking a
+        # referrer to Salesforce. Redirect/callback responses still suppress it.
+        assert response.headers["referrer-policy"] == "same-origin"
+        result = client.get("/crm/read/result")
+        assert result.status_code == 200
+        assert result.headers["referrer-policy"] == "same-origin"
         assert provider.calls == provider.verifications == 0 and runtime.store.receipt_count() == 0
 
 
@@ -323,7 +328,41 @@ def test_callback_failure_redirect_is_query_free_and_redacted(tmp_path):
         assert response.status_code == 303 and response.headers["location"] == "/crm/read/result"
         assert "fictional-secret" not in response.text
         assert response.headers["cache-control"] == "no-store"
+        assert response.headers["referrer-policy"] == "no-referrer"
         assert "refused" in client.get("/crm/read/result").text
+
+
+@pytest.mark.parametrize("action", ["metadata_probe", "capture_once"])
+def test_non_oauth_pages_keep_referrer_suppression(tmp_path, action):
+    app, runtime, provider, paths = read_app_setup(tmp_path, action=action)
+    with TestClient(app, base_url="http://localhost:8768") as client:
+        for path in ("/crm/read", "/crm/read/result"):
+            response = client.get(path)
+            assert response.status_code == 200
+            assert response.headers["referrer-policy"] == "no-referrer"
+        assert runtime._http is runtime._tokens is None
+        assert provider.calls == provider.verifications == 0
+
+
+@pytest.mark.parametrize(
+    "origins",
+    [
+        [],
+        [("Origin", "null")],
+        [("Origin", "http://other.invalid")],
+        [("Origin", "http://localhost:8768"), ("Origin", "http://localhost:8768")],
+    ],
+)
+def test_oauth_form_still_rejects_missing_null_foreign_and_duplicate_origins(tmp_path, origins):
+    app, runtime, provider, paths = read_app_setup(tmp_path)
+    with TestClient(app, base_url="http://localhost:8768") as client:
+        token = csrf_from_page(client.get("/crm/read"))
+        response = client.post(
+            "/crm/read/connect", data={"csrf": token}, headers=origins, follow_redirects=False
+        )
+        assert response.status_code == 403
+        assert runtime._http is runtime._tokens is None
+        assert provider.calls == provider.verifications == 0
 
 
 def test_read_capture_uses_only_operator_tick_and_one_target(tmp_path):

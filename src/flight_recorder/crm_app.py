@@ -106,6 +106,16 @@ def create_crm_read_app(gate, *, runtime=None):
         ):
             response.headers["Cache-Control"] = "no-store"
             response.headers["Referrer-Policy"] = "no-referrer"
+            if (
+                request.method == "GET"
+                and request.url.path in {"/crm/read", "/crm/read/result"}
+                and gate.authority.document["action"] == "oauth_connect"
+                and response.status_code == 200
+            ):
+                # no-referrer makes a normal browser form POST send Origin:null.
+                # Preserve the local origin without sending a cross-origin
+                # referrer. Redirects and callbacks still use no-referrer.
+                response.headers["Referrer-Policy"] = "same-origin"
             response.headers["Content-Security-Policy"] = (
                 "default-src 'none'; script-src 'unsafe-inline'; connect-src 'self'; "
                 "form-action 'self' https:; frame-ancestors 'none'; base-uri 'none'"
