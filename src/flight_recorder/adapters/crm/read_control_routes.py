@@ -25,12 +25,54 @@ _STATES = frozenset(
         "refused",
     }
 )
+_OAUTH_REASONS = frozenset(
+    {
+        "read_callback_refused",
+        "invalid_request_headers",
+        "invalid_local_host",
+        "read_action_refused",
+        "read_control_file_changed",
+        "read_authority_refused",
+        "read_session_expired",
+        "invalid_oauth_callback",
+        "oauth_state_invalid",
+        "oauth_authorization_denied",
+        "oauth_client_secret_required",
+        "invalid_connection_config",
+        "invalid_connection_binding",
+        "private_file_invalid",
+        "token_material_missing",
+        "token_record_exists",
+        "token_expired",
+        "invalid_oauth_response",
+        "invalid_provider_response",
+        "invalid_provider_request",
+        "invalid_provider_identity",
+        "provider_identity_mismatch",
+        "provider_auth_refused",
+        "provider_request_refused",
+        "provider_transport_uncertain",
+        "unsupported_api_version",
+    }
+)
+
+
+def _oauth_refusal_reason(error):
+    # Never stringify exceptions, provider bodies or arbitrary detail/reason fields.
+    if type(error) is CRMRefused:
+        reason = error.reason
+    elif type(error) is HTTPException:
+        reason = error.detail
+    else:
+        return "unexpected_failure"
+    return reason if type(reason) is str and reason in _OAUTH_REASONS else "unclassified_refusal"
 
 
 def read_control_router(runtime):
     router = APIRouter()
     sessions, pending = {}, {}
     state = ["not_started"]
+    refusal = [None]
     gate = runtime.read_gate
 
     def result_redirect():
@@ -113,11 +155,19 @@ def read_control_router(runtime):
             if tick is not None
             else ""
         )
+        diagnostic = ""
+        if action == "oauth_connect" and state[0] == "refused" and refusal[0] is not None:
+            stage, reason = refusal[0]
+            diagnostic = (
+                f'<p data-oauth-stage="{stage}" data-oauth-reason="{reason}">'
+                f"Connection refused at {stage}: {reason}.</p>"
+            )
         markup = f'''<!doctype html><html lang="en"><meta charset="utf-8">
 <title>Flight Recorder · Salesforce test</title><body>
 <h1>Salesforce test connection</h1>
 <p>This session can {html.escape(name.lower())}. Score writes are unavailable.</p>
 <p>Status: <strong>{state[0]}</strong></p>
+{diagnostic}
 <form id="read-action"><input type="hidden" name="csrf" value="{csrf}">{tick_input}
 <button type="submit">{name}</button></form>
 <script>document.getElementById('read-action').addEventListener('submit', async (event) => {{
@@ -157,15 +207,19 @@ def read_control_router(runtime):
         )
         # Pending state belongs to this process and exact held action; no state survives restart.
         pending[result.state_reference] = (gate.fingerprint, context)
+        refusal[0] = None
         return RedirectResponse(result.url, status_code=303, headers=_HEADERS)
 
     @router.get("/api/internal/crm/oauth/salesforce/callback")
     async def callback(request: Request):
         states = []
+        progress = oauth.OAuthProgress()
         try:
             _headers(request, authenticated=False, body=False)
+            progress.advance("callback_authority")
             runtime.authority.assert_held()
             context = gate.authorize_oauth()
+            progress.advance("callback_parameters")
             raw = request.scope.get("query_string", b"")
             require(len(raw) <= 16384, "read_callback_refused")
             items = parse_qsl(
@@ -177,6 +231,7 @@ def read_control_router(runtime):
             )
             states = [value for key, value in items if key == "state"]
             require(len(states) == 1 and type(states[0]) is str, "read_callback_refused")
+            progress.advance("callback_binding")
             reference = hashlib.sha256(states[0].encode("utf-8")).hexdigest()
             bound = pending.pop(reference, None)
             require(
@@ -187,6 +242,7 @@ def read_control_router(runtime):
             )
             bound[1].check()
             runtime._read_context = bound[1]
+            progress.advance("credential_precondition")
             secret_path = gate.config.document["credential_directory"]
             from pathlib import Path
 
@@ -204,13 +260,16 @@ def read_control_router(runtime):
                 _LazyHTTP(runtime),
                 runtime.clock,
                 client_secret=secret,
+                progress=progress,
             )
             runtime._confirmed_connection = confirmed
             state[0] = "connected"
-        except Exception:
+            refusal[0] = None
+        except Exception as error:
             runtime._confirmed_connection = None
             request.app.state.oauth_sessions._discard(states)
             state[0] = "refused"
+            refusal[0] = (progress.stage, _oauth_refusal_reason(error))
         return result_redirect()
 
     @router.post("/crm/read/metadata")

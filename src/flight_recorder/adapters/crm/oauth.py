@@ -15,6 +15,37 @@ from flight_recorder.adapters.crm.salesforce import identity_url, verify_materia
 from flight_recorder.adapters.crm.secrets import TokenMaterial
 
 
+class OAuthProgress:
+    """Process-local diagnostic labels only; never credentials or authorization."""
+
+    _STAGES = frozenset(
+        {
+            "callback_headers",
+            "callback_authority",
+            "callback_parameters",
+            "callback_binding",
+            "callback_validation",
+            "state_validation",
+            "credential_precondition",
+            "token_exchange",
+            "token_response",
+            "connection_verification",
+            "credential_installation",
+        }
+    )
+
+    def __init__(self):
+        self._stage = "callback_headers"
+
+    @property
+    def stage(self):
+        return self._stage
+
+    def advance(self, stage):
+        require(type(stage) is str and stage in self._STAGES, "invalid_oauth_diagnostic")
+        self._stage = stage
+
+
 @dataclass(frozen=True, repr=False)
 class AuthorizationRequest:
     url: str
@@ -145,7 +176,12 @@ def _parse_tokens(config, response, client_secret, *, previous=None):
     return material, identity
 
 
-def finish_oauth(config, session_store, token_store, callback, http, clock, *, client_secret=None):
+def finish_oauth(
+    config, session_store, token_store, callback, http, clock, *, client_secret=None, progress=None
+):
+    require(progress is None or type(progress) is OAuthProgress, "invalid_oauth_diagnostic")
+    mark = progress.advance if progress is not None else lambda stage: None
+    mark("callback_validation")
     require(type(config) is ConnectionConfig, "invalid_connection_config")
     config.__post_init__()
     require(type(session_store) is OAuthSessionStore, "oauth_state_invalid")
@@ -167,7 +203,9 @@ def finish_oauth(config, session_store, token_store, callback, http, clock, *, c
     if not unambiguous:
         session_store._discard(states)
         raise CRMRefused("invalid_oauth_callback") from None
+    mark("state_validation")
     verifier = session_store._take(config, states[0], clock)
+    mark("callback_validation")
     require(
         all(
             type(item) in (tuple, list) and len(item) == 2 and type(item[0]) is str
@@ -185,6 +223,7 @@ def finish_oauth(config, session_store, token_store, callback, http, clock, *, c
         raise CRMRefused("invalid_oauth_callback") from None
     if "error" in callback:
         raise CRMRefused("oauth_authorization_denied") from None
+    mark("credential_precondition")
     if client_secret is not None:
         private_text(client_secret)
     require(
@@ -209,8 +248,13 @@ def finish_oauth(config, session_store, token_store, callback, http, clock, *, c
     )
     if config.code_secret_required:
         form["client_secret"] = client_secret
-    material, identity = _parse_tokens(config, http.post_token(form), client_secret)
+    mark("token_exchange")
+    response = http.post_token(form)
+    mark("token_response")
+    material, identity = _parse_tokens(config, response, client_secret)
+    mark("connection_verification")
     confirmed = verify_material(config, material, http, clock, identity=identity)
+    mark("credential_installation")
     token_store.install(config.connection_id, config.binding, material)
     return confirmed
 
