@@ -24,7 +24,10 @@ MARKER = "fictional-private-verification-marker"
         ("identity_fields", "identity_validation", "provider_identity_mismatch"),
         ("versions_size", "versions_request", "invalid_provider_response"),
         ("versions_json", "versions_json", "invalid_provider_response"),
-        ("versions_entry", "versions_validation", "invalid_provider_response"),
+        ("versions_entry_type", "versions_entry_type", "invalid_provider_response"),
+        ("versions_version_type", "versions_version_type", "invalid_provider_response"),
+        ("versions_version_grammar", "versions_version_grammar", "invalid_provider_response"),
+        ("versions_entry", "versions_entry_url", "invalid_provider_response"),
         ("versions_type", "versions_validation", "unsupported_api_version"),
         ("versions_missing", "versions_validation", "unsupported_api_version"),
     ],
@@ -59,6 +62,14 @@ def test_refused_verification_reports_safe_boundary_and_never_installs_credentia
             )
         if fault == "versions_type":
             return httpx.Response(200, json={"private": MARKER})
+        if fault == "versions_entry_type":
+            return httpx.Response(200, json=[None])
+        if fault == "versions_version_type":
+            return httpx.Response(200, json=[{"version": 64, "url": "/" + MARKER}])
+        if fault == "versions_version_grammar":
+            return httpx.Response(
+                200, json=[{"version": MARKER, "url": "/services/data/v" + MARKER}]
+            )
         if fault == "versions_entry":
             return httpx.Response(200, json=[{"version": "64.0", "url": "/" + MARKER}])
         assert fault == "versions_missing"

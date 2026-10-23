@@ -36,6 +36,10 @@ class OAuthProgress:
             "versions_request",
             "versions_json",
             "versions_validation",
+            "versions_entry_type",
+            "versions_version_type",
+            "versions_version_grammar",
+            "versions_entry_url",
             "credential_installation",
         }
     )

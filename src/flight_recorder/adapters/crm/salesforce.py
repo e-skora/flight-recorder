@@ -268,14 +268,22 @@ def verify_material(config, material, http, clock, *, identity=None, progress=No
     require(type(versions) is list and 1 <= len(versions) <= 1000, "unsupported_api_version")
     supported = set()
     for entry in versions:
+        mark("versions_entry_type")
+        require(type(entry) is dict, "invalid_provider_response")
+        mark("versions_version_type")
+        require(type(entry.get("version")) is str, "invalid_provider_response")
+        mark("versions_version_grammar")
         require(
-            type(entry) is dict
-            and type(entry.get("version")) is str
-            and bool(re.fullmatch(r"[1-9][0-9]*\.0", entry["version"], re.ASCII))
-            and entry.get("url") == "/services/data/v" + entry["version"],
+            bool(re.fullmatch(r"[1-9][0-9]*\.0", entry["version"], re.ASCII)),
+            "invalid_provider_response",
+        )
+        mark("versions_entry_url")
+        require(
+            entry.get("url") == "/services/data/v" + entry["version"],
             "invalid_provider_response",
         )
         supported.add(entry["version"])
+    mark("versions_validation")
     require(config.api_version in supported, "unsupported_api_version")
     return ConfirmedConnection(
         config.connection_id,
