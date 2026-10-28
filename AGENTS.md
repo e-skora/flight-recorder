@@ -137,3 +137,14 @@ Cowork/coordinating Claude remains responsible for coordination and STATE.md; th
 For session transitions, this newer instruction supersedes older manual-relay-only directions. All other project roles, scope and action boundaries remain in force.
 
 Continue to inform current collaborators of a verified successor and record destination, freshness, delivery and pickup separately. If automatic renewal is unavailable, provide the saved absolute-path continuation prompt.
+
+## 15. Proportionate delivery and documentation
+
+Owner request, 2026-10-27: address the excessive process around small changes. Follow `docs/DELIVERY-PLAYBOOK.md` for ordinary product and documentation work.
+
+- Use checks proportionate to the affected behavior. For styles, preserve the affected-view/browser checks and shared CSS guards. For semantic/security changes, preserve the required invariants and nonauthor review.
+- Run applicable local checks and required remote CI. Do not repeat a full local suite, qualification or review solely because a chat restarts with unchanged bytes. A failure or unresolved risk can justify broader checks. Do not weaken assertions to obtain green CI.
+- Treat ordinary diagnosis and bounded correction as part of the approved task. Ask again only for an actual consequential change or unavoidable permission barrier.
+- Keep one concise completion record with revision, test/run evidence, limits and next action; link detailed evidence when it is genuinely needed. Update affected factual guides alongside the change.
+- Section 12 still governs separately scoped workflow adoption and dispatch. It does not require workflow installation/requalification for an ordinary text or style fix. Preserve registered guards, explicit action limits and session-continuity obligations.
+- These delivery rules grant no new publication, merge, deployment, spending, account, credential, customer-data, CRM-write or native desktop-control authority. The coordinator retains STATE/DECISIONS ownership.
