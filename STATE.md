@@ -12,6 +12,7 @@ Build Flight Recorder into a decision-observability product that real sales team
 
 - `main` on GitHub and on the Mac: the D-028 adoption commit, on top of `830ac4e106c2775a4a030e0e15974d3e573d8fa5`.
 - Last passing CI on code: run 40642132714 on `830ac4e` (lint, 2,530 general tests, 294 invariant tests, 1 inert skip). The Linux failures of 2026-10-27 were fixed in PR #9.
+- CI run 40650608921 passed on the D-028 adoption commit `1b69ed78772a9d134d6ed108f8db647afe5f07c9` (checked 2026-10-28T08:10Z).
 - Untracked local material (`.workflow/`, `CLAUDE.md`, `Claude outputs/`, `docs/planning/`) stays local and unpublished.
 
 ## What exists today
