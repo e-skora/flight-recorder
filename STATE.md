@@ -30,4 +30,4 @@ Deployment model; hosting, database and authentication providers; capacity, reco
 
 ## Next Action (exactly one)
 
-Prepare the architecture proposal for the first private production slice (company workspaces, sign-in, company isolation and decision ingestion; `PRODUCT.md` §2, §5 and §6), with options and tradeoffs for the owner's decisions on hosting, database and authentication. Nothing is built, bought, connected or deployed until he decides.
+Codex lead: prepare the architecture proposal for the first private production slice (company workspaces, sign-in, company isolation and decision ingestion; `PRODUCT.md` §2, §5 and §6), with options and tradeoffs for the owner's decisions on hosting, database and authentication. Nothing is built, bought, connected or deployed until he decides.
