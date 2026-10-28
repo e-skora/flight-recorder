@@ -21,7 +21,9 @@ def fake(number):
 @given(st.lists(st.booleans(), min_size=1, max_size=20))
 @settings(deadline=None)
 def test_each_cas_changes_one_generation_and_stale_attempt_changes_nothing(actions):
-    with tempfile.TemporaryDirectory(prefix="fr-secret-generative-", dir="/private/tmp") as name:
+    with tempfile.TemporaryDirectory(
+        prefix="fr-secret-generative-", dir=Path(tempfile.gettempdir()).resolve()
+    ) as name:
         store = TokenStore(Path(name))
         store.install("fictional", BINDING, fake(0))
         generation = 1
@@ -52,7 +54,9 @@ def test_each_cas_changes_one_generation_and_stale_attempt_changes_nothing(actio
 )
 @settings(deadline=None)
 def test_non_exact_positive_generation_cannot_mutate_store(generation):
-    with tempfile.TemporaryDirectory(prefix="fr-secret-types-", dir="/private/tmp") as name:
+    with tempfile.TemporaryDirectory(
+        prefix="fr-secret-types-", dir=Path(tempfile.gettempdir()).resolve()
+    ) as name:
         store = TokenStore(name)
         store.install("fictional", BINDING, fake(0))
         before = next(Path(name).glob("*.json")).read_bytes()
@@ -66,7 +70,9 @@ def test_non_exact_positive_generation_cannot_mutate_store(generation):
 @given(st.text(alphabet="abcdefghijklmnopqrstuvwxyz0123456789/ .", min_size=1, max_size=64))
 @settings(deadline=None)
 def test_exact_connection_identity_never_uses_path_components(connection):
-    with tempfile.TemporaryDirectory(prefix="fr-secret-identity-", dir="/private/tmp") as name:
+    with tempfile.TemporaryDirectory(
+        prefix="fr-secret-identity-", dir=Path(tempfile.gettempdir()).resolve()
+    ) as name:
         store = TokenStore(name)
         store.install(connection, BINDING, fake(0))
         assert store.load(connection, BINDING) == fake(0)
@@ -79,7 +85,9 @@ def test_exact_connection_identity_never_uses_path_components(connection):
 @given(st.booleans(), st.integers(min_value=1, max_value=10**20))
 @settings(deadline=None)
 def test_refresh_claim_is_single_use_even_after_reopen(finish, salt):
-    with tempfile.TemporaryDirectory(prefix="fr-secret-refresh-", dir="/private/tmp") as name:
+    with tempfile.TemporaryDirectory(
+        prefix="fr-secret-refresh-", dir=Path(tempfile.gettempdir()).resolve()
+    ) as name:
         store = TokenStore(name)
         store.install("fictional", BINDING, fake(0))
         claim = store.begin_refresh("fictional", BINDING, expected_generation=1)

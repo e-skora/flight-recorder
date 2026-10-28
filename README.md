@@ -38,14 +38,16 @@ is claimed.
 
 ## Synthetic data
 
-All of the data here is simulated:
+All of the canonical public-demo data here is simulated:
 
 - Apollo-, Clay-, CRM- and outcome-like events are **simulated**, not received from a vendor.
 - **RelayBridge**, the operating company whose workflow records the decisions, is fictional.
 - **NovaSignal AI**, the canonical prospect, is fictional. So is every other account in the
   ledger, and so is every decision, action and outcome recorded against them.
-- Nothing is connected to a live customer system. No live vendor integrations exist, and the
-  demo needs no credential of any kind.
+- The public synthetic demo is not connected to a live customer system and needs no credential.
+  Separately, a local, opt-in Salesforce test path has been qualified read-only against one
+  fictional Account in an isolated developer organization, including offline inspection/replay.
+  That limited proof does not qualify production customer use or live CRM score writes.
 
 The application says the same thing on every page, in a disclosure banner above the content.
 
@@ -398,8 +400,9 @@ passing the same variable, or `--db`, to every command in the sequence.
 ## Public read-only mode
 
 The repository also contains a second way to serve the same pages: a public, read-only mode
-meant for a hosted demonstration. No hosted demo exists yet; this section describes what the
-mode does and how to run it locally the way a host would.
+used by the live [public synthetic demo](https://flight-recorder.app). This section describes
+that read-only mode and how to run it locally. The hosted demo is separate from the private
+Salesforce controls; publication of newer source code does not imply a deployment.
 
 It serves three public pages and the demo behind them: **Home** at `/`, which introduces the
 project and answers three example questions from the demo's own data (its replay example is
@@ -510,12 +513,11 @@ earlier commit could not have produced.
   append-only guards, the atomic multi-table writes and the deterministic seed easy to state
   and easy to test. Timezone handling is explicit at the Pydantic boundary because SQLite has
   no timezone-aware type.
-- **A read-only public mode, and no hosted demo yet.** The repository contains a separate
-  read-only public mode and host configuration for one small service (`render.yaml`), but
-  nothing is deployed: the setup above is the only way to run it today, and a reader has to
-  install something before they see it work. The public mode leaves the collector out
-  entirely rather than guarding it, so a hosted copy could show replay and Insights with no
-  write path at all, at the cost of a second application factory to keep correct.
+- **A separately hosted, read-only synthetic demo.** The public site at
+  [flight-recorder.app](https://flight-recorder.app) leaves the collector out entirely rather
+  than guarding it. The private Salesforce workflow is not exposed there. Source publication
+  and production deployment are separate actions; `render.yaml` disables automatic deployment.
+  The two application modes have separate data and readiness boundaries.
 - **Counterfactuals are never persisted.** Recomputing on every page load costs a
   reconstruction plus an evaluation per request. In exchange, there is no schema in which a
   counterfactual could be mistaken for something that occurred.
@@ -547,13 +549,17 @@ earlier commit could not have produced.
 
 Plain, user-visible limitations:
 
-- **No deployment and no hosted demo.** You run it locally or not at all.
+- **No private production customer service.** A public read-only synthetic demo is live;
+  enterprise authentication, company isolation, production operations and customer onboarding
+  have not been qualified.
 - **No rule editor in the product.** All three logic versions are fixtures registered through
   the collector. Changing scoring logic means registering a new artifact, not editing a form.
 - **No authentication and no multi-tenancy.** The operating company is presentation context,
   not a tenant boundary. Anyone who can reach the port sees everything.
-- **No live vendor integrations.** Nothing talks to Apollo, Clay, Salesforce, HubSpot or a
-  sales-engagement tool, and no credential is accepted anywhere.
+- **No qualified production vendor integration.** Salesforce has a bounded read-only
+  developer-org proof for one fictional Account. Live Salesforce score writes, live HubSpot,
+  Apollo, Clay and sales-engagement connectors are not qualified. The public demo remains
+  credential-free; the private local Salesforce path uses separately configured credentials.
 - **No outreach execution.** It records a simulated action; it does not execute autonomous
   outreach, generate email or manage sequences.
 - **One replayable decision class.** Account prioritization only. Discovery, enrichment,
