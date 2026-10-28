@@ -1,194 +1,146 @@
-# GTM Flight Recorder — Product Truth
+# GTM Flight Recorder: Enterprise Product Contract
 
-> **Status:** Ratified repository product truth  
-> **Provenance:** Distilled from `02-MVP-CONTRACT.md` v1.2 and `05-CORE-INVARIANTS.md` v1.1, both ratified by explicit user decision on 2026-09-01, plus the principles from `04-PRODUCT-PRINCIPLES.md` needed to preserve their meaning. Initialized 2026-09-02.  
-> **Authority:** This file and `DECISIONS.md` are now authoritative for durable product truth, subordinate only to the user's explicit current decision. Where this file is silent, the ratified sources remain informative; where it is explicit, it controls.  
-> **Change control:** Changing a MUST, WILL NOT, the primary user, core promise, decision class, an invariant, a canonical score, or a completion gate requires the user's explicit approval and a `DECISIONS.md` entry. Editorial clarification that does not alter behavior or proof obligations may be made directly. Conflicts are surfaced, never silently reconciled.
+> **Status:** Ratified repository product truth, adopted 2026-10-28 by D-028. It states required behavior and release obligations, not implemented capability; `STATE.md` says what is built today.  
+> **Authority:** This file and `DECISIONS.md` are authoritative for durable product truth, subordinate only to the owner's explicit current decision. Changing the promise, the first-release boundary, a decision class, an invariant or a release gate requires the owner's explicit approval and a `DECISIONS.md` entry.  
+> **First release:** the owner selected "Record and replay existing tools' decisions". Existing sales tools keep account scoring and routing; Flight Recorder records, verifies, investigates and supports honestly labeled replay. Vendor, hosting, database, authentication-provider and deployment choices are not yet decided.  
+> **History:** the former synthetic-MVP contract is preserved at `docs/history/PRODUCT-synthetic-mvp.md`. References to `PRODUCT.md` sections in code comments, tests and decisions written before 2026-10-28 refer to that document.
 
-Contract language: **MUST** = required for the relevant completion gate; **MUST NOT** = prohibited; **SHOULD** = expected unless a documented reason justifies omission; **MAY** = permitted; **WILL NOT** = outside the MVP.
+## 1. Product and users
 
-## 1. What This Is
+Flight Recorder is the decision observability and investigation platform for enterprise revenue operations. It connects a company's existing sales systems and workflows, preserves the recorded basis of automated decisions, makes failures and changes inspectable, and helps authorized people evaluate changes without rewriting history.
 
-**Category:** Observability for automated revenue decisions.
+The primary operator is a GTM engineer, RevOps operator, or revenue-systems owner. Sales managers and authorized sales representatives are consumers of explanations and investigation results. Company administrators manage membership and connections. A company is a real authorization and data boundary, never a cosmetic label.
 
-**Thesis:** Once GTM software starts making decisions rather than merely executing instructions, revenue teams need a way to inspect, replay, and debug those decisions.
+The first useful production workflow is: an operator connects an approved Salesforce organization and instruments one existing account-prioritization workflow; decisions arrive continuously with their historical context and logic identity; a sales manager questions an account's treatment; an authorized operator finds the decision, verifies its basis, compares a supported proposed rule version, and shares the investigation inside the company. A second operator can complete this without the founder's laptop or assistance.
 
-**Product form:** A web application with a small, versioned decision-event ingestion API. It is not fundamentally an MCP server; an MCP or agent-query interface is a possible post-MVP extension and is not required.
+A public synthetic demo remains separately deployed and cannot access production tenants or credentials. RelayBridge and NovaSignal AI remain fictional fixtures. Merge remains only a public reference archetype.
 
-**Primary user:** A GTM engineer, technical RevOps operator, or revenue-systems owner responsible for automated account-prioritization logic at a scaling B2B SaaS company.
+## 2. Scope and staged capability
 
-**Organizational ICP:** A lean technical GTM team, thousands of accounts, material signal-based automation, a fragmented revenue stack, frequently changing logic, and outcomes evaluable within useful windows. Roughly 75–500 employees is the design center, not an eligibility rule.
+### First production vertical slice
 
-**Roles that MUST stay distinct:**
+- Company workspaces, authenticated membership, permission enforcement, audit events, and service credentials.
+- A versioned event-ingestion API and one supported production Salesforce read/observation connection.
+- A documented way for an existing customer workflow to submit the evidence and logic/execution version it actually used. Polling current CRM fields alone cannot recover historical decision context.
+- Account-prioritization inspection, search/filtering, trace navigation, saved investigation links, original verification where supported, and explicitly labeled counterfactual evaluation.
+- Observable ingestion/connector health, backpressure and recovery, actionable errors, operational backup/restore, measured capacity, and support procedures.
+- A real team's repeatable use and acceptance, not only a fictional-record developer-org walkthrough.
 
-| Role | Definition |
+### Owner-selected first-release boundary
+
+**Owner decision, 27 October 2026:** existing sales tools continue making and executing decisions; Flight Recorder records, verifies, investigates, and simulates. Optional managed scoring/routing would create an additional execution product with approval, rollout, rollback, conflict, and failure semantics. Do not quietly add it while implementing observability.
+
+Account prioritization is the first fully supported class, not a permanent architectural ban on routing, qualification, or other decisions. The record model must name its decision class and replay capability. A second class enters only with its own semantics, workflow, and tests. Do not build a universal arbitrary-workflow executor before the first real team has a usable path.
+
+### Separate later releases
+
+HubSpot follows a working Salesforce/customer workflow. Clay/Apollo can initially submit through the supported collector contract; native connectors are added only when needed for a demonstrated customer workflow. CRM write-back and managed scoring/routing require their own qualified release. No autonomous outreach, causal-lift claim, compliance certification, or exact replay of an unretained external AI/model execution is implied.
+
+## 3. End-to-end behavior
+
+1. An administrator creates a company workspace and adds users. Invitations expire and cannot grant access to another company.
+2. An authorized integration administrator connects the intended Salesforce organization through a supported, least-privilege flow. The product shows the organization and allowed operations without exposing credentials.
+3. The operator selects the approved account/field scope and instruments the existing decision workflow. A connection test, metadata check, event receipt, decision verification, and continuously healthy ingestion are separate statuses.
+4. Authorized ingestion authenticates a principal, derives company scope from that principal, validates the versioned envelope, and atomically admits or rejects the event. It never trusts a client-supplied company identifier as authorization.
+5. The trace exposes evidence availability/consumption states, source observations, occurrence/availability/ingestion times, source execution and workflow versions, recorded output, downstream actions, and later outcomes.
+6. The product either verifies a supported original, labels an original as recorded but not exactly verifiable, or exposes a named integrity/unavailability failure. It never substitutes today's CRM values for missing history.
+7. An authorized operator selects a supported proposed logic version for counterfactual evaluation. Results are separate from originals, clearly labeled, and cannot trigger CRM writes or enter actual-outcome statistics.
+8. The team can find and share an investigation through authenticated links, with filters and explanations understandable to its sales users. Access is checked on every read/export, not just on page navigation.
+9. Connector failures, expired access, rate limiting, stale ingestion, and unavailable replay appear visibly with an actionable recovery path. Restarting a process does not silently lose or duplicate accepted work.
+
+## 4. Data and replay contract
+
+Preserve existing INV-01..INV-11, defined exactly in Appendix A with their acceptance mapping, and the legacy canonical fixtures/artifact hashes. Existing schema versions retain their exact wire semantics. New organization-scoped schemas and migrations must not add defaulted fields that silently change old canonical identities.
+
+Production records add explicit company scope, actor/service-principal identity, source workflow/run identity, decision class, ingestion identity, provenance, and declared verification capability. A foreign company account ID, artifact hash, event ID, operation ID, or export reference cannot be used to read or mutate another company's record. Idempotency and uniqueness are scoped and tested deliberately; canonical content and authorization remain separate checks.
+
+Replay capabilities are explicit:
+
+- **Exactly verifiable deterministic execution:** retained context, declarative logic, evaluator identity, and required artifacts permit exact verification. Missing/mismatched artifacts fail visibly.
+- **Recorded external execution:** retained inputs/outputs, prompt/model/tool/workflow identities and provenance can be inspected. Recording is not an exact reproduction guarantee.
+- **Simulation or reevaluation:** newly executed results are labeled with execution time, version, and nondeterminism/availability limits. They never masquerade as historical events.
+
+Production rules are organization-owned, versioned business logic, not the synthetic fixture weights. Historical scoring artifacts remain immutable; promotion of a new rule version is distinct from editing the old one. No rule editor is required before a supported artifact-registration/import workflow is usable and tested.
+
+The system records business-outcome attribution under an explicit named/versioned policy. Unknown/open windows, unresolved attribution, heuristic inference, and counterfactual results remain separate. No observed association becomes a causal claim.
+
+Retention and deletion must be designed before customer data is admitted: identify permitted data classes, retention periods, exports, and privileged deletion/restore authority. Append-only business records cannot be silently edited. If an approved retention/deletion action removes replay inputs, replay becomes explicitly unavailable and the governed deletion is auditable. The exact retention/immutability reconciliation needs an explicit design decision; no implementation may claim both indefinite reconstructability and complete deletion of the same data. Legacy canonical data is unaffected.
+
+## 5. Enterprise access and safety obligations
+
+- Authenticate humans and service principals; enforce company scope and role permissions on UI, API, searches, exports, jobs, caches, and connector operations.
+- Proposed minimum roles: company administrator; integration administrator; operator; viewer. Privilege changes, revocation, and disabled accounts take effect consistently. Final role details are settled with the first deployment's workflow.
+- Enterprise identity federation and mandatory MFA are release requirements when required for the target deployment. The first shared service may not invent a weak login as a temporary exception. Authentication protocol/provider selection receives a focused architecture decision.
+- Credentials are isolated per connection/company, protected in storage and transit, redacted from logs and exports, and have tested rotation/revocation/expiration behavior. Existing local file permissions alone are not the hosted secret-management design.
+- Ingestion has bounded request size, per-principal limits, timeouts, durable recovery, and explicit rejection. A noisy company cannot monopolize shared workers or expose another company's errors.
+- Audit privileged access, membership/configuration changes, rule promotion, exports, and connector actions. Application-level integrity and externally anchored tamper evidence are different claims; the release must state its privileged-administrator threat boundary.
+- Production data never enters the public demo, developer fixtures, AI services, or support exports by default. Any external data processing must be explicitly configured and authorized.
+
+Use a versioned security verification baseline such as [OWASP ASVS 5.0.0](https://asvs.owasp.org/) to derive concrete tests. This is a proposed engineering baseline, not certification or a claim that every control is already met.
+
+## 6. Operations and architecture obligations
+
+The production service must run independently of the founder's Mac. The existing Python/FastAPI/domain/replay work is a starting point. Preserve and reuse it where suitable; no rewrite is required just to change branding or database.
+
+Select a production persistence/deployment model by architecture decision against company isolation, concurrent writers, transaction semantics, migrations, recovery, and operating cost. A managed client/server database is the recommended candidate for a shared hosted service; no vendor or dependency is selected here. SQLite can remain for demo/local fixtures and migration verification. Storage choice alone does not establish tenant safety or enterprise readiness.
+
+Required operations: versioned migrations with rollback/restore procedure; encrypted backups outside the serving failure domain; a demonstrated restore into an isolated environment; ingestion lag, queue/backlog, error and auth/connector health metrics; actionable alerts and an identified responder; bounded retries that distinguish definitely-unsent work from uncertain external writes; deploy/rollback procedures; incident and support procedures; dependency/security maintenance; documented data handling.
+
+The following numbers are proposed initial engineering targets, **not measured capacity or customer SLAs**: one deployment supports 25 active team members, 100,000 account records, and 100,000 decisions/day at an explicitly modeled event-to-decision ratio. Exercise a declared 10-times-mean burst, concurrent UI traffic, and backfill while live ingestion runs. At that load, target p95 acknowledgment under one second and indexed account/decision lookup under two seconds, with zero accepted-event loss, no duplicate domain effects, and bounded backlog recovery. Data volume, payload sizes, retention, test duration, and error rate must be fixed in the workload before results count. The first customer's workload can change these proposed targets before implementation.
+
+Proposed recovery targets for the first deployment: restored data loss no greater than 15 minutes and service restoration within four hours, demonstrated by a restore drill. Document actual measured results and cost before making a contractual promise. Public-demo regeneration is not this backup test.
+
+## 7. Release gates
+
+| Gate | Required evidence |
 | --- | --- |
-| Organizational ICP | The category above, not one named company |
-| Primary user | GTM engineer, technical RevOps operator, or revenue-systems owner |
-| Verified reference archetype | **Merge** — used only as public evidence that the operating pattern exists |
-| Demo operating company | **RelayBridge** — explicitly fictional B2B integration and agent-connectivity platform |
-| Ledger account | A fictional prospect RelayBridge evaluates; canonical prospect **NovaSignal AI** |
+| Engineering baseline | Linux CI passes on the exact candidate; relevant macOS portability checks pass; known 11 failures are repaired without weakening tests; docs and current state agree with implemented behavior. |
+| Private hosted integration | Authenticated roles and service keys; two-company adversarial isolation tests; approved secrets/data model; continuous Salesforce sandbox ingestion across expiry, pagination/limits, restart, duplicate input, outage, and recovery; deterministic replay still uses historical evidence. No private data in the public demo. |
+| Real-team pilot | Explicitly authorized company/data scope, monitored deployment, restore drill, support owner, successful onboarding by someone other than the founder. At least two customer operators use a real recurring workflow over ten business days and document investigation usefulness, gaps, and acceptance. These are proposed acceptance criteria, not current achievements. |
+| Enterprise production release | Agreed workload and recovery evidence; security review and target customer's required identity/access/procurement controls; access revocation/export/deletion behavior; migration/rollback drill; incident response and operating ownership; no unresolved high-severity security/data-integrity issue. Real-data activation and production deployment are separately authorized. |
+| Optional CRM write release | Explicit customer/owner authority, smallest permission scope, per-target serialization, original-bound write intent, conditional/source-version handling, observed matching result, uncertain-send blocking, safe disable/rollback. A simulation or fake writer does not meet this gate. |
 
-The product and portfolio materials MUST NOT present Merge as a customer or tenant, claim Merge lacks internal observability, invent private Merge workflows or outcomes, or brand the application as built for Merge.
+No stage may be called enterprise-ready because the synthetic demonstration passes, a UI renders, a connector logged in once, or a document was approved. A public demo and a production customer service have different acceptance criteria.
 
-**The problem:** The user's stack can discover, enrich, score, route, and contact accounts, but mainly preserves current fields and completed actions. When a prioritization decision looks wrong later, the user cannot reliably recover what evidence was available, which evidence the logic consumed, which logic version ran, why, what action followed, what outcome occurred, or whether current logic would decide differently from the same historical evidence. Current data and edited workflows create hindsight contamination.
+## 8. Product acceptance beyond infrastructure
 
-## 2. Core Promise and Proof Obligations
+A release must solve an actual sales-operations problem: the team can identify a problematic account decision, understand the recorded evidence and version that produced it, assess a supported change, and share the result with the right people. Instrumentation must fit a supported existing workflow and document gaps it cannot capture. The operator must see when data stopped arriving. Measure onboarding effort, investigation success/time, recurring use, and reported usefulness. Do not invent business lift or customer validation.
 
-**Core promise:** For an account-prioritization decision submitted through the documented collector boundary, GTM Flight Recorder MUST preserve and expose the historical decision context, reproduce the original deterministic result, compare it with the result produced by current logic using only that historical context, and connect the decision to later action and outcome records under an explicit attribution policy.
+## 9. What does not change
 
-The MVP MUST prove all five claims:
+Historical truth before convenience; evidence before explanation; no hindsight leakage; original/counterfactual separation; immutable identity and provenance; atomic collector admission/idempotency; honest outcome attribution; canonical synthetic fixtures kept as regression evidence; default-off external actions; least privilege; no production credentials or customer data in Git.
 
-1. **Instrumentability** — a real workflow could submit a versioned decision event through a documented, idempotent collector contract.
-2. **Traceability** — an operator can follow an account from discovery through outcome and inspect the basis of its important automated decision.
-3. **Historical integrity** — later data, corrections, outcomes, and logic changes do not rewrite what the system knew or decided earlier.
-4. **Counterfactual replay** — current logic can evaluate the preserved historical context without importing present-day evidence.
-5. **System learning** — aggregated decision records recover known descriptive patterns planted in the synthetic dataset.
+Existing synthetic fixtures remain regression assets, not production business policy. Portfolio material becomes a byproduct of a useful, defensible product rather than the controlling completion gate.
 
-The MVP does not need to prove production scale, integration breadth, or autonomous execution.
+## 10. Adoption and unresolved decisions
 
-**One-sentence MVP:** A deterministic, portfolio-grade application in which a GTM engineer can ingest and inspect one automated account-prioritization decision end to end, reproduce it from preserved historical context and immutable declarative logic, compare that same context under current logic without hindsight leakage, connect the decision to later outcomes through an explicit attribution policy, and recover honest planted patterns from synthetic accounts.
+The enterprise destination and the observability-first release boundary are the owner's explicit decisions, recorded in D-028 on 2026-10-28. The initial deployment model, workload and recovery targets, retention semantics and a standing publication policy remain proposals; each is decided by the owner at its implementation gate and recorded in `DECISIONS.md`. Nothing in this contract by itself authorizes an implementation, account, credential, customer-data access, provider action, spending or deployment.
 
-## 3. MVP Boundary
+## Appendix A. Preserved semantic baseline and regression criteria
 
-**Fully supported, replayable decision class (exactly one):** Account prioritization — `PRIORITIZE` or `DO_NOT_PRIORITIZE`. This decision MUST expose its historical context, consumed inputs, contributions, score, logic version, confidence when meaningful, resulting action, cost, outcome, and replay comparison.
+The following definitions and mappings are retained verbatim from PRODUCT.md at commit `585c58219f6afcb655be0af852536a9915a17fd7`. They remain authoritative for supported deterministic replay and the legacy synthetic regression suite. Their synthetic acceptance cases do not replace the production release gates above. AC-12 describes the synthetic demonstration; authenticated production records must instead carry their truthful source and capability labels.
 
-**Surrounding trace events (required, not independently replayable):** discovery, enrichment, persona selection, outbound action, and outcome. They MAY carry explanations and versions; persona selection, play selection, and outreach generation are not required to be replayable. Additional replayable decision classes are post-MVP.
+### Core invariants
 
-**Explicit non-goals — the MVP WILL NOT include:** production Apollo, Clay, Salesforce, HubSpot, or sales-engagement integrations; a complete CRM or system of record; autonomous prospecting or outreach execution; email generation or sequence management; production multi-tenant auth, permissions, billing, or compliance architecture; enterprise-scale ingestion or streaming; an MCP server or agent-query interface; a generalized platform for every GTM decision class; exact replay of arbitrary nondeterministic external models; causal-inference claims from synthetic observational data; a full no-code scoring-model editor; required LLM calls in the core decision or replay path; human-versus-AI performance analysis; automated experimentation; production confidence calibration; integrations built only to display vendor logos; or infrastructure designed for hypothetical scale. Post-MVP ideas belong in a parking lot, not the active build.
+Non-negotiable semantic properties. They formalize the contract and grant no permission to expand scope. Weakening, removing, or excepting one requires the user's explicit approval and a `DECISIONS.md` entry.
 
-## 4. Required Product Experiences
+| ID | Rule | Covers |
+| --- | --- | --- |
+| INV-01 Historical Record Immutability | Once `d` is recorded, its timestamp, preserved context, consumed inputs, logic identity, output, score, and originally persisted explanation linkage MUST NOT be mutated by later account updates, corrections, logic changes, actions, outcomes, or regenerated explanations. Mutation tests must change current data, append corrected evidence, add an outcome, and activate new logic while the original stays equivalent in every protected field. | AC-04, AC-05, AC-10 |
+| INV-02 Time-Bounded Historical Context | `H(d)` contains only values and availability states preserved at `T(d)`; `available_at(e) > T(d) ⇒ e ∉ H(d)`. Boundary tests cover immediately before, exactly at, and immediately after, with timezone-aware timestamps. | AC-03, AC-04 |
+| INV-03 Historical Input States Remain Distinct | Distinguish: available and consumed; available but ignored; explicitly unavailable at `T(d)`; absent from the preserved context. Current logic MAY use ignored-but-available evidence; it treats absent/unavailable inputs as unknown. The canonical fixture shows integration pressure available, ignored by `v3.2`, consumed by `v5.1`; a separate test shows a historically unavailable input staying unknown; aggregate tests keep availability, consumption, and matching distinct. | AC-02, AC-06, AC-11 |
+| INV-04 Evidence Version and Provenance Integrity | Every consumed value references an immutable evidence version with provenance and availability-time metadata. Tests append a corrected version, retain both, and prove the original decision resolves to the original value and provenance. | AC-05, AC-08 |
+| INV-05 Declarative Logic and Evaluator Integrity | Every exactly replayable decision preserves immutable declarative rules, weights, missing-value behavior, threshold, output mapping, artifact schema, and evaluator-code identity. A label is metadata, not identity. Hash and evaluator identity are verified before exact replay; a missing or mismatched artifact is an explicit integrity failure. | AC-01, AC-07, AC-13, AC-17 |
+| INV-06 Original and Counterfactual Cannot Be Blurred | Stored original `R(Lh(d), H(d))` and computed counterfactual `R(Lc, H(d))` have separate labels, records, and persistence; the counterfactual never overwrites the original or appears as an event that occurred. | AC-01, AC-02, AC-10 |
+| INV-07 Explanation Is Not Evidence or Logic | Explanation presents the recorded basis; it is never the authoritative evidence, logic, or score. Regeneration is a new derived version or ephemeral; the original linkage stays intact; generated statements are traceable to recorded inputs or labeled interpretation. | AC-09 |
+| INV-08 Outcomes Remain Later, Separate Observations | Outcomes have explicit type and window; decision-level credit comes only from the named, versioned attribution policy as direct/inferred/unresolved; corrections append or supersede. The UI distinguishes an open window, a negative evaluated outcome, missing outcome data, and heuristic attribution. | AC-10, AC-16 |
+| INV-09 Unknown and Uncertainty Remain Honest | Preserve unknown/unavailable state; never manufacture certainty; confidence appears only with a defined source and meaning. Tests exercise missing-input and missing-artifact paths; the UI renders explicit unknown, unavailable, or integrity-failure states. | AC-06, AC-07 |
+| INV-10 Demonstration Claims Are Truthful | Synthetic data, simulated vendor events, observational comparisons, public reference-company evidence, and counterfactual outputs are labeled accurately. Never imply live integration, a real customer, private knowledge, causal proof, or an action that did not occur. | AC-11, AC-12, AC-14, AC-16 |
+| INV-11 Collector Identity and Idempotency | Every accepted event crosses the versioned collector with a stable identity; canonically identical retry has one domain effect; conflicting reuse or invalid envelope fails visibly without partial writes; canonical demo data uses the same boundary documented for external workflows. Tests cover valid ingestion, reordered-key retry, conflicting reuse, malformed payload, unsupported schema version, and atomic failure. | AC-15 |
 
-These are required experiences, not necessarily separate routes or screens.
+**Invariant review gate:** a feature touching evidence, time, decisions, replay, explanations, actions, outcomes, or Insights is complete only when the affected invariants are named; relevant automated tests (including property-based cases where required) pass locally and in CI; failure behavior is visible rather than silently repaired; completion evidence is pinned to the implemented commit; and any accepted semantic change is recorded durably in the repository. Passing ordinary UI or happy-path tests does not satisfy this gate.
 
-### 4.1 Decision-Event Collector
-
-One versioned ingestion boundary: `POST /api/v1/decision-events`.
-
-The documented envelope MUST include `schema_version`, a globally stable `event_id`, `event_type`, `source`, a stable `account_ref`, timezone-aware `occurred_at` and `recorded_at`, and a typed `payload`.
-
-The collector MUST support the event types needed for the canonical trace: account discovery, evidence recording, decision recording, persona-selection recording, action recording, and outcome recording. A decision payload MUST carry or reference its decision boundary, preserved historical context, consumed inputs, immutable logic artifact, and result. A resulting action MUST be recorded as a distinct action event linked to its decision.
-
-Idempotency: repeating the same `event_id` with a semantically identical envelope MUST be idempotent, where semantic identity means equality after schema validation and canonical JSON serialization (key order and insignificant formatting do not matter; every submitted field does). Reusing an `event_id` with different canonical content MUST fail visibly. Invalid events MUST be rejected without partial domain writes.
-
-At least one documented JSON example MUST show how a Clay HTTP step, n8n workflow, or equivalent could submit a decision. The canonical demo seed MUST enter through this collector boundary; tests MAY call the underlying service directly.
-
-### 4.2 Account Selection
-
-The user MUST be able to locate and open NovaSignal AI inside the RelayBridge operating-company context. This is presentation context, not multi-tenancy. The product SHOULD expose enough additional synthetic accounts to make the dataset and Insights credible.
-
-### 4.3 Account Trace
-
-The user MUST see the account's material events in chronological order: account discovered → enrichment recorded → evidence available → prioritization decision made → persona selected → outbound action taken → outcome evaluated. The trace MUST distinguish events, evidence, decisions, actions, and outcomes rather than presenting them as interchangeable records.
-
-### 4.4 Decision Inspection
-
-Opening the prioritization decision MUST show: decision timestamp; decision type and output; numeric score and threshold; workflow version; historical logic version; immutable logic-artifact identity; declarative ruleset and evaluator version; historical evidence context; which inputs the historical logic consumed; per-input contribution where supported; evidence source and relevant time metadata; confidence only if meaningfully produced; a human-readable explanation clearly distinguished from evidence; downstream action and cost; and the later outcome with its evaluation window and attribution status.
-
-The UI MUST make unavailable, ignored, and consumed inputs distinguishable.
-
-### 4.5 Decision Replay
-
-The user MUST be able to compare:
-
-```text
-preserved historical context + historical logic = original decision
-preserved historical context + current logic    = counterfactual current decision
-```
-
-The comparison MUST show historical and current logic versions; original and counterfactual scores; original and counterfactual outputs; changed, added, removed, or reweighted contributions; and any input required by current logic that was unavailable historically. The product MUST NOT imply that the counterfactual decision actually occurred.
-
-### 4.6 Aggregate Insights
-
-At least one aggregate view across the synthetic dataset MUST show: a signal or rule; the number of decisions in which it was available, consumed, or matched, with those states clearly distinguished; relevant outcome counts or rates; an observed comparison; attribution coverage or unresolved-outcome count; and labeling sufficient to prevent correlation being read as causation. Insights MUST display sample size and SHOULD expose the applicable outcome window. Counterfactual results MUST be excluded from aggregates of actual decisions and outcomes unless shown in a separately labeled simulation view.
-
-### 4.7 Synthetic-Data Disclosure
-
-The product and README MUST state plainly that Apollo-, Clay-, CRM-, and outcome-like events are simulated. The interface MUST NOT suggest connection to live customer systems. The interface and README MUST identify RelayBridge, NovaSignal AI, all other ledger accounts, and their decisions and outcomes as fictional or synthetic. Merge MAY be cited only as a public reference archetype, with an explicit statement that this establishes neither a customer relationship nor an unmet need.
-
-## 5. Required Historical Semantics
-
-Notation (from the invariants): `d` is a recorded prioritization decision; `T(d)` its explicit decision-time boundary; `H(d)` its preserved historical context (values and availability states presented to the decision system); `U(d)` the subset of `H(d)` consumed by historical logic; `Lh(d)` the preserved historical declarative logic artifact plus evaluator identity; `Lc` an explicitly selected current artifact plus evaluator identity; `R(L, H)` deterministic evaluation. The only two valid replay questions are `R(Lh(d), H(d))` = original decision and `R(Lc, H(d))` = counterfactual. Neither permits current evidence to replace or augment `H(d)`.
-
-- **Three things stay distinct:** historical context, consumed inputs, and current account state. Current logic MAY use a historical signal the earlier logic ignored; later evidence MUST NOT enter replay.
-- **Decision-time boundary:** each decision has an explicit boundary. Evidence not in `H(d)` at that boundary is missing or unknown during replay; the implementation MUST NOT fetch or substitute its current value. When evidence and decision share a displayed timestamp, inclusion is determined by recorded transaction/order or sealed-context membership, never by display precision.
-- **Corrections append:** a correction creates a new evidence version or event and MUST NOT mutate the version preserved for an earlier decision. It MAY affect later decisions.
-- **Historical logic is data:** a label such as `v3.2` is insufficient. Scoring logic MUST be stored as immutable declarative data preserving artifact and schema versions, decision class, factor definitions and weights, missing-value behavior, threshold and output mapping, activation metadata, canonical content hash, and the evaluator-code version required to interpret it. Changing any of these creates a new immutable identity. The artifact hash and evaluator identity MUST be verified before exact replay; a missing or mismatched artifact MUST fail explicitly, never fall back to a best-effort reconstruction presented as exact.
-- **Explanations are derived:** an explanation MUST be derived from or linked to recorded inputs and logic and MUST NOT replace them. A persisted original explanation and its linkage MUST remain; regeneration creates a new derived version or an ephemeral presentation and MUST NOT overwrite the original while presenting itself as historical. LLM-generated narrative MUST be labeled explanation, not evidence; the deterministic core MUST remain inspectable without an LLM.
-- **Confidence is honest:** confidence MAY be stored only when it has a defined meaning. The canonical decision does not emit confidence; the UI MUST show that it was not provided rather than inventing a percentage.
-- **Outcomes are later, separate observations:** recorded separately from the decision and MUST NOT rewrite it. Each evaluated outcome has an explicit type, occurrence/observation time, and evaluation window; a still-open window MUST NOT be treated as failure. Corrections to outcomes or attribution append or explicitly supersede; they never rewrite in place.
-- **Outcome attribution policy (`outcome-attribution-v1`):** (1) use an explicit, valid source-provided action or decision reference; (2) otherwise attribute to the most recent eligible outbound action for the same account that occurred before the outcome and within the declared window; (3) otherwise leave the outcome unresolved. An eligible action is an actual, recorded outbound action linked to an account-prioritization decision for the same account, with sent or completed status, occurring before the outcome and no more than 90 days earlier; counterfactual and failed-to-execute actions are ineligible. An explicit reference is valid only when it resolves to the original prioritization decision and/or its eligible action for the same account; if both are supplied their recorded relationship MUST agree. Every attribution result records policy version, method, window, referenced action and decision when resolved, attribution time, and status `direct`, `inferred`, or `unresolved`. Unresolved outcomes remain visible and MUST NOT enter decision-level performance metrics as if resolved; inferred attribution MUST be labeled heuristic; actual outcomes are never attributed to counterfactual decisions or actions.
-- **Replay honesty:** the MVP's deterministic logic MUST reproduce the original decision exactly. Documentation MUST NOT generalize that guarantee to nondeterministic models or unavailable external services; a replay lacking required execution artifacts is marked unavailable or non-exact, never fabricated.
-
-## 6. Required Conceptual Records
-
-The implementation MAY name or organize records differently but MUST represent these concepts and relationships:
-
-- **Account** — stable identifier; name and domain; basic firmographic display fields.
-- **Event** — stable identifier; ingestion schema version; account; event type; source; occurrence time; recorded time; payload or reference.
-- **Evidence Version** — stable immutable identifier; account; type and value; provenance/source; observed or effective time when meaningful; recorded/available time; source confidence when meaningful; correction/supersession relationship when applicable.
-- **Historical Decision Context** — decision; candidate input key; preserved value or unavailable status; linked evidence version when available.
-- **Consumed Decision Input** — decision; input key; preserved value; linked evidence version when applicable; contribution or role.
-- **Logic Version** — stable identifier; decision class; immutable declarative rules, weights, missing-value behavior, threshold, output mapping; artifact schema version and evaluator-code version; artifact hash or equivalent integrity identifier; activation metadata.
-- **Decision** — stable identifier; account; decision class; decision timestamp/boundary; workflow version; logic version; output; score and threshold when applicable; confidence when defined; explanation reference.
-- **Action** — stable identifier; triggering decision; action type; time; status; synthetic cost.
-- **Outcome** — stable identifier; account and any unmodified explicit source-provided action/decision reference; type and value; occurred/observed time; recorded time; evaluation window.
-- **Outcome Attribution** — stable identifier; outcome; policy version and method; attribution window; action and decision reference when resolved; attribution time; status `direct` / `inferred` / `unresolved`.
-
-A mutable foreign-key relationship alone is not a historical snapshot.
-
-## 7. Canonical Demo Fixture
-
-The canonical scenario MUST use **RelayBridge** (explicitly fictional demo operating company whose product helps B2B software teams connect their products and AI agents to customers' business systems through unified APIs and agent tooling) evaluating **NovaSignal AI** (explicitly fictional prospect). These roles and facts MUST be identical across collector payloads, UI, tests, screenshots, and README, sourced from one canonical location. Merge MUST NOT appear as a tenant or ledger account.
-
-**Historical context at decision time (all sealed as available by the boundary):**
-
-| Fact | Value |
-| --- | --- |
-| Decision boundary | `2026-04-17T10:05:02Z` |
-| Employees | `184` |
-| Industry | `B2B AI Software` |
-| Headquarters | `United States` |
-| Funding | Series B announced `18 days` earlier |
-| Hiring | `7` open platform-engineering positions |
-| Executive change | Head of Platform joined `43 days` earlier |
-| Verified integration pressure | `LOW` — one documented production integration, no public API, no agent-tool directory at the boundary |
-| Workflow version | `v4.2` |
-
-Evidence recorded after the boundary is excluded even if it describes an earlier real-world event. The integration-pressure evidence MUST be present in the historical context but ignored by `v3.2` — demonstrating the difference between available and consumed evidence.
-
-**Historical logic `v3.2`:** employee range match +25; B2B AI software vertical +20; recently funded +18; platform-engineering hiring +15; US headquarters +8 → score **86**, threshold **75**, decision **`PRIORITIZE`**.
-
-**Current logic `v5.1`:** employee range match +25; B2B AI software vertical +20; recently funded +4; platform-engineering hiring +15; US headquarters +8; low integration pressure −21 → score **51**, threshold **75**, decision **`DO_NOT_PRIORITIZE`**.
-
-**Action and outcome:** enroll in synthetic outbound play `#14` targeting Head of Platform; recorded synthetic cost `$1.42`; outcome window `90 days`; attribution `direct` to play `#14` under `outcome-attribution-v1`; reply no, meeting no, opportunity no. The demo MAY describe the prioritization hypothesis as unsupported within the window; it MUST NOT claim the funding signal caused the negative outcome. The canonical decision emits no confidence value.
-
-**Canonical demo journey the build MUST support:**
-
-1. Open NovaSignal AI inside RelayBridge and see the end-to-end trace.
-2. Inspect the original prioritization decision and its score of 86.
-3. See the historical evidence, provenance, consumed inputs, and model `v3.2`.
-4. See the downstream action, cost, and negative 90-day outcome.
-5. Open Insights and observe that the synthetic funding signal has little descriptive relationship with opportunity creation, verified integration pressure has a stronger relationship, and workflow `v4.2` underperforms its comparison cohort.
-6. Replay the preserved historical context under `v5.1`, which uses the historically available integration-pressure evidence.
-7. See the score change 86 → 51 and the output change `PRIORITIZE` → `DO_NOT_PRIORITIZE`.
-8. Verify that no present-day evidence entered the comparison.
-
-An in-product rule editor is not required; both logic versions MAY be predefined fixtures.
-
-## 8. Synthetic Dataset Requirements
-
-A deterministic, seeded synthetic dataset with at least **200** accounts and enough decision/outcome variation to support Insights. It MUST use plausible B2B firmographic and GTM values, preserve temporal ordering, contain positive and negative outcomes, include logic and workflow versions, include evidence-source metadata, produce the same canonical results from the same seed, and avoid real personal data.
-
-The generator MUST plant three documented synthetic behaviors:
-
-1. `recently_funded` appears in at least 50 prioritization decisions with an absolute observed 90-day opportunity-rate difference of no more than 2 percentage points between decisions with and without it;
-2. `verified_integration_pressure = HIGH` appears in at least 40 decisions with an observed 90-day opportunity rate at least 10 percentage points higher than the comparison group;
-3. workflow `v4.2` appears in at least 40 decisions with an observed 90-day opportunity rate at least 8 percentage points below the documented comparison workflow cohort.
-
-Expected effects MUST be stored in a machine-readable manifest separate from the analytics implementation. Analytics tests MUST recover all three from generated events within tolerance; the UI MUST NOT hard-code the conclusions. These planted behaviors validate the demonstration and calculations only — they are not market findings or causal evidence. The generator MAY be code- or fixture-driven. The final demo MUST NOT depend on a live third-party API or paid credential.
-
-## 9. Acceptance Criteria
+### Legacy acceptance mapping
 
 | ID | Criterion |
 | --- | --- |
@@ -211,56 +163,3 @@ Expected effects MUST be stored in a machine-readable manifest separate from the
 | AC-17 | Changing any rule, weight, threshold, missing-value behavior, artifact schema, or evaluator version creates or requires a new immutable logic identity; historical replay keeps the preserved combination. |
 | AC-18 | The automated suite includes generative or property-based cases injecting post-decision evidence, mutating current state, and varying timestamps immediately before, at, and after the boundary; the invariant suite passes in CI before ledger or replay work is complete. |
 | AC-19 | (SHOULD) A first-time viewer understands within 30 seconds that the product records why automated GTM decisions occurred and compares historical vs current logic without hindsight leakage. |
-
-## 10. Core Invariants
-
-Non-negotiable semantic properties. They formalize the contract and grant no permission to expand scope. Weakening, removing, or excepting one requires the user's explicit approval and a `DECISIONS.md` entry.
-
-| ID | Rule | Covers |
-| --- | --- | --- |
-| INV-01 Historical Record Immutability | Once `d` is recorded, its timestamp, preserved context, consumed inputs, logic identity, output, score, and originally persisted explanation linkage MUST NOT be mutated by later account updates, corrections, logic changes, actions, outcomes, or regenerated explanations. Mutation tests must change current data, append corrected evidence, add an outcome, and activate new logic while the original stays equivalent in every protected field. | AC-04, AC-05, AC-10 |
-| INV-02 Time-Bounded Historical Context | `H(d)` contains only values and availability states preserved at `T(d)`; `available_at(e) > T(d) ⇒ e ∉ H(d)`. Boundary tests cover immediately before, exactly at, and immediately after, with timezone-aware timestamps. | AC-03, AC-04 |
-| INV-03 Historical Input States Remain Distinct | Distinguish: available and consumed; available but ignored; explicitly unavailable at `T(d)`; absent from the preserved context. Current logic MAY use ignored-but-available evidence; it treats absent/unavailable inputs as unknown. The canonical fixture shows integration pressure available, ignored by `v3.2`, consumed by `v5.1`; a separate test shows a historically unavailable input staying unknown; aggregate tests keep availability, consumption, and matching distinct. | AC-02, AC-06, AC-11 |
-| INV-04 Evidence Version and Provenance Integrity | Every consumed value references an immutable evidence version with provenance and availability-time metadata. Tests append a corrected version, retain both, and prove the original decision resolves to the original value and provenance. | AC-05, AC-08 |
-| INV-05 Declarative Logic and Evaluator Integrity | Every exactly replayable decision preserves immutable declarative rules, weights, missing-value behavior, threshold, output mapping, artifact schema, and evaluator-code identity. A label is metadata, not identity. Hash and evaluator identity are verified before exact replay; a missing or mismatched artifact is an explicit integrity failure. | AC-01, AC-07, AC-13, AC-17 |
-| INV-06 Original and Counterfactual Cannot Be Blurred | Stored original `R(Lh(d), H(d))` and computed counterfactual `R(Lc, H(d))` have separate labels, records, and persistence; the counterfactual never overwrites the original or appears as an event that occurred. | AC-01, AC-02, AC-10 |
-| INV-07 Explanation Is Not Evidence or Logic | Explanation presents the recorded basis; it is never the authoritative evidence, logic, or score. Regeneration is a new derived version or ephemeral; the original linkage stays intact; generated statements are traceable to recorded inputs or labeled interpretation. | AC-09 |
-| INV-08 Outcomes Remain Later, Separate Observations | Outcomes have explicit type and window; decision-level credit comes only from the named, versioned attribution policy as direct/inferred/unresolved; corrections append or supersede. The UI distinguishes an open window, a negative evaluated outcome, missing outcome data, and heuristic attribution. | AC-10, AC-16 |
-| INV-09 Unknown and Uncertainty Remain Honest | Preserve unknown/unavailable state; never manufacture certainty; confidence appears only with a defined source and meaning. Tests exercise missing-input and missing-artifact paths; the UI renders explicit unknown, unavailable, or integrity-failure states. | AC-06, AC-07 |
-| INV-10 Demonstration Claims Are Truthful | Synthetic data, simulated vendor events, observational comparisons, public reference-company evidence, and counterfactual outputs are labeled accurately. Never imply live integration, a real customer, private knowledge, causal proof, or an action that did not occur. | AC-11, AC-12, AC-14, AC-16 |
-| INV-11 Collector Identity and Idempotency | Every accepted event crosses the versioned collector with a stable identity; canonically identical retry has one domain effect; conflicting reuse or invalid envelope fails visibly without partial writes; canonical demo data uses the same boundary documented for external workflows. Tests cover valid ingestion, reordered-key retry, conflicting reuse, malformed payload, unsupported schema version, and atomic failure. | AC-15 |
-
-**Invariant review gate:** a feature touching evidence, time, decisions, replay, explanations, actions, outcomes, or Insights is complete only when the affected invariants are named; relevant automated tests (including property-based cases where required) pass locally and in CI; failure behavior is visible rather than silently repaired; completion evidence is pinned to the implemented commit; and any accepted semantic change is recorded durably in the repository. Passing ordinary UI or happy-path tests does not satisfy this gate.
-
-## 11. Technical and Operational Constraints
-
-The MVP MUST: run locally from documented setup steps; use deterministic logic for the replayed decision class; require no production credentials for the canonical demo; include automated tests for AC-01 through AC-18 where technically applicable; run the invariant suite in CI; preserve timestamps with unambiguous timezone handling; use one canonical source for shared demo constants; fail visibly when replay integrity cannot be established; avoid color as the only distinction between original, counterfactual, consumed, ignored, missing, or failed-integrity states; and keep the core path understandable to another engineer.
-
-The implementation SHOULD: minimize dependencies and moving parts; prefer a vertical slice over premature platform architecture; make invariant tests easy to locate; keep the collector schema small, versioned, and documented with at least one external-workflow example; support a fresh seeded reset; remain keyboard-usable through the canonical demo path with readable labels and contrast; and keep derived aggregate data reproducible from source fixtures.
-
-The implementation MAY use any reasonable web stack and relational database. Stack selection MUST NOT weaken the historical semantics above. Language, framework, database engine, test runner, CI provider, and repository layout are intentionally open; see `DECISIONS.md`.
-
-## 12. Completion Gates
-
-**Build-complete** only when: all required experiences work with the canonical dataset; AC-01 through AC-18 pass or have explicit, user-approved exceptions; RelayBridge and NovaSignal AI fixture roles and facts are consistent everywhere; the required dataset and Insights view exist; a fresh local run is documented and reproducible; repository operating files are current; and no known defect violates a core invariant.
-
-**Portfolio-ready** only when the above holds and the artifact additionally includes: a README explaining the problem, thesis, architecture, replay semantics, synthetic-data boundary, setup, and important tradeoffs; the collector schema and at least one example workflow payload; clear screenshots of the trace and replay comparison; a polished 60–90 second demo path, recorded or ready to record; a concise architecture diagram; evidence that invariant tests pass, including visible CI evidence; and public language that does not overstate integrations, causality, production readiness, or autonomous capability. A deployed demo MAY be added if it improves accessibility without disproportionate build time.
-
-Public materials MUST describe the category broadly as observability for automated revenue decisions and the MVP precisely as fully replaying the account-prioritization decision class.
-
-## 13. Decision Principles
-
-Apply in order when several options satisfy the contract; an earlier principle outweighs a later one unless the user decides otherwise.
-
-1. **Preserve historical truth before optimizing convenience** — reject any shortcut that lets an old decision change when present-day data, evidence, or logic changes.
-2. **Evidence before explanation** — build the inspectable input and logic view before improving generated prose.
-3. **Observability before more automation** — prefer recording a simulated action over building a real executor.
-4. **Time is part of the data** — reject schemas or interfaces that collapse observed, available, decision, action, correction, and outcome times into one timestamp.
-5. **Build the smallest complete proof** — deepen the prioritization path before adding another decision type, integration, or dashboard.
-6. **Deterministic core, AI at the interpretive edge** — add an LLM only where it produces visible value without weakening replay integrity.
-7. **GTM realism over vendor theater** — coherent synthetic data over shallow live integrations for logos.
-8. **Claims no stronger than the evidence** — show counts, rates, windows, caveats; never relabel association as causal lift.
-9. **The demo story is a product test** — the NovaSignal AI journey is the shortest proof that the concepts fit; keep its facts canonical everywhere.
-10. **Optimize portfolio signal per unit of complexity** — a small, legible implementation of a hard semantic problem over enterprise scaffolding.
-
-**Decision filter for optional work:** Does it preserve the contract and every invariant? Does it make the central user problem easier to understand or solve? Does it strengthen the canonical demo or expose meaningful engineering judgment? Is it the smallest credible way to achieve that value? Can its claim be supported honestly? Classify as **required now**, **useful next**, **parked**, or **rejected**. When uncertain, default to the smaller reversible choice and preserve the open question.
