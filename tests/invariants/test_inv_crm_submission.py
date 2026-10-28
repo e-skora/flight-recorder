@@ -24,7 +24,9 @@ pytestmark = pytest.mark.invariant
 def test_generated_return_or_ack_losses_never_change_delivery_bytes_or_duplicate_original(
     index, mode, failures
 ):
-    with tempfile.TemporaryDirectory(prefix="fr-submit-fault-", dir="/private/tmp") as name:
+    with tempfile.TemporaryDirectory(
+        prefix="fr-submit-fault-", dir=Path(tempfile.gettempdir()).resolve()
+    ) as name:
         store, owner, cap, engine, collector, prerequisites = setup(Path(name))
         frozen = prepare(store, collector, owner, prerequisites)
         stage = frozen.document["stages"][index]

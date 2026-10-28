@@ -122,7 +122,9 @@ class TokenStatus:
 
 
 def _date(value):
-    return None if value is None else value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+    if value is None:
+        return None
+    return value.astimezone(UTC).isoformat(timespec="microseconds").removesuffix("+00:00") + "Z"
 
 
 def _material_record(value):

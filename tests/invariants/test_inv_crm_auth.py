@@ -49,7 +49,9 @@ def test_configuration_never_coerces_non_boolean_flags(field, value):
 @given(st.sampled_from(["\x00", "\n", "\r", "\x7f", "\x85"]), st.text(max_size=30))
 @settings(deadline=None)
 def test_invalid_callback_code_consumes_state_but_cannot_exchange(control, suffix):
-    with tempfile.TemporaryDirectory(prefix="fr-oauth-state-", dir="/private/tmp") as name:
+    with tempfile.TemporaryDirectory(
+        prefix="fr-oauth-state-", dir=Path(tempfile.gettempdir()).resolve()
+    ) as name:
         config, clock = configuration(), Clock()
         store = private_store(Path(name))
         sessions, _, query = start(config, clock)
@@ -73,7 +75,9 @@ def test_invalid_callback_code_consumes_state_but_cannot_exchange(control, suffi
 )
 @settings(deadline=None)
 def test_foreign_source_org_success_never_installs_or_reads_account(tail):
-    with tempfile.TemporaryDirectory(prefix="fr-oauth-org-", dir="/private/tmp") as name:
+    with tempfile.TemporaryDirectory(
+        prefix="fr-oauth-org-", dir=Path(tempfile.gettempdir()).resolve()
+    ) as name:
         config, clock = configuration(), Clock()
         store = private_store(Path(name))
         sessions, _, query = start(config, clock)

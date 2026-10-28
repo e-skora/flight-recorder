@@ -17,7 +17,9 @@ pytestmark = pytest.mark.invariant
 @given(st.lists(st.integers(min_value=180, max_value=183), min_size=1, max_size=10))
 @settings(deadline=None)
 def test_promoted_digest_and_sequence_always_describe_latest_winning_capture(values):
-    with tempfile.TemporaryDirectory(prefix="fr-capture-state-", dir="/private/tmp") as name:
+    with tempfile.TemporaryDirectory(
+        prefix="fr-capture-state-", dir=Path(tempfile.gettempdir()).resolve()
+    ) as name:
         store = store2(Path(name) / "ops.sqlite")
         previous = None
         captures = []

@@ -1,6 +1,6 @@
 # Salesforce test account setup
 
-This integration targets one isolated Developer Edition organization and at most three fictional Account records. The code has local injected-transport evidence. It has not yet proved a real Salesforce connection, field permissions, conditional update, or first write. HubSpot follows Salesforce acceptance.
+This integration targets an isolated Developer Edition organization and fictional Account records. A bounded read-only developer-org proof is complete: normal OAuth connection, observation of the selected readable/non-updateable Account fields, capture of exactly one fictional NovaSignal AI Account, and offline original inspection/replay. Injected-transport tests and this historical provider proof are separate evidence. No production customer integration, conditional write, or first live score write has been qualified. Reusing the code with another organization requires a separately approved setup and qualification; this guide grants no account or action authority. HubSpot has no live qualification.
 
 The readiness validator checks supplied declarations against a pinned local configuration. A passing report does not authenticate the declarations, verify the actual saved write intent, grant account access, or authorize a request. The current live-test placeholder always skips, even when opt-in variables are set.
 
