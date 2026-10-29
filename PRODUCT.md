@@ -110,7 +110,7 @@ A release must solve an actual sales-operations problem: the team can identify a
 
 Historical truth before convenience; evidence before explanation; no hindsight leakage; original/counterfactual separation; immutable identity and provenance; atomic collector admission/idempotency; honest outcome attribution; canonical synthetic fixtures kept as regression evidence; default-off external actions; least privilege; no production credentials or customer data in Git.
 
-Existing synthetic fixtures remain regression assets, not production business policy. Portfolio material becomes a byproduct of a useful, defensible product rather than the controlling completion gate.
+Existing synthetic fixtures remain regression assets, not production business policy. Presentation material becomes a byproduct of a useful, defensible product rather than the controlling completion gate.
 
 ## 10. Adoption and unresolved decisions
 

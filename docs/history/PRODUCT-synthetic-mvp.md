@@ -31,7 +31,7 @@ Contract language: **MUST** = required for the relevant completion gate; **MUST 
 | Demo operating company | **RelayBridge** — explicitly fictional B2B integration and agent-connectivity platform |
 | Ledger account | A fictional prospect RelayBridge evaluates; canonical prospect **NovaSignal AI** |
 
-The product and portfolio materials MUST NOT present Merge as a customer or tenant, claim Merge lacks internal observability, invent private Merge workflows or outcomes, or brand the application as built for Merge.
+The product and its public materials MUST NOT present Merge as a customer or tenant, claim Merge lacks internal observability, invent private Merge workflows or outcomes, or brand the application as built for Merge.
 
 **The problem:** The user's stack can discover, enrich, score, route, and contact accounts, but mainly preserves current fields and completed actions. When a prioritization decision looks wrong later, the user cannot reliably recover what evidence was available, which evidence the logic consumed, which logic version ran, why, what action followed, what outcome occurred, or whether current logic would decide differently from the same historical evidence. Current data and edited workflows create hindsight contamination.
 
@@ -49,7 +49,7 @@ The MVP MUST prove all five claims:
 
 The MVP does not need to prove production scale, integration breadth, or autonomous execution.
 
-**One-sentence MVP:** A deterministic, portfolio-grade application in which a GTM engineer can ingest and inspect one automated account-prioritization decision end to end, reproduce it from preserved historical context and immutable declarative logic, compare that same context under current logic without hindsight leakage, connect the decision to later outcomes through an explicit attribution policy, and recover honest planted patterns from synthetic accounts.
+**One-sentence MVP:** A deterministic, polished application in which a GTM engineer can ingest and inspect one automated account-prioritization decision end to end, reproduce it from preserved historical context and immutable declarative logic, compare that same context under current logic without hindsight leakage, connect the decision to later outcomes through an explicit attribution policy, and recover honest planted patterns from synthetic accounts.
 
 ## 3. MVP Boundary
 
@@ -246,7 +246,7 @@ The implementation MAY use any reasonable web stack and relational database. Sta
 
 **Build-complete** only when: all required experiences work with the canonical dataset; AC-01 through AC-18 pass or have explicit, user-approved exceptions; RelayBridge and NovaSignal AI fixture roles and facts are consistent everywhere; the required dataset and Insights view exist; a fresh local run is documented and reproducible; repository operating files are current; and no known defect violates a core invariant.
 
-**Portfolio-ready** only when the above holds and the artifact additionally includes: a README explaining the problem, thesis, architecture, replay semantics, synthetic-data boundary, setup, and important tradeoffs; the collector schema and at least one example workflow payload; clear screenshots of the trace and replay comparison; a polished 60–90 second demo path, recorded or ready to record; a concise architecture diagram; evidence that invariant tests pass, including visible CI evidence; and public language that does not overstate integrations, causality, production readiness, or autonomous capability. A deployed demo MAY be added if it improves accessibility without disproportionate build time.
+**Presentation-ready** only when the above holds and the artifact additionally includes: a README explaining the problem, thesis, architecture, replay semantics, synthetic-data boundary, setup, and important tradeoffs; the collector schema and at least one example workflow payload; clear screenshots of the trace and replay comparison; a polished 60–90 second demo path, recorded or ready to record; a concise architecture diagram; evidence that invariant tests pass, including visible CI evidence; and public language that does not overstate integrations, causality, production readiness, or autonomous capability. A deployed demo MAY be added if it improves accessibility without disproportionate build time.
 
 Public materials MUST describe the category broadly as observability for automated revenue decisions and the MVP precisely as fully replaying the account-prioritization decision class.
 
@@ -263,6 +263,6 @@ Apply in order when several options satisfy the contract; an earlier principle o
 7. **GTM realism over vendor theater** — coherent synthetic data over shallow live integrations for logos.
 8. **Claims no stronger than the evidence** — show counts, rates, windows, caveats; never relabel association as causal lift.
 9. **The demo story is a product test** — the NovaSignal AI journey is the shortest proof that the concepts fit; keep its facts canonical everywhere.
-10. **Optimize portfolio signal per unit of complexity** — a small, legible implementation of a hard semantic problem over enterprise scaffolding.
+10. **Optimize signal per unit of complexity** — a small, legible implementation of a hard semantic problem over enterprise scaffolding.
 
 **Decision filter for optional work:** Does it preserve the contract and every invariant? Does it make the central user problem easier to understand or solve? Does it strengthen the canonical demo or expose meaningful engineering judgment? Is it the smallest credible way to achieve that value? Can its claim be supported honestly? Classify as **required now**, **useful next**, **parked**, or **rejected**. When uncertain, default to the smaller reversible choice and preserve the open question.

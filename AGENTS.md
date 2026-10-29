@@ -4,7 +4,7 @@ Adopted 2026-10-28 by D-028 with the enterprise product contract. The former rul
 
 ## Goal and authority
 
-Build a decision-observability product that real enterprise sales teams can use. PRODUCT.md defines supported behavior and release gates. Portfolio presentation is secondary. The owner's current explicit instruction takes precedence over PRODUCT and DECISIONS; surface conflicts and record adopted changes rather than silently blending old and new scope.
+Build a decision-observability product that real enterprise sales teams can use. PRODUCT.md defines supported behavior and release gates. The owner's current explicit instruction takes precedence over PRODUCT and DECISIONS; surface conflicts and record adopted changes rather than silently blending old and new scope.
 
 Read current PRODUCT, concise STATE, relevant decisions, and focused code/tests. At a session transition also read `.handoffs/continuations/LATEST.md` and verify current truth. Do not reread the entire project or rerun qualification as a startup ritual.
 
